@@ -14,6 +14,7 @@ def utc_now() -> datetime:
 
 
 class EvidenceKind(StrEnum):
+    SYSTEM_OBSERVATION = "system_observation"
     METADATA = "metadata"
     DOCUMENTATION = "documentation"
     SOURCE = "source"

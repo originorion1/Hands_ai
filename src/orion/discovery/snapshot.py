@@ -38,7 +38,7 @@ class DiscoverySnapshot:
                 evidence=Evidence(
                     evidence_id=uuid4(),
                     tenant_id=self.tenant_id,
-                    kind=EvidenceKind.METADATA,
+                    kind=EvidenceKind.SYSTEM_OBSERVATION,
                     source=self.source_system,
                     observed_at=self.observed_at.astimezone(timezone.utc),
                     payload={
