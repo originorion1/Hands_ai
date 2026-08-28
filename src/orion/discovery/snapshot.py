@@ -38,14 +38,14 @@ class DiscoverySnapshot:
                 evidence=Evidence(
                     evidence_id=uuid4(),
                     tenant_id=self.tenant_id,
-                    kind=EvidenceKind.SYSTEM_OBSERVATION,
+                    kind=EvidenceKind.METADATA,
                     source=self.source_system,
+                    observed_at=self.observed_at.astimezone(timezone.utc),
                     payload={
                         "key": str(item.object_id),
                         "node_type": item.object_type,
                         "name": item.name,
-                        **dict(item.attributes),
-                        "observed_at": self.observed_at.astimezone(timezone.utc).isoformat(),
+                        "attributes": dict(item.attributes),
                     },
                 )
             )
