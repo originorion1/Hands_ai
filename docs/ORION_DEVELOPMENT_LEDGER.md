@@ -1,0 +1,126 @@
+# ORION Development Ledger
+
+**Project:** ORION  
+**Repository:** `originorion1/Hands_ai`  
+**Stage:** Laboratory — ORION v0.1  
+**Purpose:** Immutable-style human-readable register of architectural decisions, actions, transactions, experiments, approvals, and promotion events during ORION development.
+
+## Ledger Rules
+
+1. Every material development step must be recorded here.
+2. Each entry must identify the date/time, actor, action, rationale, artifact/commit, result, and next step where applicable.
+3. No secret, credential, API key, password, token, customer PII, or sensitive customer data may be written into this ledger.
+4. Customer-specific information must be referenced by safe identifiers or summarized without exposing operational data.
+5. Decisions must distinguish **proposed**, **accepted**, **rejected**, **superseded**, and **implemented** states.
+6. Laboratory experiments may fail; failures and rejected approaches should be recorded rather than erased.
+7. Promotion from Laboratory → Shadow → Production requires an explicit recorded approval event.
+8. This ledger records development history; Git commits remain the authoritative record of source changes.
+9. Entries should be append-only in normal operation. Corrections should be made through a new corrective entry rather than silently rewriting history.
+10. Significant automated actions must include enough provenance to reconstruct what happened without exposing secrets.
+
+## Entry Format
+
+Each entry should use this structure:
+
+```text
+### [LEDGER-ID] YYYY-MM-DD HH:MM UTC — EVENT-TYPE
+- Actor:
+- Phase:
+- Status:
+- Objective:
+- Action:
+- Rationale:
+- Inputs / References:
+- Artifacts / Commit:
+- Result:
+- Risks / Open Questions:
+- Next Step:
+```
+
+## Ledger
+
+### [ORION-0001] 2026-08-28 — PROJECT-INITIATION
+- Actor: ORION development team / ChatGPT orchestration
+- Phase: Laboratory — ORION v0.1
+- Status: accepted
+- Objective: Establish the first production-oriented development record before implementation begins.
+- Action: Created this development ledger as the canonical human-readable register for material ORION development activity.
+- Rationale: ORION is intended to be developed under high engineering standards with traceability across architecture, experiments, implementation, approvals, and promotion.
+- Inputs / References: ORION Constitution; ORION v0.1 Architecture Contract; repository `originorion1/Hands_ai`.
+- Artifacts / Commit: This file.
+- Result: Ledger initialized.
+- Risks / Open Questions: Exact automated synchronization of external conversation events into this file remains to be determined; until then, material steps are recorded through development commits.
+- Next Step: Define and implement the Laboratory technical architecture specification.
+
+### [ORION-0002] 2026-08-28 — ARCHITECTURE-BOUNDARY
+- Actor: ORION development team
+- Phase: Laboratory — ORION v0.1
+- Status: accepted
+- Objective: Prevent prototype implementation from creating future architectural lock-in.
+- Action: Established boundaries for kernel, agents, knowledge, evidence/provenance, capabilities, Hands, adapters, policies, events, and provider abstraction.
+- Rationale: ORION must evolve from a first live ERPNext deployment into a multi-company, multi-system, multi-agent intelligence platform without repeatedly rewriting its core.
+- Artifacts / Commit: `docs/ORION_V0_1_ARCHITECTURE_CONTRACT.md`
+- Result: Architectural contract established before implementation.
+- Next Step: Produce the detailed technical architecture specification.
+
+### [ORION-0003] 2026-08-28 —-DEVELOPMENT-MODEL
+- Actor: ORION development team
+- Phase: Laboratory → Shadow → Production
+- Status: accepted
+- Objective: Separate experimentation from real-system validation and production promotion.
+- Action: Adopted three-stage development path: Laboratory for experiments, Shadow for real-company observation/simulation, Production only after explicit approval.
+- Rationale: Allows rapid iteration without contaminating stable implementation and prevents premature autonomous execution.
+- Result: Promotion gates established as an engineering principle.
+- Next Step: Define Shadow entry/exit criteria and promotion evidence.
+
+### [ORION-0004] 2026-08-28 — PRODUCT-OBJECTIVE
+- Actor: ORION development team
+- Phase: Laboratory — ORION v0.1
+- Status: accepted
+- Objective: Define the first measurable business outcome.
+- Action: Set v0.1 primary objective to eliminate the first level of repetitive human data entry in a real company.
+- Rationale: System understanding is the mechanism; reduction of repetitive human data-entry work is the immediate customer value.
+- Result: v0.1 success is measured by safe human-work elimination, not code volume or agent count.
+- Next Step: Select and implement the first high-value, sufficiently low-risk workflow.
+
+### [ORION-0005] 2026-08-28 — KNOWLEDGE-DATA-SEPARATION
+- Actor: ORION development team
+- Phase: Laboratory — ORION v0.1
+- Status: accepted
+- Objective: Preserve customer data isolation while enabling cross-customer learning.
+- Action: Established conceptual separation between customer operational data, customer knowledge, industry/general knowledge, evidence, observations, hypotheses, and reusable capabilities.
+- Rationale: A new company should benefit from ORION's knowledge without inheriting another company's private data.
+- Result: Knowledge transfer is defined as generalized, validated knowledge—not customer data.
+- Next Step: Encode scope and ownership in the knowledge/evidence contracts.
+
+### [ORION-0006] 2026-08-28 — AGENT-STRATEGY
+- Actor: ORION development team
+- Phase: Laboratory — ORION v0.1
+- Status: accepted
+- Objective: Start with a small specialized agent team while preserving future expansion.
+- Action: Initial agent roles defined as Discovery, Organizational Analysis, and Research, with Pattern and Execution capabilities to follow as the learning loop matures.
+- Rationale: Agents should specialize in cognition/work rather than become tightly coupled monoliths.
+- Result: Initial agent scope established.
+- Next Step: Define the agent SDK/contract and runtime lifecycle.
+
+## Pending / Required Entries
+
+The following events must be logged as they occur:
+
+- Technical architecture specification approval
+- Repository skeleton approval
+- Kernel implementation
+- Agent runtime implementation
+- Knowledge/evidence persistence implementation
+- ERPNext adapter implementation
+- Discovery milestone
+- First organizational model generated
+- First pattern-learning milestone
+- First Shadow deployment
+- First end-to-end data-entry-elimination workflow
+- Security review
+- Test/verification results
+- Shadow → Production approval
+- First production execution
+- Post-production review
+- Any rollback, incident, rejected experiment, or architecture change
