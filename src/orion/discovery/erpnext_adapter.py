@@ -11,6 +11,7 @@ import json
 from datetime import datetime
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 from ..contracts import Evidence, EvidenceKind, Observation, ObservationMode
@@ -50,8 +51,9 @@ class ERPNextDiscoveryAdapter:
         if not resource or "/" in resource or "?" in resource or "#" in resource:
             raise ValueError("resource must be a simple configured read-only resource name")
 
+        encoded_resource = quote(resource, safe="")
         request = Request(
-            f"{self._base_url}/api/resource/{resource}",
+            f"{self._base_url}/api/resource/{encoded_resource}",
             headers={
                 "Authorization": f"token {self._api_key}:{self._api_secret}",
                 "Accept": "application/json",
@@ -77,10 +79,7 @@ class ERPNextDiscoveryAdapter:
                     source="erpnext-read-only",
                     tenant_id=self._tenant_id,
                     observed_at=observed_at,
-                    payload={
-                        "resource": resource,
-                        "record": row,
-                    },
+                    payload={"resource": resource, "record": row},
                 ),
                 mode=ObservationMode.READ_ONLY,
             )
