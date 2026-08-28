@@ -114,7 +114,7 @@ Each entry should use this structure:
 - Artifacts / Commit: `92627f2e7689da81fba8100de8a8d9a2f482cd24` on `laboratory/orion-v0.1`.
 - Result: Skeleton committed and branch advanced successfully.
 - Risks / Open Questions: Interfaces and concrete implementations remain intentionally unimplemented; the package layout must be validated against the technical architecture specification before substantial code is added.
-- Next Step: Inspect and review the skeleton, then proceed to the first contract implementation only after validation.
+- Next Step: Inspect the skeleton, then proceed to the first contract implementation only after validation.
 
 ### [ORION-0008] 2026-08-28 — CORE-CONTRACTS
 - Actor: ORION development team
@@ -129,6 +129,19 @@ Each entry should use this structure:
 - Risks / Open Questions: Concrete language, schemas, persistence, and runtime implementations remain to be selected and must conform to these contracts.
 - Next Step: Step 2.4 — select and document concrete implementation technology and enforce dependency boundaries.
 
+### [ORION-0009] 2026-08-28 — AI-ORCHESTRATION
+- Actor: ORION development team
+- Phase: Laboratory — ORION v0.1 / Step 2.4
+- Status: accepted / implemented
+- Objective: Establish a provider-neutral multi-AI engineering and future agent-orchestration strategy.
+- Action: Added `docs/ORION_V0_1_AI_ORCHESTRATION.md` defining Codex as primary implementation resource, Claude as an independent adversarial reviewer, ORION as orchestration/reasoning layer, and future Model/Agent Registries and routing abstractions.
+- Rationale: ORION must exploit the strongest available AI capabilities without hard-coding the platform to one provider or allowing external models to bypass policy, authority, evidence, or verification controls.
+- Inputs / References: `docs/ORION_V0_1_ARCHITECTURE_CONTRACT.md`; `docs/ORION_V0_1_CORE_CONTRACTS.md`.
+- Artifacts / Commit: `33cfbc5068fdbb9036f2bfd6811d0f30a16e5094` on `laboratory/orion-v0.1`.
+- Result: AI orchestration strategy committed.
+- Risks / Open Questions: Concrete technology stack and runtime implementations remain to be selected; direct Claude integration is not currently a runtime dependency.
+- Next Step: Step 2.5 — select and lock the minimum concrete technology stack and dependency rules.
+
 ## Pending / Required Entries
 
 The following events must be logged as they occur:
@@ -136,6 +149,7 @@ The following events must be logged as they occur:
 - Technical architecture specification approval
 - Repository skeleton approval
 - Core contract implementation
+- AI orchestration strategy
 - Concrete technology decision
 - Kernel implementation
 - Agent runtime implementation
