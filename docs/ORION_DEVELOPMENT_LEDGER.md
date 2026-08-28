@@ -116,12 +116,27 @@ Each entry should use this structure:
 - Risks / Open Questions: Interfaces and concrete implementations remain intentionally unimplemented; the package layout must be validated against the technical architecture specification before substantial code is added.
 - Next Step: Inspect and review the skeleton, then proceed to the first contract implementation only after validation.
 
+### [ORION-0008] 2026-08-28 — CORE-CONTRACTS
+- Actor: ORION development team
+- Phase: Laboratory — ORION v0.1 / Step 2.3
+- Status: implemented
+- Objective: Define stable domain contracts before concrete implementation so future ERP, model, storage, agent, and deployment changes do not force core redesign.
+- Action: Added `docs/ORION_V0_1_CORE_CONTRACTS.md` covering identity, evidence, observations, hypotheses, knowledge, agents, models, capabilities, policy/authority, Hands, events, canonical representations, and non-negotiable invariants.
+- Rationale: Stable contracts are the primary mechanism for preventing coupling, duplicate responsibility, provider lock-in, and unsafe authority paths as ORION expands.
+- Inputs / References: `docs/ORION_V0_1_ARCHITECTURE_CONTRACT.md`.
+- Artifacts / Commit: `cd88367177fc2f403072c708963d4107e4a3e343` on `laboratory/orion-v0.1`.
+- Result: Core domain contract specification committed.
+- Risks / Open Questions: Concrete language, schemas, persistence, and runtime implementations remain to be selected and must conform to these contracts.
+- Next Step: Step 2.4 — select and document concrete implementation technology and enforce dependency boundaries.
+
 ## Pending / Required Entries
 
 The following events must be logged as they occur:
 
 - Technical architecture specification approval
 - Repository skeleton approval
+- Core contract implementation
+- Concrete technology decision
 - Kernel implementation
 - Agent runtime implementation
 - Knowledge/evidence persistence implementation
