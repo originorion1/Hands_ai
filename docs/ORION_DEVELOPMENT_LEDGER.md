@@ -63,7 +63,7 @@ Each entry should use this structure:
 - Result: Architectural contract established before implementation.
 - Next Step: Produce the detailed technical architecture specification.
 
-### [ORION-0003] 2026-08-28 —-DEVELOPMENT-MODEL
+### [ORION-0003] 2026-08-28 — DEVELOPMENT-MODEL
 - Actor: ORION development team
 - Phase: Laboratory → Shadow → Production
 - Status: accepted
@@ -102,6 +102,19 @@ Each entry should use this structure:
 - Rationale: Agents should specialize in cognition/work rather than become tightly coupled monoliths.
 - Result: Initial agent scope established.
 - Next Step: Define the agent SDK/contract and runtime lifecycle.
+
+### [ORION-0007] 2026-08-28 — SKELETON-APPROVAL
+- Actor: ORION development team
+- Phase: Laboratory — ORION v0.1
+- Status: approved / implemented
+- Objective: Establish the approved implementation skeleton while preserving the architectural boundaries already accepted.
+- Action: Created the initial ORION package structure for core contracts, services, agents, adapters, Hands, infrastructure, policies, migrations, tests, and runtime entrypoint. No production integration or autonomous execution was introduced.
+- Rationale: The approved skeleton provides stable ownership boundaries and room for future multi-agent, multi-system, multi-company expansion without coupling the core to ERPNext or a model/storage provider.
+- Inputs / References: `docs/ORION_CONSTITUTION.md`; `docs/ORION_V0_1_ARCHITECTURE_CONTRACT.md`; approved Step 2.2 structure.
+- Artifacts / Commit: `92627f2e7689da81fba8100de8a8d9a2f482cd24` on `laboratory/orion-v0.1`.
+- Result: Skeleton committed and branch advanced successfully.
+- Risks / Open Questions: Interfaces and concrete implementations remain intentionally unimplemented; the package layout must be validated against the technical architecture specification before substantial code is added.
+- Next Step: Inspect and review the skeleton, then proceed to the first contract implementation only after validation.
 
 ## Pending / Required Entries
 
