@@ -114,7 +114,7 @@ Each entry should use this structure:
 - Artifacts / Commit: `92627f2e7689da81fba8100de8a8d9a2f482cd24` on `laboratory/orion-v0.1`.
 - Result: Skeleton committed and branch advanced successfully.
 - Risks / Open Questions: Interfaces and concrete implementations remain intentionally unimplemented; the package layout must be validated against the technical architecture specification before substantial code is added.
-- Next Step: Inspect the skeleton, then proceed to the first contract implementation only after validation.
+- Next Step: Inspect and review the skeleton, then proceed to the first contract implementation only after validation.
 
 ### [ORION-0008] 2026-08-28 — CORE-CONTRACTS
 - Actor: ORION development team
@@ -133,14 +133,27 @@ Each entry should use this structure:
 - Actor: ORION development team
 - Phase: Laboratory — ORION v0.1 / Step 2.4
 - Status: accepted / implemented
-- Objective: Establish a provider-neutral multi-AI engineering and future agent-orchestration strategy.
-- Action: Added `docs/ORION_V0_1_AI_ORCHESTRATION.md` defining Codex as primary implementation resource, Claude as an independent adversarial reviewer, ORION as orchestration/reasoning layer, and future Model/Agent Registries and routing abstractions.
-- Rationale: ORION must exploit the strongest available AI capabilities without hard-coding the platform to one provider or allowing external models to bypass policy, authority, evidence, or verification controls.
+- Objective: Establish a provider-independent strategy for using multiple AI platforms and specialized agents without creating model lock-in.
+- Action: Added `docs/ORION_V0_1_AI_ORCHESTRATION.md` defining roles for coding agents, independent reviewers, ORION orchestration, specialist models, Model Registry, Agent Registry, future Model Router, evaluation loop, and security constraints.
+- Rationale: Codex, Claude, and future models should be used according to demonstrated strengths while ORION remains architecturally independent of any provider.
 - Inputs / References: `docs/ORION_V0_1_ARCHITECTURE_CONTRACT.md`; `docs/ORION_V0_1_CORE_CONTRACTS.md`.
 - Artifacts / Commit: `33cfbc5068fdbb9036f2bfd6811d0f30a16e5094` on `laboratory/orion-v0.1`.
-- Result: AI orchestration strategy committed.
-- Risks / Open Questions: Concrete technology stack and runtime implementations remain to be selected; direct Claude integration is not currently a runtime dependency.
-- Next Step: Step 2.5 — select and lock the minimum concrete technology stack and dependency rules.
+- Result: AI orchestration strategy committed; implementation intentionally remains minimal until justified by the prototype.
+- Risks / Open Questions: Concrete technology choices and evaluation infrastructure remain to be selected.
+- Next Step: Step 2.5 — concrete technology stack and dependency rules.
+
+### [ORION-0010] 2026-08-28 — 2036-ENGINEERING-HORIZON
+- Actor: ORION development team
+- Phase: Laboratory — ORION v0.1
+- Status: accepted / implemented
+- Objective: Make the 2036 vision an explicit architectural compass while preserving a fast 2026 implementation path.
+- Action: Added `docs/02-architecture/ORION_2036_ENGINEERING_PRINCIPLES.md` establishing forward-looking decision tests, replacement boundaries, evolution rules, anti-overengineering constraints, data/knowledge isolation, autonomy boundaries, and Laboratory → Shadow → Production discipline.
+- Rationale: ORION must be capable of evolving toward many companies, systems, agents, models, modalities, knowledge domains, and greater autonomy without prematurely building speculative infrastructure or locking the kernel to today's technologies.
+- Inputs / References: ORION Constitution; `docs/ORION_V0_1_ARCHITECTURE_CONTRACT.md`; `docs/ORION_V0_1_CORE_CONTRACTS.md`; `docs/ORION_V0_1_AI_ORCHESTRATION.md`.
+- Artifacts / Commit: `deed0b622f3a644b53c41e304d733bb4d39822c7` on `laboratory/orion-v0.1`.
+- Result: 2036 engineering horizon is now a formal project principle.
+- Risks / Open Questions: Specific 2036 capabilities remain intentionally non-binding until evidence and concrete requirements justify implementation.
+- Next Step: Step 2.5 — select the concrete 2026 technology stack while testing each choice against the 2036 horizon.
 
 ## Pending / Required Entries
 
@@ -149,7 +162,8 @@ The following events must be logged as they occur:
 - Technical architecture specification approval
 - Repository skeleton approval
 - Core contract implementation
-- AI orchestration strategy
+- AI orchestration contract
+- 2036 engineering principles approval
 - Concrete technology decision
 - Kernel implementation
 - Agent runtime implementation
