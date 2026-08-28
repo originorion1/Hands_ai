@@ -12,6 +12,8 @@ from enum import StrEnum
 from typing import Mapping
 from uuid import UUID, uuid4
 
+from ..contracts import Observation
+
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -117,12 +119,7 @@ class GraphInvariantError(ValueError):
 
 
 class GraphStore:
-    """Small persistence boundary for graph implementations.
-
-    This in-memory implementation is intentionally replaceable. Production
-    persistence belongs behind this contract and must preserve the same domain
-    invariants and tenant boundaries.
-    """
+    """Small persistence boundary for graph implementations."""
 
     def __init__(self) -> None:
         self._nodes: dict[UUID, GraphNode] = {}
@@ -135,9 +132,7 @@ class GraphStore:
 
     def add_relationship(self, relationship: GraphRelationship) -> None:
         if relationship.relationship_id in self._relationships:
-            raise GraphInvariantError(
-                f"relationship already exists: {relationship.relationship_id}"
-            )
+            raise GraphInvariantError(f"relationship already exists: {relationship.relationship_id}")
         source = self._nodes.get(relationship.source_id)
         target = self._nodes.get(relationship.target_id)
         if source is None or target is None:
@@ -152,31 +147,15 @@ class GraphStore:
             return None
         return node
 
-    def relationships_from(
-        self,
-        node_id: UUID,
-        *,
-        tenant_id: str | None,
-        relationship_type: RelationshipType | None = None,
-        limit: int = 100,
-    ) -> tuple[GraphRelationship, ...]:
+    def relationships_from(self, node_id: UUID, *, tenant_id: str | None, relationship_type: RelationshipType | None = None, limit: int = 100) -> tuple[GraphRelationship, ...]:
         if limit < 1:
             raise ValueError("limit must be positive")
-        result = [
-            item
-            for item in self._relationships.values()
-            if item.source_id == node_id
-            and item.tenant_id == tenant_id
-            and (relationship_type is None or item.relationship_type == relationship_type)
-        ]
+        result = [item for item in self._relationships.values() if item.source_id == node_id and item.tenant_id == tenant_id and (relationship_type is None or item.relationship_type == relationship_type)]
         return tuple(result[:limit])
 
     def path(self, query: GraphQuery) -> tuple[GraphPath, ...]:
-        if query.source_id is None:
+        if query.source_id is None or self.get_node(query.source_id, tenant_id=query.tenant_id) is None:
             return ()
-        if self.get_node(query.source_id, tenant_id=query.tenant_id) is None:
-            return ()
-
         paths: list[GraphPath] = []
         frontier: list[GraphPath] = [GraphPath((query.source_id,), ())]
         while frontier and len(paths) < query.limit:
@@ -184,24 +163,40 @@ class GraphStore:
             if len(current.relationship_ids) >= query.max_depth:
                 paths.append(current)
                 continue
-            edges = self.relationships_from(
-                current.node_ids[-1],
-                tenant_id=query.tenant_id,
-                relationship_type=query.relationship_type,
-                limit=query.limit,
-            )
+            edges = self.relationships_from(current.node_ids[-1], tenant_id=query.tenant_id, relationship_type=query.relationship_type, limit=query.limit)
             if not edges:
                 paths.append(current)
                 continue
             for edge in edges:
                 if edge.target_id in current.node_ids:
                     continue
-                frontier.append(
-                    GraphPath(
-                        current.node_ids + (edge.target_id,),
-                        current.relationship_ids + (edge.relationship_id,),
-                    )
-                )
+                frontier.append(GraphPath(current.node_ids + (edge.target_id,), current.relationship_ids + (edge.relationship_id,)))
                 if len(frontier) + len(paths) >= query.limit:
                     break
         return tuple(paths[: query.limit])
+
+
+def project_observations(graph: GraphStore, observations: tuple[Observation, ...]) -> int:
+    """Project observed records into graph nodes without creating inferred edges."""
+    added = 0
+    for observation in observations:
+        evidence = observation.evidence
+        payload = evidence.payload
+        record = payload.get("record") if isinstance(payload.get("record"), dict) else payload
+        key = record.get("name") if isinstance(record, dict) else None
+        if not isinstance(key, str) or not key:
+            raw_key = payload.get("key")
+            key = raw_key if isinstance(raw_key, str) and raw_key else None
+        if not key:
+            continue
+        node_id = UUID(str(payload["key"])) if isinstance(payload.get("key"), str) else uuid4()
+        node_type_raw = payload.get("node_type", "entity")
+        try:
+            node_type = NodeType(str(node_type_raw))
+        except ValueError:
+            node_type = NodeType.ENTITY
+        node = GraphNode(node_type=node_type, tenant_id=evidence.tenant_id, key=key, attributes=record if isinstance(record, dict) else {}, status=GraphStatus.OBSERVED, provenance_ids=(evidence.evidence_id,), node_id=node_id)
+        if node_id not in graph._nodes:
+            graph.add_node(node)
+            added += 1
+    return added
