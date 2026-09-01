@@ -41,7 +41,7 @@ class DiscoveryAuthorization:
             )
 
         for target in self.metadata_targets | self.record_targets:
-            _validate_target(target)
+            validate_discovery_target(target)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +62,7 @@ class DiscoveryPlan:
         return not self.items
 
 
-def _validate_target(target: str) -> None:
+def validate_discovery_target(target: str) -> None:
     if not isinstance(target, str) or not target.strip():
         raise DiscoveryPlanError(
             "discovery target must be non-empty"
@@ -114,7 +114,7 @@ def plan_authorized_discovery(
         )
 
     for target in already_sampled_records:
-        _validate_target(target)
+        validate_discovery_target(target)
 
     understood = {
         entity.doctype: entity
@@ -137,7 +137,7 @@ def plan_authorized_discovery(
             if not isinstance(target, str) or not target:
                 continue
 
-            _validate_target(target)
+            validate_discovery_target(target)
 
             if target in understood:
                 continue
