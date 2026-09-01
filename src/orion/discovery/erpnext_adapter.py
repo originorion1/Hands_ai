@@ -8,8 +8,9 @@ contracts; no ERPNext semantics leak into the Kernel.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Mapping
 from datetime import datetime
-from typing import Any, Callable, Mapping
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -69,7 +70,7 @@ class ERPNextDiscoveryAdapter:
         payload: Mapping[str, Any] = json.loads(body.decode("utf-8"))
         rows = payload.get("data", [])
         if not isinstance(rows, list):
-            raise ValueError("discovery response data must be a list")
+            raise TypeError("discovery response data must be a list")
 
         observed_at = datetime.now().astimezone()
         return tuple(

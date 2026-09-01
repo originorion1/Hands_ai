@@ -6,9 +6,9 @@ contract. The rest of ORION must not depend on the source system's schema.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Mapping
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from ..contracts import Evidence, EvidenceKind, Observation
@@ -40,7 +40,7 @@ class DiscoverySnapshot:
                     tenant_id=self.tenant_id,
                     kind=EvidenceKind.SYSTEM_OBSERVATION,
                     source=self.source_system,
-                    observed_at=self.observed_at.astimezone(timezone.utc),
+                    observed_at=self.observed_at.astimezone(UTC),
                     payload={
                         "key": str(item.object_id),
                         "node_type": item.object_type,

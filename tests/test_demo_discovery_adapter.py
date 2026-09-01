@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from orion.discovery.demo_adapter import DemoDiscoveryAdapter
 
@@ -9,7 +9,7 @@ def test_demo_adapter_is_deterministic_and_read_only() -> None:
         {"type": "role", "name": "Finance Manager"},
     ]
     adapter = DemoDiscoveryAdapter(records)
-    observed_at = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)
+    observed_at = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
 
     first = adapter.discover(tenant_id="tenant-a", observed_at=observed_at)
     second = adapter.discover(tenant_id="tenant-a", observed_at=observed_at)

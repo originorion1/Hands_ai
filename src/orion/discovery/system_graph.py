@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 from uuid import UUID
 
 from ..contracts import Observation
@@ -24,7 +24,7 @@ class SystemGraph:
     nodes: tuple[GraphNode, ...]
 
     @classmethod
-    def from_observations(cls, observations: tuple[Observation, ...]) -> "SystemGraph":
+    def from_observations(cls, observations: tuple[Observation, ...]) -> SystemGraph:
         nodes: list[GraphNode] = []
         tenant_ids: set[str] = set()
         for observation in observations:

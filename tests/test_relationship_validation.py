@@ -38,7 +38,7 @@ def test_insufficient_evidence_escalates() -> None:
 
 
 def test_contradiction_escalates_by_default() -> None:
-    hypothesis, evidence = make_hypothesis()
+    hypothesis, _evidence = make_hypothesis()
     result = RelationshipValidator().validate(
         hypothesis,
         evidence_verifier=lambda _: True,

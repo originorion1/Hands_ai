@@ -7,9 +7,8 @@ learned. It deliberately does not execute external writes.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable
-from uuid import UUID, uuid4
 
 from .contracts import Observation
 from .ports import DiscoveryAdapter, EvidenceStore

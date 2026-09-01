@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -10,7 +10,7 @@ def test_snapshot_normalizes_objects_to_observations() -> None:
     snapshot = DiscoverySnapshot(
         tenant_id="customer-a",
         source_system="demo-system",
-        observed_at=datetime(2026, 8, 28, 10, 0, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 28, 10, 0, tzinfo=UTC),
         objects=(
             DiscoveredObject(
                 object_id=uuid4(),
@@ -32,7 +32,7 @@ def test_snapshot_rejects_naive_timestamp() -> None:
     snapshot = DiscoverySnapshot(
         tenant_id="customer-a",
         source_system="demo-system",
-        observed_at=datetime(2026, 8, 28, 10, 0),
+        observed_at=datetime(2026, 8, 28, 10, 0),  # noqa: DTZ001 - intentionally naive; test verifies rejection
         objects=(),
     )
     with pytest.raises(ValueError, match="timezone-aware"):

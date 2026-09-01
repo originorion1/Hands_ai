@@ -9,10 +9,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import asdict, dataclass, replace
-from typing import Any
+from typing import Any, Self
 
-from .discovery.erpnext_adapter import ERPNextDiscoveryAdapter
 from .contracts import Observation
+from .discovery.erpnext_adapter import ERPNextDiscoveryAdapter
 from .discovery.pipeline import DiscoveryPipeline
 from .kernel import OrionKernel
 from .knowledge.promotion import KnowledgeStore
@@ -41,7 +41,7 @@ class _MockResponse:
     def __init__(self, payload: dict[str, Any]) -> None:
         self._payload = json.dumps(payload).encode("utf-8")
 
-    def __enter__(self) -> _MockResponse:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *args: object) -> bool:

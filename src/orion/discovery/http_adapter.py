@@ -26,7 +26,7 @@ Fetcher = Callable[[str], bytes]
 def _default_fetcher(url: str) -> bytes:
     request = Request(url, method="GET", headers={"Accept": "application/json"})
     try:
-        with urlopen(request, timeout=15) as response:  # noqa: S310 - URL is operator-configured
+        with urlopen(request, timeout=15) as response:
             return response.read()
     except (HTTPError, URLError, TimeoutError) as exc:
         raise DiscoveryTransportError(f"read-only discovery failed: {exc}") from exc

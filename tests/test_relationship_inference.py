@@ -3,8 +3,8 @@ from uuid import uuid4
 import pytest
 
 from orion.understanding.inference import (
-    InferenceEvidence,
     HypothesisStatus,
+    InferenceEvidence,
     RelationshipInferenceEngine,
 )
 

@@ -6,9 +6,9 @@ trusted knowledge, authorization, or executable action.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import FrozenSet, Mapping, Sequence
 from uuid import UUID, uuid4
 
 
@@ -37,7 +37,7 @@ class RelationshipHypothesis:
     source_node: UUID
     relationship_type: str
     target_node: UUID
-    evidence: FrozenSet[InferenceEvidence]
+    evidence: frozenset[InferenceEvidence]
     status: HypothesisStatus = HypothesisStatus.CANDIDATE
     rationale: str = ""
     metadata: Mapping[str, str] = field(default_factory=dict)
@@ -52,7 +52,7 @@ class RelationshipHypothesis:
         evidence: Sequence[InferenceEvidence],
         rationale: str = "",
         metadata: Mapping[str, str] | None = None,
-    ) -> "RelationshipHypothesis":
+    ) -> RelationshipHypothesis:
         if not evidence:
             raise ValueError("An inference hypothesis requires evidence references")
         if source_node == target_node:

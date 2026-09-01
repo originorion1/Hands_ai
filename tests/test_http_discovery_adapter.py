@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -22,7 +22,7 @@ def test_http_adapter_normalizes_json_without_write_capability() -> None:
     bound = BoundReadOnlyDiscoveryAdapter(
         adapter,
         tenant_id="customer-a",
-        observed_at=datetime(2026, 8, 28, 14, 0, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 28, 14, 0, tzinfo=UTC),
     )
 
     observations = tuple(bound.discover())
@@ -50,5 +50,5 @@ def test_http_adapter_rejects_non_json() -> None:
     with pytest.raises(DiscoveryTransportError, match="non-JSON"):
         adapter.discover(
             tenant_id="customer-a",
-            observed_at=datetime(2026, 8, 28, 14, 0, tzinfo=timezone.utc),
+            observed_at=datetime(2026, 8, 28, 14, 0, tzinfo=UTC),
         )

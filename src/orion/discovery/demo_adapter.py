@@ -6,8 +6,8 @@ adapter can implement the same contract without changing ORION's core.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
-from typing import Iterable
 from uuid import UUID, uuid5
 
 from .snapshot import DiscoveredObject, DiscoverySnapshot

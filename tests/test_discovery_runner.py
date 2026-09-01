@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from orion.discovery.demo_adapter import DemoDiscoveryAdapter
 from orion.discovery.runner import DiscoveryRunner
@@ -16,7 +16,7 @@ def test_runner_executes_read_only_discovery_vertical_slice() -> None:
 
     result = runner.run(
         tenant_id="customer-a",
-        observed_at=datetime(2026, 8, 28, 13, 0, tzinfo=timezone.utc),
+        observed_at=datetime(2026, 8, 28, 13, 0, tzinfo=UTC),
     )
 
     assert len(result.observations) == 2

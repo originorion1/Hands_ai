@@ -1,8 +1,7 @@
 import json
-from datetime import datetime
 
-from orion.discovery.erpnext_adapter import ERPNextDiscoveryAdapter
 from orion.contracts import ObservationMode
+from orion.discovery.erpnext_adapter import ERPNextDiscoveryAdapter
 
 
 class FakeResponse:
