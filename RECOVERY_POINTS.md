@@ -224,3 +224,39 @@ Before each risky change, record the current commit here. After tests/verificati
   - planner output remains recommendation/intent only
 - Governance invariant:
   - reasoning about a discovery target does not grant permission to read it
+
+## 2026-09-01 — Governed read-only discovery runner verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `1fa449f` — `feat: add governed read-only discovery runner`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 105 passed
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Governed-runner safety invariants:
+  - runner performs no ERP-specific networking itself
+  - runner holds no ERP credentials
+  - runner contains no ERP write capability
+  - runner contains no knowledge promotion
+  - runner contains no execution authority
+  - complete discovery plan is preflighted before any reader invocation
+  - invalid later plan items prevent earlier reads from occurring
+  - cross-tenant plans are rejected before reads
+  - cross-tenant understanding is rejected before reads
+  - unauthorized targets are rejected before reads
+  - plan target count is bounded
+  - duplicate plan targets are rejected
+  - metadata targets must be supported by observed structure
+  - record targets require already-understood structure
+  - structural provenance is required and revalidated
+  - returned observations must remain `READ_ONLY`
+  - returned observations must remain tenant-bound
+  - returned metadata evidence must remain `METADATA`
+  - returned record evidence must remain `API`
+  - returned target identity must match the governed plan
+- Governance invariant:
+  - plan intent, authorization, enforcement, and read capability remain separate layers
+  - any failed preflight produces zero external reads
