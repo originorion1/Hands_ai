@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import UUID, uuid4
 
 from ..knowledge.promotion import KnowledgeEntry
@@ -15,13 +15,20 @@ class ShadowDecision:
     action: str
     rationale: str
     knowledge_ids: tuple[UUID, ...]
-    execution_allowed: bool = False
+    execution_allowed: bool = field(default=False, init=False)
 
 
 def propose_from_knowledge(
     knowledge: tuple[KnowledgeEntry, ...], *, tenant_id: str, action: str
 ) -> ShadowDecision:
-    relevant = tuple(entry for entry in knowledge if entry.scope == "common" or entry.tenant_id == tenant_id)
+    relevant = tuple(
+        entry
+        for entry in knowledge
+        if entry.scope == "customer"
+        and entry.tenant_id == tenant_id
+        and entry.status == "validated"
+        and entry.evidence_ids
+    )
     if not relevant:
         raise ValueError("a shadow decision requires applicable validated knowledge")
     return ShadowDecision(

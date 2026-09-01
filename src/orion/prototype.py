@@ -20,7 +20,7 @@ class PrototypeReport:
     observations: int
     evidence: int
     graph_nodes: int
-    tenant_id: str | None
+    tenant_id: str
 
 
 class PrototypeRunner:
@@ -30,31 +30,39 @@ class PrototypeRunner:
         self._evidence_store = evidence_store
         self._graph_store = graph_store
 
-    def run(self, adapter: DiscoveryAdapter, *, tenant_id: str | None) -> PrototypeReport:
+    def run(self, adapter: DiscoveryAdapter, *, tenant_id: str) -> PrototypeReport:
+        if not isinstance(tenant_id, str) or not tenant_id.strip():
+            raise ValueError("tenant_id must be non-empty")
+
         observations = tuple(adapter.discover())
-        evidence_count = 0
-        graph_count = 0
+
+        # Validate the complete batch before mutating either store.
+        for observation in observations:
+            if observation.evidence.tenant_id != tenant_id:
+                raise ValueError("discovery evidence tenant does not match run tenant")
+
+        # Build all graph projections before persistence so normalization failures
+        # cannot leave evidence partially stored.
+        nodes = tuple(
+            _node_from_observation(observation, tenant_id=tenant_id)
+            for observation in observations
+        )
 
         for observation in observations:
-            evidence = observation.evidence
-            if evidence.tenant_id != tenant_id:
-                raise ValueError("discovery evidence tenant does not match run tenant")
-            self._evidence_store.append(evidence)
-            evidence_count += 1
+            self._evidence_store.append(observation.evidence)
 
-            node = _node_from_observation(observation, tenant_id=tenant_id)
+        for node in nodes:
             self._graph_store.add_node(node)
-            graph_count += 1
 
         return PrototypeReport(
             observations=len(observations),
-            evidence=evidence_count,
-            graph_nodes=graph_count,
+            evidence=len(observations),
+            graph_nodes=len(nodes),
             tenant_id=tenant_id,
         )
 
 
-def _node_from_observation(observation: Observation, *, tenant_id: str | None) -> GraphNode:
+def _node_from_observation(observation: Observation, *, tenant_id: str) -> GraphNode:
     evidence = observation.evidence
     payload = dict(evidence.payload)
     key = str(payload.get("key") or evidence.source or evidence.evidence_id)
