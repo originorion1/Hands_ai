@@ -42,3 +42,23 @@ Before each risky change, record the current commit here. After tests/verificati
   - local Python artifacts added to `.gitignore`
   - no intended architectural change
   - malformed ERPNext `data` type now raises `TypeError`
+
+## 2026-09-01 — Tenant and assurance boundaries verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `7ce6589` — `fix: preserve assurance across knowledge promotion`
+- Includes:
+  - `553b77e` — tenant isolation enforced during discovery
+  - `7ce6589` — validation assurance preserved across knowledge promotion
+- Verification:
+  - `ruff check .` — passed
+  - `pytest -q` — 30 passed
+  - `python -m orion.demo` — completed successfully
+  - `git diff --check` — passed
+  - shadow safety preserved: `execution_allowed=false`
+- Safety invariants:
+  - mixed/unscoped tenant discovery batches produce zero evidence writes
+  - validation decisions are cryptographically/id-bound to their hypothesis identity
+  - promoted knowledge retains explicit assurance
+  - promotion requires provenance
+  - validated knowledge does not grant execution authority
