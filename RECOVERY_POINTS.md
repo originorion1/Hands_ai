@@ -402,3 +402,33 @@ Before each risky change, record the current commit here. After tests/verificati
 - Recovery invariant:
   - checkpoint restores memory, not permission
   - process restart requires fresh authorization before further study
+
+## 2026-09-01 — Planned metadata absorption boundary verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `fae07dd` — `fix: enforce planned metadata absorption boundary`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 159 passed
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Structural-governance invariants:
+  - raw ERP metadata bundles remain evidence
+  - returned metadata does not automatically become governed understanding
+  - only DocTypes explicitly present in the current governed metadata plan may be newly absorbed
+  - a DocType authorized in the wider envelope but absent from the current plan is not absorbed incidentally
+  - incidental new bundled DocTypes remain outside governed understanding
+  - the complete returned bundle is still validated for contradictions
+  - incidental metadata that contradicts already-known structure fails closed
+  - structural contradiction is detected before any later record sampling
+  - requested metadata outside the permitted structural scope is rejected
+  - tenant isolation remains enforced
+  - no knowledge promotion is introduced
+  - no ERP write capability is introduced
+  - no business execution authority is introduced
+- Governance invariant:
+  - returned does not mean authorized to absorb
+  - discovery does not equal authorization
+  - authorization does not bypass the current governed plan
