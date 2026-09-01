@@ -25,3 +25,20 @@ This file records stable recovery anchors for the laboratory branch.
 
 ## Required practice
 Before each risky change, record the current commit here. After tests/verification demonstrate a stable state, add a new `R#` anchor. Never delete historical anchors.
+
+## 2026-09-01 — Python quality baseline verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `0443898` — `chore: enforce Python quality baseline`
+- Verification:
+  - `ruff check .` — passed
+  - `pytest -q` — 23 passed
+  - `git diff --check` — passed
+  - `python -m orion.demo` — completed successfully
+  - shadow safety preserved: `execution_allowed=false`
+- Scope:
+  - Python/Ruff modernization
+  - import/type cleanup
+  - local Python artifacts added to `.gitignore`
+  - no intended architectural change
+  - malformed ERPNext `data` type now raises `TypeError`
