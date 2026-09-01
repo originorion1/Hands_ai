@@ -94,3 +94,25 @@ Before each risky change, record the current commit here. After tests/verificati
   - common or unvalidated knowledge cannot drive shadow proposals
   - prototype runs require an explicit tenant
   - mixed-tenant batches are rejected before evidence or graph mutation
+
+## 2026-09-01 — ERPNext read-only discovery boundary hardened
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `05e8dec` — `fix: harden ERPNext read-only discovery boundary`
+- Verification:
+  - `ruff check .` — passed
+  - `pytest -q` — 55 passed
+  - `python -m orion.demo` — completed successfully
+  - `git diff --check` — passed
+  - shadow safety preserved: `execution_allowed=false`
+- ERPNext safety invariants:
+  - HTTPS-only ERP origin
+  - GET-only discovery requests
+  - redirects rejected
+  - tenant, API key, and API secret must be explicitly configured
+  - resource names are constrained
+  - response size is bounded
+  - pagination is bounded and incomplete discovery fails closed
+  - malformed API responses fail closed
+  - network failures fail closed
+  - no ERP write capability is exposed by the discovery adapter
