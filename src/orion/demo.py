@@ -47,8 +47,10 @@ class _MockResponse:
     def __exit__(self, *args: object) -> bool:
         return False
 
-    def read(self) -> bytes:
-        return self._payload
+    def read(self, size: int = -1) -> bytes:
+        if size < 0:
+            return self._payload
+        return self._payload[:size]
 
 
 def _mock_erpnext_opener(*_: object, **__: object) -> _MockResponse:
