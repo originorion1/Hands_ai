@@ -432,3 +432,45 @@ Before each risky change, record the current commit here. After tests/verificati
   - returned does not mean authorized to absorb
   - discovery does not equal authorization
   - authorization does not bypass the current governed plan
+
+## 2026-09-01 — Bounded ERPNext historical sampler verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `caf79f6` — `feat: add bounded ERPNext historical sampler`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 182 passed
+  - known non-blocking `.pytest_cache` permission warning on Windows-mounted WSL path
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Historical-sampling invariants:
+  - exactly one HTTP GET per sample operation
+  - no pagination toward resource completeness
+  - default sample size is 5
+  - absolute sample-size ceiling is 25
+  - explicit requested field allowlist only
+  - required audit fields include `name`, `company`, and `docstatus`
+  - deterministic ordering uses `posting_date desc, name desc`
+  - server request is explicitly Company-scoped
+  - server request is submitted-only with `docstatus = 1`
+  - returned rows are independently revalidated against the configured Company
+  - returned rows are independently revalidated as submitted
+  - all requested fields must be present
+  - unrequested fields are rejected
+  - duplicate document identities are rejected
+  - returned row count cannot exceed requested sample size
+  - HTTPS-only origin validation is inherited
+  - authenticated redirects are rejected
+  - response-size and timeout bounds are enforced
+  - observations remain tenant-bound and READ_ONLY
+- Capability boundaries:
+  - no ERP writes
+  - no persistence
+  - no checkpoint mutation
+  - no knowledge promotion
+  - no business execution authority
+- Architectural invariant:
+  - sampling capability does not itself constitute durable learning
+  - historical evidence must be durably persisted before a resource is considered safely learned across restart
