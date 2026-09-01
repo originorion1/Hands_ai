@@ -161,3 +161,38 @@ Before each risky change, record the current commit here. After tests/verificati
   - redirects remain rejected
   - response size remains bounded
   - credentials and customer endpoint remain outside Git
+
+## 2026-09-01 — Live ERP metadata projected into structural understanding
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `6ef786d` — `feat: project ERP metadata into structural understanding`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 77 passed
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Live structural-understanding verification:
+  - live metadata observations: 1
+  - structural entities: 1
+  - structural fields: 94
+  - graph nodes: 95
+  - graph relationships: 96
+  - all input observations remained `READ_ONLY`
+  - all input evidence remained `METADATA`
+  - all input evidence remained tenant-bound
+  - all projected graph nodes remained tenant-bound
+  - all projected graph relationships remained tenant-bound
+  - all projected nodes remained `OBSERVED`
+  - all projected relationships remained `OBSERVED`
+  - provenance was preserved on every projected node
+  - provenance was preserved on every projected relationship
+  - customer schema contents were not printed during verification
+- Safety invariants:
+  - metadata understanding contains no ERP network credentials
+  - metadata understanding contains no ERP HTTP operations
+  - metadata understanding contains no knowledge promotion
+  - metadata understanding contains no authorization mechanism
+  - metadata understanding contains no execution capability
+  - observed structure does not imply validated knowledge or authority
