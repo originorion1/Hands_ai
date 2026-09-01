@@ -196,3 +196,31 @@ Before each risky change, record the current commit here. After tests/verificati
   - metadata understanding contains no authorization mechanism
   - metadata understanding contains no execution capability
   - observed structure does not imply validated knowledge or authority
+
+## 2026-09-01 — Authorized discovery planner verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `b64e086` — `feat: add authorized discovery planner`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 89 passed
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Planner safety invariants:
+  - planner performs no ERP network calls
+  - planner holds no ERP credentials
+  - planner contains no write methods
+  - planner contains no execution capability
+  - planner contains no knowledge promotion
+  - discovery targets require explicit tenant-scoped authorization
+  - wildcard authorization is forbidden
+  - cross-tenant authorization is rejected
+  - unallowlisted structural references are ignored
+  - record sampling is not proposed until structure is already understood
+  - already-sampled record targets are skipped
+  - plan size is explicitly bounded
+  - planner output remains recommendation/intent only
+- Governance invariant:
+  - reasoning about a discovery target does not grant permission to read it
