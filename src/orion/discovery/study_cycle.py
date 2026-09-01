@@ -89,6 +89,11 @@ def run_study_cycle(
         DiscoveryTargetKind.METADATA,
     )
 
+    planned_metadata_targets = frozenset(
+        item.target
+        for item in metadata_plan.items
+    )
+
     record_plan = _subplan(
         plan,
         DiscoveryTargetKind.RECORDS,
@@ -107,13 +112,30 @@ def run_study_cycle(
     metadata_observations = metadata_report.observations
 
     if metadata_observations:
-        incremental = build_metadata_understanding(
+        # Validate the complete returned metadata bundle against structure
+        # ORION already knows. Incidental metadata is not authorized for
+        # absorption, but it must not be allowed to contradict established
+        # structural understanding silently.
+        complete_bundle = build_metadata_understanding(
             metadata_observations,
             tenant_id=authorization.tenant_id,
         )
 
-        # Structural contradictions stop the cycle here. Record sampling has
-        # not occurred yet.
+        # Discard the merged result. This pass exists only to detect
+        # contradictions with current understanding before any record read.
+        merge_metadata_understandings(
+            understanding,
+            complete_bundle,
+        )
+
+        # Only DocTypes explicitly present in this cycle's governed metadata
+        # plan may become new structural understanding.
+        incremental = build_metadata_understanding(
+            metadata_observations,
+            tenant_id=authorization.tenant_id,
+            allowed_doctypes=planned_metadata_targets,
+        )
+
         updated_understanding = merge_metadata_understandings(
             understanding,
             incremental,

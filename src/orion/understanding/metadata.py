@@ -194,11 +194,28 @@ def build_metadata_understanding(
     observations: tuple[Observation, ...],
     *,
     tenant_id: str,
+    allowed_doctypes: frozenset[str] | None = None,
 ) -> MetadataUnderstanding:
-    """Normalize metadata evidence without mutating any ORION store."""
+    """Normalize metadata evidence without mutating any ORION store.
+
+    When ``allowed_doctypes`` is supplied, raw metadata bundles remain valid
+    evidence but only explicitly allowed DocTypes may enter structural
+    understanding.
+    """
 
     if not isinstance(tenant_id, str) or not tenant_id.strip():
         raise MetadataUnderstandingError("tenant_id must be non-empty")
+
+    if (
+        allowed_doctypes is not None
+        and any(
+            not isinstance(doctype, str) or not doctype.strip()
+            for doctype in allowed_doctypes
+        )
+    ):
+        raise MetadataUnderstandingError(
+            "allowed_doctypes must contain non-empty strings"
+        )
 
     entities: dict[str, StructuralEntity] = {}
 
@@ -228,6 +245,15 @@ def build_metadata_understanding(
                 "metadata evidence requires requested doctype"
             )
 
+        if (
+            allowed_doctypes is not None
+            and requested_doctype not in allowed_doctypes
+        ):
+            raise MetadataUnderstandingError(
+                "requested DocType outside allowed structural scope: "
+                f"{requested_doctype}"
+            )
+
         if not isinstance(metadata, Mapping):
             raise MetadataUnderstandingError(
                 "metadata evidence requires metadata object"
@@ -247,6 +273,12 @@ def build_metadata_understanding(
 
             if entity.doctype == requested_doctype:
                 requested_found = True
+
+            if (
+                allowed_doctypes is not None
+                and entity.doctype not in allowed_doctypes
+            ):
+                continue
 
             existing = entities.get(entity.doctype)
 

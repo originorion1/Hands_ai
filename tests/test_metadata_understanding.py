@@ -319,3 +319,34 @@ def test_projection_is_idempotent():
     assert first.added_relationships == 5
     assert second.added_nodes == 0
     assert second.added_relationships == 0
+
+
+def test_scoped_understanding_filters_incidental_bundle_entities():
+    observation = metadata_observation()
+
+    understanding = build_metadata_understanding(
+        (observation,),
+        tenant_id="customer-a",
+        allowed_doctypes=frozenset({"Company"}),
+    )
+
+    assert [
+        entity.doctype
+        for entity in understanding.entities
+    ] == ["Company"]
+
+
+def test_scoped_understanding_rejects_requested_target_outside_scope():
+    observation = metadata_observation()
+
+    with pytest.raises(
+        MetadataUnderstandingError,
+        match="outside allowed structural scope",
+    ):
+        build_metadata_understanding(
+            (observation,),
+            tenant_id="customer-a",
+            allowed_doctypes=frozenset(
+                {"Company Account"}
+            ),
+        )

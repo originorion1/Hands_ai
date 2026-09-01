@@ -457,3 +457,68 @@ def test_metadata_conflict_prevents_later_record_read():
     assert calls == [
         ("metadata", "Customer"),
     ]
+
+
+def test_cycle_does_not_absorb_unplanned_bundle_entity():
+    current = starting_understanding()
+    calls = []
+
+    def metadata_reader(target):
+        calls.append(target)
+
+        return (
+            metadata_observation(
+                target,
+                docs=[
+                    {
+                        "name": "Customer",
+                        "fields": [
+                            {
+                                "fieldname": "territory",
+                                "fieldtype": "Link",
+                                "options": "Territory",
+                            }
+                        ],
+                    },
+                    {
+                        "name": "Territory",
+                        "fields": [
+                            {
+                                "fieldname": "territory_name",
+                                "fieldtype": "Data",
+                            }
+                        ],
+                    },
+                ],
+            ),
+        )
+
+    result = run_study_cycle(
+        current,
+        authorization=DiscoveryAuthorization(
+            tenant_id="customer-a",
+            metadata_targets=frozenset(
+                {"Customer", "Territory"}
+            ),
+        ),
+        metadata_reader=metadata_reader,
+        record_reader=fail_reader,
+    )
+
+    # Territory is authorized in the envelope, but it was not part of this
+    # cycle's plan yet. Its incidental appearance in Customer's metadata
+    # bundle must not count as an explicit structural study.
+    assert calls == ["Customer"]
+
+    assert [
+        entity.doctype
+        for entity in result.understanding.entities
+    ] == [
+        "Company",
+        "Customer",
+    ]
+
+    assert [
+        item.target
+        for item in result.plan.items
+    ] == ["Customer"]
