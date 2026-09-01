@@ -260,3 +260,36 @@ Before each risky change, record the current commit here. After tests/verificati
 - Governance invariant:
   - plan intent, authorization, enforcement, and read capability remain separate layers
   - any failed preflight produces zero external reads
+
+## 2026-09-01 — Bounded governed study cycle verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `7c9fe94` — `feat: add bounded governed study cycle`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 117 passed
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Study-cycle safety invariants:
+  - exactly one bounded study cycle runs per invocation
+  - the complete discovery plan is preflighted before any external read
+  - invalid plan items still produce zero reads
+  - metadata discovery is performed before record sampling
+  - metadata observations are tenant-validated and read-only
+  - structural understanding merges are tenant-scoped
+  - conflicting structural metadata fails closed
+  - conflicting metadata stops the cycle before any record sampling
+  - existing observed structure is never silently overwritten
+  - compatible repeated metadata merges provenance deterministically
+  - record observations remain separate from structural understanding
+  - already-sampled record resources are not sampled again
+  - empty authorization produces an empty plan and zero reads
+  - the cycle cannot modify its own authorization
+  - the cycle does not loop autonomously
+  - the cycle performs no persistence
+  - the cycle performs no knowledge promotion
+  - the cycle contains no execution capability
+- Governance invariant:
+  - planning, authorization, enforcement, structural accumulation, and execution remain separate concerns
