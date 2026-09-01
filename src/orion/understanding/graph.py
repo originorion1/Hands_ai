@@ -147,6 +147,17 @@ class GraphStore:
             return None
         return node
 
+    def get_relationship(
+        self,
+        relationship_id: UUID,
+        *,
+        tenant_id: str | None,
+    ) -> GraphRelationship | None:
+        relationship = self._relationships.get(relationship_id)
+        if relationship is None or relationship.tenant_id != tenant_id:
+            return None
+        return relationship
+
     def relationships_from(self, node_id: UUID, *, tenant_id: str | None, relationship_type: RelationshipType | None = None, limit: int = 100) -> tuple[GraphRelationship, ...]:
         if limit < 1:
             raise ValueError("limit must be positive")
