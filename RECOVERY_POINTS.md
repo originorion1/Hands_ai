@@ -130,3 +130,34 @@ Before each risky change, record the current commit here. After tests/verificati
   - no execution path was invoked
   - no ERP mutation was attempted
 - Live credentials and customer endpoint remain outside Git.
+
+## 2026-09-01 — Permission-aware live ERPNext metadata discovery verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `0ed7977` — `feat: add permission-aware ERPNext metadata discovery`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 67 passed
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Live ERPNext verification:
+  - dedicated metadata adapter successfully queried an explicitly authorized `Company` DocType
+  - metadata request used HTTP GET only
+  - metadata was classified as `EvidenceKind.METADATA`
+  - every observation remained `READ_ONLY`
+  - every evidence object remained tenant-bound
+  - source identification was preserved
+  - requested DocType binding was preserved
+  - metadata contents were not printed during verification
+  - no execution path was invoked
+- Permission-boundary verification:
+  - direct `DocType` enumeration returned HTTP 403 and remains unavailable
+  - ORION did not receive broader ERP administrative permission
+  - structural discovery uses the permission-aware Frappe metadata method for explicitly configured DocTypes
+- Security:
+  - no ERP write capability was added
+  - redirects remain rejected
+  - response size remains bounded
+  - credentials and customer endpoint remain outside Git
