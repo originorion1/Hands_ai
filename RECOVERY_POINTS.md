@@ -328,3 +328,38 @@ Before each risky change, record the current commit here. After tests/verificati
   - controller contains no business execution capability
 - Governance invariant:
   - autonomous repetition does not imply autonomous authority
+
+## 2026-09-01 — Durable study checkpoint store verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `7f668ae` — `feat: add durable study checkpoint store`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 146 passed
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Checkpoint safety invariants:
+  - checkpoints are tenant-scoped
+  - checkpoint history is append-only
+  - checkpoint sequences are strictly consecutive
+  - identical checkpoint replay is idempotent
+  - conflicting state at an existing sequence is rejected
+  - checkpoint writes use a transactional SQLite boundary
+  - checkpoint serialization is deterministic
+  - persisted payload integrity is protected by SHA-256 checksum verification
+  - database envelope and payload identity are cross-checked
+  - structural provenance survives serialization and restart
+  - sampled resources survive restart
+  - metadata study history survives restart
+  - record sampling history survives restart
+  - corrupted checkpoint payloads fail closed
+  - tampered checkpoint envelopes fail closed
+  - checkpoints persist no ERP credentials
+  - checkpoints persist no authorization envelope
+  - checkpoints persist no execution permission
+  - checkpoints persist no ERP write authority
+- Governance invariant:
+  - durable memory does not restore authority
+  - fresh authorization is required after restart before further study
