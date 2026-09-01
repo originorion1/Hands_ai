@@ -92,6 +92,7 @@ def capture_erpnext_historical_sample(
     if not isinstance(config, ERPNextHistoricalCaptureConfig):
         raise TypeError("config must be ERPNextHistoricalCaptureConfig")
     path = Path(database_path) if database_path is not None else default_historical_evidence_path(config.tenant_id)
+    _reject_repository_destination(path)
     if database_path is None:
         _ensure_state_directory(path.parent)
 
@@ -138,3 +139,28 @@ def _ensure_state_directory(path: Path) -> None:
         path.chmod(0o700)
     except OSError:
         pass
+
+
+def _reject_repository_destination(path: Path) -> None:
+    """Prevent customer evidence databases from being created in the worktree."""
+
+    resolved_path = path.expanduser().resolve(strict=False)
+    repository_root = _repository_root()
+    if repository_root is None:
+        return
+    try:
+        resolved_path.relative_to(repository_root)
+    except ValueError:
+        return
+    raise ValueError("historical evidence database must be outside the Git repository")
+
+
+def _repository_root() -> Path | None:
+    """Find the current worktree root without inspecting runtime credentials."""
+
+    candidates = (Path(__file__).resolve().parent, Path.cwd().resolve())
+    for candidate in candidates:
+        for parent in (candidate, *candidate.parents):
+            if (parent / ".git").exists():
+                return parent
+    return None

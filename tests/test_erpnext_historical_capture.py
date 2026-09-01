@@ -2,6 +2,7 @@ import inspect
 import json
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -137,6 +138,32 @@ def test_first_capture_guard_prevents_http_when_history_exists(tmp_path):
     with pytest.raises(HistoricalEvidenceError, match="empty durable"):
         capture(config(), path, second_calls)
     assert second_calls == []
+
+
+def test_in_repository_database_path_fails_before_http_and_file_creation():
+    calls = []
+    in_repo_path = Path.cwd() / "offline-capture-should-not-exist.sqlite3"
+    with pytest.raises(ValueError, match="outside the Git repository"):
+        capture(config(), in_repo_path, calls)
+    assert calls == []
+    assert not in_repo_path.exists()
+
+
+def test_relative_repository_database_path_fails_closed(tmp_path, monkeypatch):
+    monkeypatch.chdir(Path.cwd())
+    calls = []
+    with pytest.raises(ValueError, match="outside the Git repository"):
+        capture(config(), Path("relative-capture-should-not-exist.sqlite3"), calls)
+    assert calls == []
+    assert not (Path.cwd() / "relative-capture-should-not-exist.sqlite3").exists()
+
+
+def test_derived_state_root_inside_repository_fails_before_http(monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(Path.cwd()))
+    calls = []
+    with pytest.raises(ValueError, match="outside the Git repository"):
+        capture(config(), None, calls)
+    assert calls == []
 
 
 def test_invalid_runtime_configuration_fails_before_http(tmp_path):
