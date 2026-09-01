@@ -99,11 +99,10 @@ def expand_erpnext_historical_sample(
     config: ERPNextHistoricalExpansionConfig,
     *,
     database_path: str | Path | None = None,
-    first_expansion: bool = True,
     opener: Callable[..., Any] | None = None,
     clock: Callable[[], datetime] = utc_now,
 ) -> ERPNextHistoricalExpansionSummary:
-    """Persist up to 20 unseen observations from exactly one remote window."""
+    """Persist up to 20 unseen observations from exactly one verified state."""
 
     if not isinstance(config, ERPNextHistoricalExpansionConfig):
         raise TypeError("config must be ERPNextHistoricalExpansionConfig")
@@ -118,7 +117,7 @@ def expand_erpnext_historical_sample(
     # database whose document, observation, or evidence identities already
     # overlap across batches.
     _validate_history_unique(history, config.tenant_id)
-    if first_expansion and not _is_verified_first_state(history):
+    if not _is_verified_first_state(history):
         raise HistoricalEvidenceError(
             "first historical expansion requires exactly one five-observation batch"
         )

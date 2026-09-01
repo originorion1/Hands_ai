@@ -216,6 +216,41 @@ def test_second_first_expansion_invocation_fails_before_http(tmp_path):
     assert calls == []
 
 
+def test_any_existing_second_batch_fails_without_a_continuation_bypass(tmp_path):
+    path = tmp_path / "continuation-state.sqlite3"
+    store = SQLiteHistoricalEvidenceStore(path)
+    first = initial_batch()
+    store.append(first)
+    store.append(
+        HistoricalEvidenceBatch(
+            tenant_id=TENANT,
+            resource=RESOURCE,
+            sequence=2,
+            created_at=first.created_at,
+            observations=tuple(
+                Observation(
+                    evidence=Evidence(
+                        kind=EvidenceKind.API,
+                        source="synthetic-expansion-fixture",
+                        tenant_id=TENANT,
+                        observed_at=first.created_at,
+                        payload={"resource": RESOURCE, "record": record(f"SYN-BATCH2-{index}", index)},
+                    )
+                )
+                for index in range(1, 6)
+            ),
+        )
+    )
+    calls = []
+    with pytest.raises(HistoricalEvidenceError, match="exactly one five-observation batch"):
+        expand(path, calls, [])
+    assert calls == []
+
+
+def test_expansion_has_no_first_expansion_bypass_parameter():
+    assert "first_expansion" not in inspect.signature(expand_erpnext_historical_sample).parameters
+
+
 def test_duplicate_existing_history_fails_before_http(tmp_path):
     path = tmp_path / "duplicate-existing.sqlite3"
     store = SQLiteHistoricalEvidenceStore(path)
