@@ -174,11 +174,27 @@ def _validate_scope(
         raise HistoricalEvidenceError(str(exc)) from exc
     if not isinstance(history, tuple):
         raise HistoricalEvidenceError("history must be a tuple")
+    document_names: set[str] = set()
+    observation_ids: set[UUID] = set()
+    evidence_ids: set[UUID] = set()
     for expected, batch in enumerate(history, start=1):
         if not isinstance(batch, HistoricalEvidenceBatch):
             raise HistoricalEvidenceError("history contains an invalid batch")
         if batch.tenant_id != tenant_id or batch.resource != resource or batch.sequence != expected:
             raise HistoricalEvidenceError("history crosses tenant/resource or sequence boundary")
+        for observation in batch.observations:
+            if observation.observation_id in observation_ids:
+                raise HistoricalEvidenceError("duplicate observation UUID across history")
+            observation_ids.add(observation.observation_id)
+            evidence = observation.evidence
+            if evidence.evidence_id in evidence_ids:
+                raise HistoricalEvidenceError("duplicate evidence UUID across history")
+            evidence_ids.add(evidence.evidence_id)
+            record = evidence.payload["record"]
+            name = record["name"]
+            if name in document_names:
+                raise HistoricalEvidenceError("duplicate document identity across history")
+            document_names.add(name)
 
 
 def _collect_text(

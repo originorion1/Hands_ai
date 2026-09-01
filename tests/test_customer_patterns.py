@@ -1,7 +1,9 @@
 import inspect
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -52,6 +54,16 @@ def make_batch(sequence=1, records=None, tenant_id=TENANT, resource=RESOURCE):
     )
 
 
+def batch_from_observations(sequence, observations):
+    return HistoricalEvidenceBatch(
+        tenant_id=TENANT,
+        resource=RESOURCE,
+        sequence=sequence,
+        created_at=datetime(2026, 9, 2, 12, tzinfo=UTC),
+        observations=tuple(observations),
+    )
+
+
 def test_deterministic_projection_and_conservative_sufficiency():
     history = (make_batch(),)
     snapshot = project_customer_patterns(history, tenant_id=TENANT, resource=RESOURCE)
@@ -92,6 +104,61 @@ def test_scope_and_consecutive_sequence_fail_closed():
         project_customer_patterns(history, tenant_id=TENANT, resource="Sales Invoice")
     with pytest.raises(HistoricalEvidenceError, match="boundary"):
         project_customer_patterns((make_batch(), make_batch(sequence=3)), tenant_id=TENANT, resource=RESOURCE)
+
+
+def test_history_wide_duplicate_document_identity_fails_closed():
+    first = make_batch(records=[{"name": "SYN-DUP", "supplier": "Supplier Alpha", "currency": "USD"}])
+    second = make_batch(sequence=2, records=[{"name": "SYN-DUP", "supplier": "Supplier Alpha", "currency": "USD"}])
+
+    with pytest.raises(HistoricalEvidenceError, match="duplicate document identity"):
+        project_customer_patterns((first, second), tenant_id=TENANT, resource=RESOURCE)
+
+
+def test_history_wide_duplicate_observation_uuid_fails_closed():
+    first = make_batch(records=[{"name": "SYN-OBS-1"}])
+    original = first.observations[0]
+    second_observation = replace(
+        original,
+        evidence=replace(
+            original.evidence,
+            payload={"resource": RESOURCE, "record": {"name": "SYN-OBS-2"}},
+        ),
+    )
+    second = batch_from_observations(2, (second_observation,))
+
+    with pytest.raises(HistoricalEvidenceError, match="duplicate observation UUID"):
+        project_customer_patterns((first, second), tenant_id=TENANT, resource=RESOURCE)
+
+
+def test_history_wide_duplicate_evidence_uuid_fails_closed():
+    first = make_batch(records=[{"name": "SYN-EVID-1"}])
+    original = first.observations[0]
+    second_observation = replace(
+        original,
+        observation_id=uuid4(),
+        evidence=replace(
+            original.evidence,
+            payload={"resource": RESOURCE, "record": {"name": "SYN-EVID-2"}},
+        ),
+    )
+    second = batch_from_observations(2, (second_observation,))
+
+    with pytest.raises(HistoricalEvidenceError, match="duplicate evidence UUID"):
+        project_customer_patterns((first, second), tenant_id=TENANT, resource=RESOURCE)
+
+
+def test_non_overlapping_two_batch_history_counts_each_observation_once():
+    history = (
+        make_batch(records=[{"name": "SYN-BATCH-1", "supplier": "Supplier Alpha", "currency": "USD", "grand_total": 10}]),
+        make_batch(sequence=2, records=[{"name": "SYN-BATCH-2", "supplier": "Supplier Beta", "currency": "EUR", "grand_total": 20}]),
+    )
+    snapshot = project_customer_patterns(history, tenant_id=TENANT, resource=RESOURCE)
+
+    assert snapshot.observation_count == 2
+    assert snapshot.batch_sequences == (1, 2)
+    assert snapshot.supplier_frequencies == (("Supplier Alpha", 1), ("Supplier Beta", 1))
+    assert snapshot.amount_mean == 15.0
+    assert snapshot == project_customer_patterns(history, tenant_id=TENANT, resource=RESOURCE)
 
 
 def test_quality_counters_handle_invalid_amounts_dates_and_negative_intervals():
