@@ -116,3 +116,17 @@ Before each risky change, record the current commit here. After tests/verificati
   - malformed API responses fail closed
   - network failures fail closed
   - no ERP write capability is exposed by the discovery adapter
+
+## 2026-09-01 — First live ERPNext read-only probe verified
+
+- Live ERPNext connectivity verified using dedicated API credentials.
+- Probe scope: one low-volume metadata/master resource.
+- No customer record contents were written to logs or repository.
+- Verification:
+  - live HTTPS request succeeded
+  - observations returned successfully
+  - every observation remained `READ_ONLY`
+  - every evidence object remained tenant-bound
+  - no execution path was invoked
+  - no ERP mutation was attempted
+- Live credentials and customer endpoint remain outside Git.
