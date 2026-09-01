@@ -293,3 +293,38 @@ Before each risky change, record the current commit here. After tests/verificati
   - the cycle contains no execution capability
 - Governance invariant:
   - planning, authorization, enforcement, structural accumulation, and execution remain separate concerns
+
+## 2026-09-01 — Bounded autonomous study controller verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `47c0c50` — `feat: add bounded autonomous study controller`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 130 passed
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Autonomous-study safety invariants:
+  - autonomous study operates inside one fixed tenant-scoped authorization envelope
+  - controller cannot widen or modify authorization
+  - every autonomous step still uses the governed single-cycle path
+  - cycle count is explicitly bounded
+  - metadata target count is explicitly bounded
+  - record target count is explicitly bounded
+  - budgets are checked before the next cycle performs reads
+  - empty authorized work stops as `EXHAUSTED`
+  - cycle budget exhaustion stops as `CYCLE_LIMIT`
+  - metadata budget exhaustion stops as `METADATA_TARGET_LIMIT`
+  - record budget exhaustion stops as `RECORD_TARGET_LIMIT`
+  - already-sampled records are not repeatedly sampled
+  - newly discovered structure must remain explicitly allowlisted
+  - controller verifies the cycle plan matches its prospective plan
+  - a non-empty cycle that makes no progress fails closed
+  - contradictions and reader errors propagate and stop autonomous study
+  - controller performs no persistence
+  - controller performs no knowledge promotion
+  - controller performs no ERP writes
+  - controller contains no business execution capability
+- Governance invariant:
+  - autonomous repetition does not imply autonomous authority
