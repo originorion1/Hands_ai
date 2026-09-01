@@ -81,3 +81,38 @@ def test_promotion_requires_provenance() -> None:
             validation=decision(item),
             scope="customer",
         )
+
+
+def test_direct_common_promotion_is_forbidden() -> None:
+    item = hypothesis()
+
+    with pytest.raises(ValueError, match="explicit generalization workflow"):
+        KnowledgeStore().promote(
+            replace(item, status="validated"),
+            validation=decision(item, assurance=Assurance.HIGH),
+            scope="common",
+        )
+
+
+def test_common_retrieval_is_disabled_until_generalization_exists() -> None:
+    store = KnowledgeStore()
+
+    with pytest.raises(ValueError, match="generalization is implemented"):
+        store.list(
+            tenant_id="customer-b",
+            scope="common",
+        )
+
+
+def test_customer_knowledge_is_not_visible_to_another_tenant() -> None:
+    item = hypothesis()
+    store = KnowledgeStore()
+
+    store.promote(
+        replace(item, status="validated"),
+        validation=decision(item),
+        scope="customer",
+    )
+
+    assert len(store.list(tenant_id="customer-a", scope="customer")) == 1
+    assert store.list(tenant_id="customer-b", scope="customer") == ()

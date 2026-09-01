@@ -45,8 +45,13 @@ class KnowledgeStore:
         if not hypothesis.supporting_evidence:
             raise ValueError("knowledge promotion requires provenance")
 
-        if scope not in {"customer", "common"}:
-            raise ValueError("scope must be customer or common")
+        if scope == "common":
+            raise ValueError(
+                "common knowledge requires an explicit generalization workflow"
+            )
+
+        if scope != "customer":
+            raise ValueError("scope must be customer")
 
         entry = KnowledgeEntry(
             knowledge_id=uuid4(),
@@ -61,7 +66,13 @@ class KnowledgeStore:
 
     def list(self, *, tenant_id: str, scope: str) -> tuple[KnowledgeEntry, ...]:
         if scope == "common":
-            return tuple(e for e in self._entries if e.scope == "common")
+            raise ValueError(
+                "common knowledge retrieval is unavailable until generalization is implemented"
+            )
+
+        if scope != "customer":
+            raise ValueError("scope must be customer")
+
         return tuple(
             e for e in self._entries
             if e.scope == "customer" and e.tenant_id == tenant_id
