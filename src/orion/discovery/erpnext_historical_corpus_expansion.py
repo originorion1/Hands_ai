@@ -29,13 +29,22 @@ CORPUS_WINDOW_SIZE = 100
 CORPUS_MAX_NEW_OBSERVATIONS = 75
 
 
-class ERPNextHistoricalCorpusAdapter(ERPNextHistoricalSampleAdapter):
-    """Dedicated fixed 100-row profile; the existing sampler remains capped at 25."""
+class _ERPNextPurchaseInvoiceCorpusAdapter(ERPNextHistoricalSampleAdapter):
+    """Private, non-repurposable fixed Purchase Invoice transport profile."""
 
-    def __init__(self, **kwargs: Any) -> None:
-        if "sample_size" in kwargs:
-            raise ValueError("corpus window size is fixed at 100")
-        super().__init__(**kwargs, sample_size=25)
+    def __init__(self, *, base_url: str, tenant_id: str, api_key: str, api_secret: str, company: str, opener: Callable[..., Any] | None) -> None:
+        super().__init__(
+            base_url=base_url,
+            tenant_id=tenant_id,
+            api_key=api_key,
+            api_secret=api_secret,
+            resource=PURCHASE_INVOICE_RESOURCE,
+            company=company,
+            fields=FIRST_CAPTURE_FIELDS,
+            sample_size=25,
+            order_by="posting_date desc, name desc",
+            opener=opener,
+        )
         self._sample_size = CORPUS_WINDOW_SIZE
 
 
@@ -63,7 +72,7 @@ class ERPNextHistoricalCorpusExpansionSummary:
 
 
 class _UnseenCorpusSource:
-    def __init__(self, source: ERPNextHistoricalCorpusAdapter, known_names: set[str]) -> None:
+    def __init__(self, source: _ERPNextPurchaseInvoiceCorpusAdapter, known_names: set[str]) -> None:
         self._source = source
         self._known_names = known_names
         self.remote_window_count = 0
@@ -103,14 +112,12 @@ def expand_erpnext_historical_corpus(
     if len(history) != 2 or tuple(batch.sequence for batch in history) != (1, 2) or sum(len(batch.observations) for batch in history) != 25:
         raise HistoricalEvidenceError("corpus expansion requires exactly two batches and 25 observations")
     known_names = {observation.evidence.payload["record"]["name"] for batch in history for observation in batch.observations}
-    sampler = ERPNextHistoricalCorpusAdapter(
+    sampler = _ERPNextPurchaseInvoiceCorpusAdapter(
         base_url=config.base_url,
         tenant_id=config.tenant_id,
         api_key=config.api_key,
         api_secret=config.api_secret,
-        resource=PURCHASE_INVOICE_RESOURCE,
         company=config.company,
-        fields=FIRST_CAPTURE_FIELDS,
         opener=opener,
     )
     source = _UnseenCorpusSource(sampler, known_names)

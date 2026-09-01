@@ -8,10 +8,10 @@ from orion.contracts import Evidence, EvidenceKind, Observation
 from orion.discovery.erpnext_historical_corpus_expansion import (
     CORPUS_MAX_NEW_OBSERVATIONS,
     CORPUS_WINDOW_SIZE,
-    ERPNextHistoricalCorpusAdapter,
     expand_erpnext_historical_corpus,
 )
 from orion.discovery.erpnext_historical_expansion import ERPNextHistoricalExpansionConfig
+from orion.discovery.erpnext_historical_sample import ERPNextHistoricalSampleAdapter
 from orion.history.evidence import HistoricalEvidenceBatch, HistoricalEvidenceError
 from orion.learning import project_customer_patterns
 from orion.learning.shadow_backtest import run_shadow_backtest
@@ -89,15 +89,24 @@ def test_all_new_is_capped_at_75_in_remote_order(tmp_path):
     assert batch.observations[0].evidence.payload["record"]["name"] == names[0]
 
 
-def test_partial_and_zero_overlap(tmp_path):
+def test_partial_overlap(tmp_path):
     path = tmp_path / "partial.sqlite3"
     seed(path)
     calls = []
     summary = run(path, ["CORPUS-001", "CORPUS-002", "NEW-1"], calls)
     assert summary.new_observation_count == 1 and summary.skipped_known_count == 2
-    with pytest.raises(HistoricalEvidenceError):
-        run(path, ["CORPUS-001"] * 100, calls)
     assert len(calls) == 1
+
+
+def test_zero_overlap_from_exact_start_fails_after_one_get_without_append(tmp_path):
+    path = tmp_path / "zero.sqlite3"
+    seed(path)
+    calls = []
+    with pytest.raises(HistoricalEvidenceError):
+        run(path, [f"CORPUS-{i:03d}" for i in range(1, 26)], calls)
+    assert len(calls) == 1
+    reopened = SQLiteHistoricalEvidenceStore(path).load_all(tenant_id=TENANT, resource=RESOURCE)
+    assert len(reopened) == 2 and sum(len(batch.observations) for batch in reopened) == 25
 
 
 def test_preconditions_and_second_invocation_fail_before_http(tmp_path):
@@ -119,7 +128,14 @@ def test_query_profile_and_fixed_adapter_limit(tmp_path):
     assert "limit_page_length=100" in query and "order_by=posting_date+desc%2C+name+desc" in query
     assert CORPUS_WINDOW_SIZE == 100 and CORPUS_MAX_NEW_OBSERVATIONS == 75
     with pytest.raises(ValueError):
-        ERPNextHistoricalCorpusAdapter(base_url="https://x", tenant_id=TENANT, api_key="k", api_secret="s", resource=RESOURCE, company=COMPANY, fields=("name",), sample_size=100)
+        ERPNextHistoricalSampleAdapter(base_url="https://x", tenant_id=TENANT, api_key="k", api_secret="s", resource=RESOURCE, company=COMPANY, fields=("name", "company", "docstatus"), sample_size=26)
+    import inspect
+
+    from orion.discovery import erpnext_historical_corpus_expansion as module
+    assert "resource" not in inspect.signature(module._ERPNextPurchaseInvoiceCorpusAdapter).parameters
+    assert "fields" not in inspect.signature(module._ERPNextPurchaseInvoiceCorpusAdapter).parameters
+    assert "order_by" not in inspect.signature(module._ERPNextPurchaseInvoiceCorpusAdapter).parameters
+    assert "sample_size" not in inspect.signature(module._ERPNextPurchaseInvoiceCorpusAdapter).parameters
 
 
 def test_wrong_state_duplicate_and_repo_path_fail_before_http(tmp_path):
