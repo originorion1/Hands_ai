@@ -76,7 +76,7 @@ def run_mock_erpnext_shadow_demo(*, tenant_id: str = "demo-tenant") -> DemoRepor
     observations = adapter.discover()
 
     evidence_store = InMemoryEvidenceStore()
-    OrionKernel(evidence_store=evidence_store).discover(adapter)
+    OrionKernel(evidence_store=evidence_store).discover(adapter, tenant_id=tenant_id)
 
     graph = GraphStore()
     pipeline = DiscoveryPipeline(source=_StaticDiscoverySource(observations), graph=graph)
