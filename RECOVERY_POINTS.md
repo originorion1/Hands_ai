@@ -363,3 +363,42 @@ Before each risky change, record the current commit here. After tests/verificati
 - Governance invariant:
   - durable memory does not restore authority
   - fresh authorization is required after restart before further study
+
+## 2026-09-01 — Resumable autonomous study sessions verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `0722fd3` — `feat: add resumable autonomous study sessions`
+- Verification:
+  - `python -m py_compile` — passed
+  - `ruff check .` — passed
+  - `pytest -q` — 156 passed
+  - `python -m orion.demo` — completed successfully
+  - `execution_allowed=false`
+  - `git diff --check` — passed
+- Resumable-study safety invariants:
+  - autonomous study emits immutable progress only after a completed cycle
+  - autonomous controller has no direct checkpoint-store dependency
+  - autonomous controller has no SQLite dependency
+  - persistence remains outside the core autonomous-study controller
+  - latest durable checkpoint is canonical after restart
+  - stale seed state cannot overwrite restored checkpoint state
+  - every resumed session requires freshly supplied authorization
+  - prior authorization is not persisted or automatically restored
+  - tenant mismatch fails before study proceeds
+  - cross-tenant checkpoint state fails closed
+  - completed cycles are checkpointed before the next cycle proceeds
+  - a later cycle failure preserves previously completed checkpoints
+  - restart resumes from the latest successfully persisted cycle
+  - already-sampled record resources are not sampled again after restart
+  - metadata study history survives restart
+  - record sampling history survives restart
+  - empty initial study persists a durable seed checkpoint
+  - exhausted restart does not create redundant checkpoints
+  - checkpoint timestamps must remain timezone-aware
+  - reader and governed-discovery failures propagate fail closed
+  - resumable study performs no knowledge promotion
+  - resumable study performs no ERP writes
+  - resumable study grants no business execution authority
+- Recovery invariant:
+  - checkpoint restores memory, not permission
+  - process restart requires fresh authorization before further study
