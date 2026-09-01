@@ -1,0 +1,8 @@
+# ORION governance ownership
+# Repository owner retains final authority over protected governance files.
+
+/.github/ @originorion1
+/docs/ORION_CONSTITUTION.md @originorion1
+/docs/ORION_AI_AGENT_CONTRACT.md @originorion1
+/docs/ORION_AI_ORCHESTRATION_PROTOCOL.md @originorion1
+/README.md @originorion1
