@@ -82,20 +82,6 @@ Before each risky change, record the current commit here. After tests/verificati
 ## 2026-09-01 — Structural shadow execution safety verified
 
 - Branch: `laboratory/orion-v0.1`
-- Commit: `d29922e` — `fix: enforce str:contentReference[oaicite:0]{index=0}rification:
-  - `ruff check .` — passed
-  - `pytest -q` — 38 passed
-  - `python -m orion.demo` — completed successfully
-  - `git diff --check` — passed
-  - shadow safety preserved: `execution_allowed=false`
-- Safety invariants:
-  - shadow decisions cannot be constructed with execution authority
-  - common or unvalidated knowledge cannot drive shadow proposals
-  - prototype runs require an expli:contentReference[oaicite:1]{index=1}jected before evidence or graph mutation
-
-## 2026-09-01 — Structural shadow execution safety verified
-
-- Branch: `laboratory/orion-v0.1`
 - Commit: `d29922e` — `fix: enforce structural shadow-only execution safety`
 - Verification:
   - `ruff check .` — passed
