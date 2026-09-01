@@ -4,6 +4,7 @@ import pytest
 
 from orion.knowledge.promotion import KnowledgeEntry
 from orion.shadow.decision import propose_from_knowledge
+from orion.validation.claims import Assurance
 
 
 def entry(tenant_id: str, scope: str) -> KnowledgeEntry:
@@ -13,6 +14,7 @@ def entry(tenant_id: str, scope: str) -> KnowledgeEntry:
         statement="Validated rule",
         evidence_ids=(uuid4(),),
         scope=scope,
+        assurance=Assurance.LOW,
     )
 
 

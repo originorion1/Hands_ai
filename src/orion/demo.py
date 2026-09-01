@@ -20,7 +20,7 @@ from .shadow.decision import ShadowDecision, propose_from_knowledge
 from .stores.memory import InMemoryEvidenceStore
 from .understanding.graph import GraphStore
 from .understanding.hypotheses import Hypothesis, generate_hypotheses
-from .validation.claims import Assurance, validate_hypothesis
+from .validation.claims import Assurance, ValidationDecision, validate_hypothesis
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,9 +85,13 @@ def run_mock_erpnext_shadow_demo(*, tenant_id: str = "demo-tenant") -> DemoRepor
     hypotheses = generate_hypotheses(observations)
     if not hypotheses:
         raise RuntimeError("mock discovery did not produce a provenance-carrying hypothesis")
-    validated = _validate(hypotheses[0])
+    validated, validation = _validate(hypotheses[0])
     knowledge_store = KnowledgeStore()
-    entry = knowledge_store.promote(validated, scope="customer")
+    entry = knowledge_store.promote(
+        validated,
+        validation=validation,
+        scope="customer",
+    )
     decision = propose_from_knowledge(
         knowledge_store.list(tenant_id=tenant_id, scope="customer"),
         tenant_id=tenant_id,
@@ -115,11 +119,11 @@ class _StaticDiscoverySource:
         return self.observations
 
 
-def _validate(hypothesis: Hypothesis) -> Hypothesis:
+def _validate(hypothesis: Hypothesis) -> tuple[Hypothesis, ValidationDecision]:
     decision = validate_hypothesis(hypothesis, assurance=Assurance.LOW)
     if decision.status != "validated":
         raise RuntimeError(f"mock hypothesis was not validated: {decision.reason}")
-    return replace(hypothesis, status="validated")
+    return replace(hypothesis, status="validated"), decision
 
 
 def _ensure_shadow_only(decision: ShadowDecision) -> None:
