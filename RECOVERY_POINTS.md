@@ -62,3 +62,19 @@ Before each risky change, record the current commit here. After tests/verificati
   - promoted knowledge retains explicit assurance
   - promotion requires provenance
   - validated knowledge does not grant execution authority
+
+## 2026-09-01 — Common knowledge isolation verified
+
+- Branch: `laboratory/orion-v0.1`
+- Commit: `8e66459` — `fix: block implicit common knowledge promotion`
+- Verification:
+  - `ruff check .` — passed
+  - `pytest -q` — 33 passed
+  - `python -m orion.demo` — completed successfully
+  - `git diff --check` — passed
+  - shadow safety preserved: `execution_allowed=false`
+- Safety invariants:
+  - customer knowledge remains tenant-scoped
+  - direct customer-to-common promotion is forbidden
+  - common knowledge retrieval remains disabled until explicit generalization exists
+  - cross-company reuse requires a future governed generalization workflow
