@@ -8,6 +8,7 @@ from orion.history.sampling import (
     PersistedHistoricalSample,
     persist_historical_sample,
 )
+from orion.stores.sqlite_historical_evidence import SQLiteHistoricalEvidenceStore
 
 TENANT = "customer-a"
 RESOURCE = "Purchase Invoice"
@@ -106,6 +107,29 @@ def test_existing_verified_history_increments_sequence_and_preserves_ids():
     assert store.appended[0].observations == (sample,)
     assert acknowledgement.observation_ids == (sample.observation_id,)
     assert acknowledgement.evidence_ids == (sample.evidence.evidence_id,)
+
+
+def test_sqlite_persistence_survives_store_restart(tmp_path):
+    path = tmp_path / "historical-evidence.sqlite3"
+    sample = make_observation("PINV-RESTART")
+    first_store = SQLiteHistoricalEvidenceStore(path)
+
+    acknowledgement = persist(Source((sample,)), first_store)
+
+    assert acknowledgement.sequence == 1
+    assert acknowledgement.observation_count == 1
+    assert acknowledgement.observation_ids == (sample.observation_id,)
+    assert acknowledgement.evidence_ids == (sample.evidence.evidence_id,)
+
+    reopened_store = SQLiteHistoricalEvidenceStore(path)
+    history = reopened_store.load_all(tenant_id=TENANT, resource=RESOURCE)
+
+    assert len(history) == 1
+    persisted_batch = history[0]
+    assert persisted_batch.sequence == acknowledgement.sequence
+    assert len(persisted_batch.observations) == acknowledgement.observation_count
+    assert persisted_batch.observations[0].observation_id == sample.observation_id
+    assert persisted_batch.observations[0].evidence.evidence_id == sample.evidence.evidence_id
 
 
 def test_empty_sample_fails_closed_without_append():
