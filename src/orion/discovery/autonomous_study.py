@@ -9,6 +9,7 @@ ERP actions.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -89,6 +90,25 @@ class AutonomousStudyReport:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class AutonomousStudyProgress:
+    """Immutable progress snapshot after one completed study cycle."""
+
+    tenant_id: str
+    cycle_number: int
+    cycle: StudyCycleResult
+    understanding: MetadataUnderstanding
+    sampled_records: frozenset[str]
+    metadata_targets_studied: tuple[str, ...]
+    record_targets_sampled: tuple[str, ...]
+
+
+StudyProgressObserver = Callable[
+    [AutonomousStudyProgress],
+    None,
+]
+
+
 def _report(
     *,
     tenant_id: str,
@@ -118,6 +138,7 @@ def run_autonomous_study(
     record_reader: DiscoveryReader,
     limits: AutonomousStudyLimits | None = None,
     already_sampled_records: frozenset[str] = frozenset(),
+    progress_observer: StudyProgressObserver | None = None,
 ) -> AutonomousStudyReport:
     """Study repeatedly until work is exhausted or a hard bound is reached.
 
@@ -224,6 +245,23 @@ def run_autonomous_study(
         ):
             raise AutonomousStudyError(
                 "non-empty study cycle made no structural or sampling progress"
+            )
+
+        if progress_observer is not None:
+            progress_observer(
+                AutonomousStudyProgress(
+                    tenant_id=authorization.tenant_id,
+                    cycle_number=len(cycles),
+                    cycle=result,
+                    understanding=current,
+                    sampled_records=sampled,
+                    metadata_targets_studied=tuple(
+                        metadata_targets
+                    ),
+                    record_targets_sampled=tuple(
+                        record_targets
+                    ),
+                )
             )
 
     remaining_plan = plan_authorized_discovery(
