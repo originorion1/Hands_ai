@@ -86,17 +86,23 @@ def run_shadow_backtest(
             and _valid_text(record.get("supplier"))
             and record.get("supplier") == target_record.get("supplier")
         ]
-        currency_values = [record["currency"] for _, _, record in prior if _valid_text(record.get("currency"))]
-        if len(currency_values) < 2:
+        # An invalid target cannot be scored: retain the quality event recorded
+        # above, but do not turn a malformed value into an incorrect prediction.
+        target_currency = target_record.get("currency")
+        if not _valid_text(target_currency):
             currency_abstentions += 1
         else:
-            counts = Counter(currency_values)
-            top = counts.most_common()
-            if len(top) == 1 or top[0][1] > top[1][1]:
-                currency_predictions += 1
-                currency_correct += int(top[0][0] == target_record.get("currency"))
-            else:
+            currency_values = [record["currency"] for _, _, record in prior if _valid_text(record.get("currency"))]
+            if len(currency_values) < 2:
                 currency_abstentions += 1
+            else:
+                counts = Counter(currency_values)
+                top = counts.most_common()
+                if len(top) == 1 or top[0][1] > top[1][1]:
+                    currency_predictions += 1
+                    currency_correct += int(top[0][0] == target_currency)
+                else:
+                    currency_abstentions += 1
 
         prior_intervals = [
             (due_date, posting)

@@ -81,6 +81,20 @@ def test_malformed_currency_is_counted_and_abstains():
     assert dict(result.invalid_field_counts)["currency"] == 1 and result.currency_prediction_count == 0
 
 
+def test_invalid_target_currency_abstains_without_corrupting_accuracy():
+    rows = [
+        obs("A1", "S", "2026-01-01", "USD", "2026-01-03"),
+        obs("A2", "S", "2026-01-02", "USD", "2026-01-04"),
+        obs("A3", "S", "2026-01-03", "", "2026-01-05"),
+    ]
+    result = run_shadow_backtest(history(rows), tenant_id=TENANT, resource=RESOURCE)
+    assert dict(result.invalid_field_counts)["currency"] == 1
+    assert result.currency_prediction_count == 0
+    assert result.currency_correct_count == 0
+    assert result.currency_abstention_count == 3
+    assert result.currency_accuracy is None
+
+
 def test_due_interval_median_odd_and_even():
     rows = [obs(f"A{i}", "S", f"2026-01-0{i}", due=f"2026-01-{i + interval:02d}") for i, interval in [(1, 1), (2, 5), (3, 9), (4, 11), (5, 15)]]
     result = run_shadow_backtest(history(rows), tenant_id=TENANT, resource=RESOURCE)
