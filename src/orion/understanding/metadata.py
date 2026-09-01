@@ -285,6 +285,68 @@ def build_metadata_understanding(
     )
 
 
+def merge_metadata_understandings(
+    current: MetadataUnderstanding,
+    additional: MetadataUnderstanding,
+) -> MetadataUnderstanding:
+    """Merge compatible tenant-scoped structural observations.
+
+    Conflicting structural snapshots fail closed. Existing structure is never
+    silently overwritten by later metadata.
+    """
+
+    if (
+        not isinstance(current.tenant_id, str)
+        or not current.tenant_id.strip()
+        or not isinstance(additional.tenant_id, str)
+        or not additional.tenant_id.strip()
+    ):
+        raise MetadataUnderstandingError(
+            "metadata understanding requires non-empty tenant_id"
+        )
+
+    if current.tenant_id != additional.tenant_id:
+        raise MetadataUnderstandingError(
+            "metadata understanding merge crosses tenant boundary"
+        )
+
+    entities = {
+        entity.doctype: entity
+        for entity in current.entities
+    }
+
+    for entity in additional.entities:
+        existing = entities.get(entity.doctype)
+
+        if existing is None:
+            entities[entity.doctype] = entity
+            continue
+
+        if _entity_signature(existing) != _entity_signature(entity):
+            raise MetadataUnderstandingError(
+                f"conflicting metadata for {entity.doctype}"
+            )
+
+        merged_provenance = tuple(
+            dict.fromkeys(
+                existing.provenance_ids + entity.provenance_ids
+            )
+        )
+
+        entities[entity.doctype] = replace(
+            existing,
+            provenance_ids=merged_provenance,
+        )
+
+    return MetadataUnderstanding(
+        tenant_id=current.tenant_id,
+        entities=tuple(
+            entities[name]
+            for name in sorted(entities)
+        ),
+    )
+
+
 def _stable_id(tenant_id: str, key: str) -> UUID:
     return uuid5(
         NAMESPACE_URL,

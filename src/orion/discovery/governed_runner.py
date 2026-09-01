@@ -100,7 +100,7 @@ def _referenced_metadata_targets(
     return frozenset(targets)
 
 
-def _preflight(
+def preflight_governed_discovery(
     plan: DiscoveryPlan,
     *,
     authorization: DiscoveryAuthorization,
@@ -253,7 +253,7 @@ def run_governed_discovery(
     Nothing is persisted or promoted by this component.
     """
 
-    _preflight(
+    preflight_governed_discovery(
         plan,
         authorization=authorization,
         understanding=understanding,
