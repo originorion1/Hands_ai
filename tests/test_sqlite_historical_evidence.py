@@ -4,11 +4,13 @@ from datetime import UTC, datetime
 import pytest
 
 from orion.contracts import Evidence, EvidenceKind, Observation
-from orion.history.evidence import HistoricalEvidenceBatch
-from orion.stores.sqlite_historical_evidence import (
+from orion.history.evidence import (
+    HistoricalEvidenceBatch,
     HistoricalEvidenceConflictError,
     HistoricalEvidenceIntegrityError,
     HistoricalEvidenceSequenceError,
+)
+from orion.stores.sqlite_historical_evidence import (
     SQLiteHistoricalEvidenceStore,
 )
 

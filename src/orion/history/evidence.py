@@ -12,7 +12,7 @@ from typing import Any, Protocol
 from uuid import UUID
 
 from ..contracts import Evidence, EvidenceKind, Observation, ObservationMode
-from ..discovery.erpnext_adapter import _validate_resource
+from ..discovery.planner import DiscoveryPlanError, validate_discovery_target
 
 _FORMAT_VERSION = 1
 _MAX_BATCH_OBSERVATIONS = 100
@@ -36,6 +36,18 @@ _EVIDENCE_KEYS = frozenset(
 
 class HistoricalEvidenceError(ValueError):
     """Raised when historical evidence is malformed or violates its contract."""
+
+
+class HistoricalEvidenceConflictError(HistoricalEvidenceError):
+    """Raised when a sequence already holds different immutable evidence."""
+
+
+class HistoricalEvidenceSequenceError(HistoricalEvidenceError):
+    """Raised when batch history is non-consecutive."""
+
+
+class HistoricalEvidenceIntegrityError(HistoricalEvidenceError):
+    """Raised when stored evidence cannot be authenticated and decoded."""
 
 
 class HistoricalEvidenceStore(Protocol):
@@ -143,13 +155,16 @@ def historical_evidence_to_json(batch: HistoricalEvidenceBatch) -> str:
         "created_at": batch.created_at.isoformat(),
         "observations": [_observation_to_data(item) for item in batch.observations],
     }
-    return json.dumps(
-        payload,
-        allow_nan=False,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
+    try:
+        return json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    except (TypeError, ValueError) as exc:
+        raise HistoricalEvidenceError("historical evidence cannot be serialized") from exc
 
 
 def historical_evidence_checksum(payload_json: str) -> str:
@@ -198,7 +213,7 @@ def _observation_to_data(observation: Observation) -> dict[str, Any]:
             "tenant_id": evidence.tenant_id,
             "observed_at": evidence.observed_at.isoformat(),
             "confidence": evidence.confidence,
-            "payload": evidence.payload,
+            "payload": _normalize_json_value(evidence.payload),
         },
     }
 
@@ -239,8 +254,8 @@ def _validate_tenant(tenant_id: str) -> None:
 
 def _validate_resource_value(resource: str) -> None:
     try:
-        _validate_resource(resource)
-    except ValueError as exc:
+        validate_discovery_target(resource)
+    except (DiscoveryPlanError, ValueError) as exc:
         raise HistoricalEvidenceError(str(exc)) from exc
 
 
@@ -274,6 +289,17 @@ def _validate_json_value(value: Any) -> None:
             _validate_json_value(item)
         return
     raise HistoricalEvidenceError("payload must be JSON-compatible")
+
+
+def _normalize_json_value(value: Any) -> Any:
+    """Convert accepted JSON-like mappings into plain JSON containers."""
+
+    _validate_json_value(value)
+    if isinstance(value, Mapping):
+        return {key: _normalize_json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_json_value(item) for item in value]
+    return value
 
 
 def _require_exact_keys(value: Any, expected: frozenset[str], name: str) -> None:

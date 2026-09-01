@@ -8,7 +8,10 @@ from pathlib import Path
 
 from ..history.evidence import (
     HistoricalEvidenceBatch,
+    HistoricalEvidenceConflictError,
     HistoricalEvidenceError,
+    HistoricalEvidenceIntegrityError,
+    HistoricalEvidenceSequenceError,
     _validate_resource_value,
     _validate_tenant,
     historical_evidence_checksum,
@@ -27,18 +30,6 @@ CREATE TABLE IF NOT EXISTS orion_historical_evidence (
     PRIMARY KEY (tenant_id, resource, sequence)
 )
 """
-
-
-class HistoricalEvidenceConflictError(HistoricalEvidenceError):
-    """Raised when a sequence already holds different immutable evidence."""
-
-
-class HistoricalEvidenceSequenceError(HistoricalEvidenceError):
-    """Raised when batch history is non-consecutive."""
-
-
-class HistoricalEvidenceIntegrityError(HistoricalEvidenceError):
-    """Raised when stored evidence cannot be authenticated and decoded."""
 
 
 class SQLiteHistoricalEvidenceStore:

@@ -2,7 +2,10 @@
 
 from .evidence import (
     HistoricalEvidenceBatch,
+    HistoricalEvidenceConflictError,
     HistoricalEvidenceError,
+    HistoricalEvidenceIntegrityError,
+    HistoricalEvidenceSequenceError,
     HistoricalEvidenceStore,
     historical_evidence_checksum,
     historical_evidence_from_json,
@@ -11,7 +14,10 @@ from .evidence import (
 
 __all__ = [
     "HistoricalEvidenceBatch",
+    "HistoricalEvidenceConflictError",
     "HistoricalEvidenceError",
+    "HistoricalEvidenceIntegrityError",
+    "HistoricalEvidenceSequenceError",
     "HistoricalEvidenceStore",
     "historical_evidence_checksum",
     "historical_evidence_from_json",

@@ -1,4 +1,5 @@
 import json
+from collections import UserDict
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -63,6 +64,11 @@ def test_rejects_cross_tenant_batch():
         batch(observations=(observation(tenant_id="customer-b"),))
 
 
+def test_rejects_wildcard_resource():
+    with pytest.raises(HistoricalEvidenceError, match="wildcard"):
+        batch(resource="*")
+
+
 def test_rejects_non_read_only_observation():
     with pytest.raises(HistoricalEvidenceError, match="READ_ONLY"):
         batch(observations=(observation(mode=ObservationMode.SHADOW),))
@@ -91,9 +97,9 @@ def test_rejects_duplicate_document_identity():
 def test_rejects_unsupported_payload_fields():
     current = historical_evidence_to_json(batch())
     payload = json.loads(current)
-    payload["unexpected"] = True
+    payload["observations"][0]["evidence"]["payload"]["unexpected"] = True
 
-    with pytest.raises(HistoricalEvidenceError, match="unsupported"):
+    with pytest.raises(HistoricalEvidenceError, match="exactly"):
         historical_evidence_from_json(json.dumps(payload))
 
 
@@ -124,3 +130,27 @@ def test_rejects_duplicate_observation_and_evidence_ids():
 def test_rejects_timezone_naive_timestamp():
     with pytest.raises(HistoricalEvidenceError, match="timezone-aware"):
         batch(created_at=datetime(2026, 9, 2, 11, tzinfo=UTC).replace(tzinfo=None))
+
+
+def test_rejects_timezone_naive_evidence_timestamp():
+    with pytest.raises(HistoricalEvidenceError, match="timezone-aware"):
+        batch(
+            observations=(
+                observation(
+                    observed_at=datetime(2026, 9, 2, 10, tzinfo=UTC).replace(tzinfo=None)
+                ),
+            )
+        )
+
+
+def test_mapping_payload_is_canonicalized_to_plain_json():
+    current = batch(
+        observations=(
+            observation(
+                record=UserDict({"name": "PINV-001", "nested": UserDict({"amount": 12.5})})
+            ),
+        )
+    )
+    restored = historical_evidence_from_json(historical_evidence_to_json(current))
+
+    assert restored.observations[0].evidence.payload["record"]["nested"]["amount"] == 12.5
