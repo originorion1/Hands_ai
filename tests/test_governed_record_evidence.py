@@ -115,6 +115,7 @@ def test_current_authorization_rejects_before_reader(
     current_envelope, current_understanding
 ):
     calls = []
+    sink_calls = []
 
     with pytest.raises(ValueError):
         run_governed_record_evidence(
@@ -122,9 +123,11 @@ def test_current_authorization_rejects_before_reader(
             envelope=current_envelope,
             understanding=current_understanding,
             reader=lambda *_: calls.append(True),
+            evidence_sink=lambda *args: sink_calls.append(args),
         )
 
     assert calls == []
+    assert sink_calls == []
 
 
 def test_reader_receives_exact_reauthorized_scope():
@@ -143,6 +146,87 @@ def test_reader_receives_exact_reauthorized_scope():
 
     assert received == [(ENTITY, (FIELD,), 3)]
     assert outcome.observations_acquired == 0
+
+
+def test_sink_receives_fresh_request_and_validated_immutable_tuple():
+    original_request = request(records=2)
+    observations = [observation(0), observation(False)]
+    received = []
+
+    def sink(reauthorized, validated):
+        received.append((reauthorized, validated))
+
+    outcome = run_governed_record_evidence(
+        original_request,
+        envelope=envelope(records=2),
+        understanding=understanding(),
+        reader=lambda *_: observations,
+        evidence_sink=sink,
+    )
+    reauthorized, validated = received[0]
+
+    assert reauthorized == original_request
+    assert reauthorized is not original_request
+    assert validated == tuple(observations)
+    with pytest.raises(TypeError):
+        validated[0] = observation()
+    assert outcome.prediction_evaluated is False
+    assert not outcome.recommendation_allowed
+    assert not outcome.promotion_allowed
+    assert not outcome.execution_allowed
+
+
+def test_complete_validation_precedes_sink_and_sink_failure_is_final():
+    sink_calls = []
+    malformed_final = observation(
+        payload={"resource": ENTITY, "record": {}}
+    )
+
+    with pytest.raises(ValueError, match="selected field"):
+        run_governed_record_evidence(
+            request(),
+            envelope=envelope(),
+            understanding=understanding(),
+            reader=lambda *_: (observation(), malformed_final),
+            evidence_sink=lambda *args: sink_calls.append(args),
+        )
+    assert sink_calls == []
+
+    def failed_sink(*args):
+        sink_calls.append(args)
+        raise RuntimeError("synthetic sink failure")
+
+    with pytest.raises(RuntimeError, match="synthetic sink failure"):
+        run_governed_record_evidence(
+            request(),
+            envelope=envelope(),
+            understanding=understanding(),
+            reader=lambda *_: (observation(),),
+            evidence_sink=failed_sink,
+        )
+    assert len(sink_calls) == 1
+
+
+def test_zero_observations_sink_behavior_is_explicit_and_deterministic():
+    sink_calls = []
+
+    def sink(reauthorized, validated):
+        sink_calls.append((reauthorized, validated))
+
+    outcomes = tuple(
+        run_governed_record_evidence(
+            request(),
+            envelope=envelope(),
+            understanding=understanding(),
+            reader=lambda *_: (),
+            evidence_sink=sink,
+        )
+        for _ in range(2)
+    )
+
+    assert outcomes[0] == outcomes[1]
+    assert outcomes[0].observations_acquired == outcomes[0].valid_count == 0
+    assert [validated for _, validated in sink_calls] == [(), ()]
 
 
 def test_raw_and_metadata_requests_fail_before_reader():
@@ -222,6 +306,7 @@ def test_malformed_observations_fail_closed(bad_observation, match):
 
 
 def test_reader_bound_type_and_exception_fail_closed():
+    sink_calls = []
     with pytest.raises(ValueError, match="record bound"):
         run_governed_record_evidence(
             request(records=1),
@@ -246,7 +331,9 @@ def test_reader_bound_type_and_exception_fail_closed():
             envelope=envelope(),
             understanding=understanding(),
             reader=failed_reader,
+            evidence_sink=lambda *args: sink_calls.append(args),
         )
+    assert sink_calls == []
 
 
 def test_missing_semantics_are_canonical_and_outcome_is_aggregate_only():
@@ -301,6 +388,7 @@ class FakeResponse:
 
 def test_erpnext_composition_is_dynamic_bounded_and_get_only():
     calls = []
+    sink_calls = []
     body = json.dumps(
         {
             "data": [
@@ -329,6 +417,7 @@ def test_erpnext_composition_is_dynamic_bounded_and_get_only():
         api_key="memory-key",
         api_secret="memory-secret",
         opener=opener,
+        evidence_sink=lambda *args: sink_calls.append(args),
     )
     http_request, _ = calls[0]
     query = parse_qs(urlsplit(http_request.full_url).query)
@@ -341,6 +430,8 @@ def test_erpnext_composition_is_dynamic_bounded_and_get_only():
     assert query["order_by"] == ["name desc"]
     assert outcome.valid_count == 1
     assert outcome.prediction_evaluated is False
+    assert sink_calls[0][0] == request(records=1)
+    assert len(sink_calls[0][1]) == 1
 
 
 def test_erpnext_capacity_fails_before_opener_without_clamping():

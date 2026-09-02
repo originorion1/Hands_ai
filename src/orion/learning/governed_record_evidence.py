@@ -21,6 +21,10 @@ def run_governed_record_evidence(
     envelope: AuthorizationEnvelope,
     understanding: MetadataUnderstanding,
     reader: Callable[[str, tuple[str, ...], int], Sequence[Observation]],
+    evidence_sink: (
+        Callable[[AuthorizedStudyRequest, tuple[Observation, ...]], None]
+        | None
+    ) = None,
 ) -> StudyOutcome:
     """Reauthorize, read, validate, and return evidence-only aggregates."""
 
@@ -29,13 +33,15 @@ def run_governed_record_evidence(
     reauthorized = authorize_intent(request.intent, envelope, understanding)
     if reauthorized != request:
         raise ValueError("request does not match current authorization")
-    intent = request.intent
+    intent = reauthorized.intent
     if intent.study_kind != "record_evidence":
         raise ValueError("record_evidence request is required")
     if len(intent.fields) != 1:
         raise ValueError("evidence-only request requires exactly one field")
     if not callable(reader):
         raise TypeError("reader must be callable")
+    if evidence_sink is not None and not callable(evidence_sink):
+        raise TypeError("evidence_sink must be callable")
 
     observations = reader(
         intent.entity,
@@ -57,7 +63,7 @@ def run_governed_record_evidence(
             raise ValueError("reader observation must be READ_ONLY")
         if evidence.kind is not EvidenceKind.API:
             raise ValueError("reader evidence must be API evidence")
-        if evidence.tenant_id != request.tenant_id:
+        if evidence.tenant_id != reauthorized.tenant_id:
             raise ValueError("reader evidence crosses tenant boundary")
         payload = evidence.payload
         if not isinstance(payload, Mapping):
@@ -72,10 +78,14 @@ def run_governed_record_evidence(
         if not is_missing_evidence(record[field]):
             valid_count += 1
 
+    validated_observations = tuple(observations)
+    if evidence_sink is not None:
+        evidence_sink(reauthorized, validated_observations)
+
     return StudyOutcome(
         entity=intent.entity,
         fields=intent.fields,
-        observations_acquired=len(observations),
+        observations_acquired=len(validated_observations),
         valid_count=valid_count,
         coverage_change=0.0,
         uncertainty_reduction=0.0,

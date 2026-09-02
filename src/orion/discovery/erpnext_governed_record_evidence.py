@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from ..contracts import Observation
 from ..learning.autonomous_loop import (
     AuthorizationEnvelope,
     AuthorizedStudyRequest,
@@ -28,6 +29,10 @@ def run_erpnext_submitted_company_record_evidence(
     api_key: str,
     api_secret: str,
     opener: Callable[..., Any] | None = None,
+    evidence_sink: (
+        Callable[[AuthorizedStudyRequest, tuple[Observation, ...]], None]
+        | None
+    ) = None,
 ) -> StudyOutcome:
     """Run one authorized study through the existing bounded GET adapter."""
 
@@ -56,4 +61,5 @@ def run_erpnext_submitted_company_record_evidence(
         envelope=envelope,
         understanding=understanding,
         reader=reader,
+        evidence_sink=evidence_sink,
     )
