@@ -1,10 +1,12 @@
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import parse_qs, unquote, urlsplit
 
 import pytest
 
 from orion.contracts import Evidence, EvidenceKind, Observation
+from orion.discovery.erpnext_historical_capture import FIRST_CAPTURE_FIELDS
 from orion.discovery.erpnext_historical_corpus_expansion import (
     CORPUS_MAX_NEW_OBSERVATIONS,
     CORPUS_WINDOW_SIZE,
@@ -124,8 +126,16 @@ def test_query_profile_and_fixed_adapter_limit(tmp_path):
     seed(path)
     calls = []
     run(path, [f"NEW-{i}" for i in range(100)], calls)
-    query = calls[0].full_url
-    assert "limit_page_length=100" in query and "order_by=posting_date+desc%2C+name+desc" in query
+    request = calls[0]
+    parts = urlsplit(request.full_url)
+    query = parse_qs(parts.query)
+    assert request.method == "GET"
+    assert unquote(parts.path.rsplit("/", 1)[-1]) == RESOURCE
+    assert json.loads(query["fields"][0]) == list(FIRST_CAPTURE_FIELDS)
+    assert json.loads(query["filters"][0]) == [["company", "=", COMPANY], ["docstatus", "=", 1]]
+    assert query["limit_start"] == ["0"]
+    assert query["limit_page_length"] == ["100"]
+    assert query["order_by"] == ["posting_date desc, name desc"]
     assert CORPUS_WINDOW_SIZE == 100 and CORPUS_MAX_NEW_OBSERVATIONS == 75
     with pytest.raises(ValueError):
         ERPNextHistoricalSampleAdapter(base_url="https://x", tenant_id=TENANT, api_key="k", api_secret="s", resource=RESOURCE, company=COMPANY, fields=("name", "company", "docstatus"), sample_size=26)
