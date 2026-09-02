@@ -312,6 +312,39 @@ def _understanding(value: object) -> MetadataUnderstanding:
     return value
 
 
+def _structural_relevance(
+    understanding: MetadataUnderstanding,
+    coverage: tuple[EvidenceCoverage, ...],
+) -> dict[str, float]:
+    entities = {entity.doctype for entity in understanding.entities}
+    adjacent = {entity: set() for entity in entities}
+    for entity in understanding.entities:
+        for field in entity.fields:
+            target = relationship_target(field)
+            if target in entities:
+                adjacent[entity.doctype].add(target)
+                adjacent[target].add(entity.doctype)
+
+    distances = {
+        item.entity: 0
+        for item in coverage
+        if item.observations_seen > 0 and item.entity in entities
+    }
+    frontier = set(distances)
+    while frontier:
+        next_frontier: set[str] = set()
+        for entity in frontier:
+            for neighbor in adjacent[entity]:
+                if neighbor not in distances:
+                    distances[neighbor] = distances[entity] + 1
+                    next_frontier.add(neighbor)
+        frontier = next_frontier
+    return {
+        entity: 1.0 / (distance + 1)
+        for entity, distance in distances.items()
+    }
+
+
 def discover_opportunities(
     objective: LearningObjective,
     understanding: MetadataUnderstanding,
@@ -324,6 +357,7 @@ def discover_opportunities(
     current = {(item.entity, item.field): item for item in coverage}
     metadata = {item.target: item for item in memory.metadata}
     known_entities = {entity.doctype for entity in understanding.entities}
+    relevance_by_entity = _structural_relevance(understanding, coverage)
     weights = dict(objective.aim_weights)
     opportunities: list[StudyOpportunity] = []
     for entity in understanding.entities:
@@ -336,14 +370,16 @@ def discover_opportunities(
             penalty = min(2.0, state.study_count * 0.5)
             if (entity.doctype, field.fieldname) in memory.attempted:
                 penalty += 1.5
+            relevance = relevance_by_entity.get(entity.doctype, 0.0)
             score = (
                 weights.get("reduce_human_input", 0.0)
                 + gap * weights.get("increase_evidence_coverage", 0.0)
                 + importance * weights.get("increase_predictability", 0.0)
                 + (1.0 if state.prior_error is not None else 0.0) * weights.get("reduce_uncertainty_error", 0.0)
+                + relevance
                 - penalty
             )
-            opportunities.append(StudyOpportunity(entity.doctype, (field.fieldname,), score, (("gap", gap), ("importance", importance), ("penalty", -penalty)), "generic structural evidence gap"))
+            opportunities.append(StudyOpportunity(entity.doctype, (field.fieldname,), score, (("gap", gap), ("importance", importance), ("relevance", relevance), ("penalty", -penalty)), "generic structural evidence gap"))
             target = relationship_target(field)
             if target and target not in known_entities:
                 state_meta = metadata.get(target, MetadataStudyState(target))
@@ -449,7 +485,10 @@ def run_autonomous_loop(objective: LearningObjective, understanding: MetadataUnd
                     authorize_intent(generate_intent(opportunity, envelope.tenant_id, envelope.max_records_per_proposal), envelope, understanding)
                 except ValueError:
                     continue
-                if opportunity.score > USEFUL_GAIN_THRESHOLD:
+                relevance = dict(opportunity.score_components).get(
+                    "relevance", 0.0
+                )
+                if opportunity.score - relevance > USEFUL_GAIN_THRESHOLD:
                     useful = True
                     break
             if not useful:

@@ -300,6 +300,7 @@ def test_offline_composition_is_proposal_only_and_safe(tmp_path, monkeypatch):
     assert report.recommendation_allowed is False
     assert report.promotion_allowed is False
     assert report.execution_allowed is False
+    assert report.selected_score_components
     assert checkpoint_path.read_bytes() == checkpoint_bytes
     assert history_path.read_bytes() == history_bytes
     for forbidden in (

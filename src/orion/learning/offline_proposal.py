@@ -118,6 +118,7 @@ class OfflineProposalReport:
     selected_entity: str | None
     selected_fields: tuple[str, ...]
     selected_score: float | None
+    selected_score_components: tuple[tuple[str, float], ...]
     selected_rationale: str | None
     proposal_only: bool = True
     authorization_granted: bool = False
@@ -184,6 +185,9 @@ def run_offline_proposal(
         selected_entity=(selected.entity if selected else None),
         selected_fields=(selected.fields if selected else ()),
         selected_score=(selected.score if selected else None),
+        selected_score_components=(
+            selected.score_components if selected else ()
+        ),
         selected_rationale=(selected.rationale if selected else None),
     )
 

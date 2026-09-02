@@ -61,6 +61,79 @@ def test_required_unobserved_and_low_coverage_raise_priority():
     assert high[0].score > low[0].score
 
 
+def test_evidence_bearing_entity_wins_before_lexical_tie_break():
+    understanding = MetadataUnderstanding(
+        "tenant-a",
+        (
+            StructuralEntity(
+                "Alpha",
+                None,
+                False,
+                False,
+                False,
+                (
+                    StructuralField(
+                        "Alpha", "required", "Data", None, None,
+                        True, False, False, False,
+                    ),
+                ),
+                (),
+            ),
+            StructuralEntity(
+                "Bravo",
+                None,
+                False,
+                False,
+                False,
+                (
+                    StructuralField(
+                        "Bravo", "related", "Link", None, "Zulu",
+                        True, False, False, False,
+                    ),
+                ),
+                (),
+            ),
+            StructuralEntity(
+                "Zulu",
+                None,
+                False,
+                False,
+                False,
+                (
+                    StructuralField(
+                        "Zulu", "anchor", "Data", None, None,
+                        False, True, False, False,
+                    ),
+                    StructuralField(
+                        "Zulu", "required", "Data", None, None,
+                        True, False, False, False,
+                    ),
+                ),
+                (),
+            ),
+        ),
+    )
+
+    opportunities = discover_opportunities(
+        objective(),
+        understanding,
+        (
+            EvidenceCoverage(
+                "Zulu", "anchor", observations_seen=1,
+                valid_observations=1,
+            ),
+        ),
+    )
+    selected = opportunities[0]
+
+    assert (selected.entity, selected.fields) == ("Zulu", ("required",))
+    relevance = {
+        item.entity: dict(item.score_components)["relevance"]
+        for item in opportunities
+    }
+    assert relevance == {"Alpha": 0.0, "Bravo": 0.5, "Zulu": 1.0}
+
+
 def test_authorization_rejects_wrong_scope_wildcards_and_budget():
     intent = generate_intent(discover_opportunities(objective(), model_a(), ())[0], "tenant-a", 5)
     assert authorize_intent(intent, envelope(), model_a())
