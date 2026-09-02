@@ -50,12 +50,13 @@ def run_governed_record_evidence(
     )
     if not isinstance(observations, Sequence):
         raise TypeError("reader must return a bounded observation sequence")
-    if len(observations) > intent.requested_records:
+    validated_observations = tuple(observations)
+    if len(validated_observations) > intent.requested_records:
         raise ValueError("reader exceeded requested record bound")
 
     field = intent.fields[0]
     valid_count = 0
-    for observation in observations:
+    for observation in validated_observations:
         if not isinstance(observation, Observation):
             raise TypeError("reader must return Observation values")
         evidence = observation.evidence
@@ -78,7 +79,6 @@ def run_governed_record_evidence(
         if not is_missing_evidence(record[field]):
             valid_count += 1
 
-    validated_observations = tuple(observations)
     if evidence_sink is not None:
         evidence_sink(reauthorized, validated_observations)
 

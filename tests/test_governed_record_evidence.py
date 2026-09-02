@@ -1,4 +1,5 @@
 import json
+from collections.abc import Sequence
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -174,6 +175,42 @@ def test_sink_receives_fresh_request_and_validated_immutable_tuple():
     assert not outcome.recommendation_allowed
     assert not outcome.promotion_allowed
     assert not outcome.execution_allowed
+
+
+def test_mutable_sequence_is_snapshotted_once_before_validation_and_sink():
+    valid = observation(0)
+    changed = observation(payload={"resource": ENTITY, "record": {}})
+
+    class ChangingSequence(Sequence):
+        def __init__(self):
+            self.iterations = 0
+
+        def __len__(self):
+            return 1
+
+        def __getitem__(self, index):
+            if index == 0:
+                return valid
+            raise IndexError
+
+        def __iter__(self):
+            self.iterations += 1
+            return iter((valid,) if self.iterations == 1 else (changed,))
+
+    source = ChangingSequence()
+    sink_calls = []
+
+    outcome = run_governed_record_evidence(
+        request(),
+        envelope=envelope(),
+        understanding=understanding(),
+        reader=lambda *_: source,
+        evidence_sink=lambda _, observations: sink_calls.append(observations),
+    )
+
+    assert source.iterations == 1
+    assert sink_calls == [(valid,)]
+    assert outcome.observations_acquired == outcome.valid_count == 1
 
 
 def test_complete_validation_precedes_sink_and_sink_failure_is_final():
