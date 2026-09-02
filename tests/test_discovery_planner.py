@@ -146,9 +146,7 @@ def test_non_relationship_options_do_not_propose_metadata_targets():
         understanding,
         authorization=DiscoveryAuthorization(
             tenant_id="customer-a",
-            metadata_targets=frozenset(
-                {"Open\nClosed", "Customer"}
-            ),
+            metadata_targets=frozenset({"Customer"}),
         ),
     )
 
@@ -317,4 +315,15 @@ def test_rejects_wildcard_authorization():
         DiscoveryAuthorization(
             tenant_id="customer-a",
             metadata_targets=frozenset({"*"}),
+        )
+
+
+def test_rejects_control_character_authorization_target():
+    with pytest.raises(
+        DiscoveryPlanError,
+        match="control characters",
+    ):
+        DiscoveryAuthorization(
+            tenant_id="customer-a",
+            metadata_targets=frozenset({"Open\nClosed"}),
         )
