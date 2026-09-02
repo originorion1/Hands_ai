@@ -55,6 +55,14 @@ class MetadataUnderstanding:
     entities: tuple[StructuralEntity, ...]
 
 
+def is_collection_relationship(field: StructuralField) -> bool:
+    """Return whether a field represents a related collection."""
+
+    if not isinstance(field, StructuralField):
+        raise TypeError("field must be StructuralField")
+    return field.fieldtype in {"Table", "Table MultiSelect"}
+
+
 def relationship_target(field: StructuralField) -> str | None:
     """Return a relationship target only for relationship field types.
 

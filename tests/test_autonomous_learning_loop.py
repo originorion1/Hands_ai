@@ -23,6 +23,7 @@ from orion.understanding.metadata import (
     MetadataUnderstanding,
     StructuralEntity,
     StructuralField,
+    is_collection_relationship,
     project_metadata_understanding,
     relationship_target,
 )
@@ -527,6 +528,11 @@ def test_unresolved_table_relationship_is_a_metadata_gap(fieldtype):
         and item.entity == "Missing Child"
         for item in opportunities
     )
+    assert not any(
+        item.study_kind == "record_evidence"
+        and item.fields == ("value",)
+        for item in opportunities
+    )
 
 
 @pytest.mark.parametrize("fieldtype", ["Link", "Table"])
@@ -548,6 +554,68 @@ def test_already_understood_relationship_target_is_not_a_metadata_gap(
         and item.entity == "Understood Target"
         for item in opportunities
     )
+
+
+@pytest.mark.parametrize("fieldtype", ["Data", "Link"])
+def test_scalar_and_link_fields_remain_record_evidence_candidates(fieldtype):
+    understanding = relationship_model(fieldtype, "Known", include_target=True)
+
+    opportunities = discover_opportunities(objective(), understanding, ())
+
+    assert any(
+        item.study_kind == "record_evidence"
+        and item.entity == "Choice"
+        and item.fields == ("value",)
+        for item in opportunities
+    )
+
+
+@pytest.mark.parametrize("fieldtype", ["Table", "Table MultiSelect"])
+def test_known_collection_target_is_related_but_not_direct_record_evidence(
+    fieldtype,
+):
+    source = StructuralEntity(
+        "Source",
+        None,
+        False,
+        False,
+        False,
+        (
+            StructuralField(
+                "Source", "items", fieldtype, None, "Related",
+                False, False, False, False,
+            ),
+        ),
+        (),
+    )
+    related = StructuralEntity(
+        "Related",
+        None,
+        False,
+        True,
+        False,
+        (
+            StructuralField(
+                "Related", "value", "Data", None, None,
+                False, False, False, False,
+            ),
+        ),
+        (),
+    )
+    understanding = MetadataUnderstanding("tenant-a", (source, related))
+    coverage = (EvidenceCoverage("Source", "items", 1, 1),)
+
+    first = discover_opportunities(objective(), understanding, coverage)
+    second = discover_opportunities(objective(), understanding, coverage)
+    related_opportunity = next(
+        item for item in first
+        if item.entity == "Related" and item.fields == ("value",)
+    )
+
+    assert is_collection_relationship(source.fields[0]) is True
+    assert not any(item.fields == ("items",) for item in first)
+    assert dict(related_opportunity.score_components)["relevance"] == 0.5
+    assert first == second
 
 
 def test_select_multiline_options_are_not_a_relationship_and_do_not_crash():

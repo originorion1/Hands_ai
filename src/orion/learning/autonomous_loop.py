@@ -13,7 +13,11 @@ from enum import StrEnum
 from typing import Any
 
 from ..discovery.planner import validate_discovery_target
-from ..understanding.metadata import MetadataUnderstanding, relationship_target
+from ..understanding.metadata import (
+    MetadataUnderstanding,
+    is_collection_relationship,
+    relationship_target,
+)
 
 
 class StudyStopReason(StrEnum):
@@ -379,22 +383,23 @@ def discover_opportunities(
         for field in entity.fields:
             if field.read_only or field.hidden:
                 continue
-            state = current.get((entity.doctype, field.fieldname), EvidenceCoverage(entity.doctype, field.fieldname))
-            gap = 3.0 if state.observations_seen == 0 else max(0.0, 2.0 - state.prior_prediction_coverage) + state.missing_count * 0.1
-            importance = 2.0 if field.required else 0.5
-            penalty = min(2.0, state.study_count * 0.5)
-            if (entity.doctype, field.fieldname) in memory.attempted:
-                penalty += 1.5
             relevance = relevance_by_entity.get(entity.doctype, 0.0)
-            score = (
-                weights.get("reduce_human_input", 0.0)
-                + gap * weights.get("increase_evidence_coverage", 0.0)
-                + importance * weights.get("increase_predictability", 0.0)
-                + (1.0 if state.prior_error is not None else 0.0) * weights.get("reduce_uncertainty_error", 0.0)
-                + relevance
-                - penalty
-            )
-            opportunities.append(StudyOpportunity(entity.doctype, (field.fieldname,), score, (("gap", gap), ("importance", importance), ("relevance", relevance), ("penalty", -penalty)), "generic structural evidence gap"))
+            if not is_collection_relationship(field):
+                state = current.get((entity.doctype, field.fieldname), EvidenceCoverage(entity.doctype, field.fieldname))
+                gap = 3.0 if state.observations_seen == 0 else max(0.0, 2.0 - state.prior_prediction_coverage) + state.missing_count * 0.1
+                importance = 2.0 if field.required else 0.5
+                penalty = min(2.0, state.study_count * 0.5)
+                if (entity.doctype, field.fieldname) in memory.attempted:
+                    penalty += 1.5
+                score = (
+                    weights.get("reduce_human_input", 0.0)
+                    + gap * weights.get("increase_evidence_coverage", 0.0)
+                    + importance * weights.get("increase_predictability", 0.0)
+                    + (1.0 if state.prior_error is not None else 0.0) * weights.get("reduce_uncertainty_error", 0.0)
+                    + relevance
+                    - penalty
+                )
+                opportunities.append(StudyOpportunity(entity.doctype, (field.fieldname,), score, (("gap", gap), ("importance", importance), ("relevance", relevance), ("penalty", -penalty)), "generic structural evidence gap"))
             target = relationship_target(field)
             if target and target not in known_entities:
                 state_meta = metadata.get(target, MetadataStudyState(target))
