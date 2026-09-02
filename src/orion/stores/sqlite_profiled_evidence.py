@@ -54,8 +54,15 @@ class SQLiteProfiledEvidenceStore:
             expected = 1 if latest is None else latest + 1
             if batch.sequence != expected:
                 raise HistoricalEvidenceError("profiled sequence must be consecutive")
-            existing_payloads = connection.execute("SELECT payload_json FROM orion_profiled_evidence WHERE tenant_id=? AND resource=? AND profile_id=?", (batch.tenant_id, batch.resource, batch.profile_id)).fetchall()
-            prior = [profiled_evidence_from_json(item[0]) for item in existing_payloads]
+            existing_payloads = connection.execute("SELECT sequence, created_at, payload_json, checksum_sha256 FROM orion_profiled_evidence WHERE tenant_id=? AND resource=? AND profile_id=? ORDER BY sequence", (batch.tenant_id, batch.resource, batch.profile_id)).fetchall()
+            prior = []
+            for expected_prior, (prior_sequence, prior_created_at, prior_payload, prior_checksum) in enumerate(existing_payloads, 1):
+                if prior_sequence != expected_prior or not hmac.compare_digest(prior_checksum, profiled_evidence_checksum(prior_payload)):
+                    raise HistoricalEvidenceIntegrityError("prior profiled evidence integrity verification failed")
+                decoded = profiled_evidence_from_json(prior_payload)
+                if decoded.tenant_id != batch.tenant_id or decoded.resource != batch.resource or decoded.profile_id != batch.profile_id or decoded.sequence != prior_sequence or decoded.created_at.isoformat() != prior_created_at:
+                    raise HistoricalEvidenceIntegrityError("prior profiled evidence envelope mismatch")
+                prior.append(decoded)
             prior_names = {item.evidence.payload["record"]["name"] for old in prior for item in old.observations}
             prior_observations = {item.observation_id for old in prior for item in old.observations}
             prior_evidence = {item.evidence.evidence_id for old in prior for item in old.observations}

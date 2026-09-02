@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -144,8 +145,16 @@ class _PrivateRichTransport:
         if not document["items"] or len(document["items"]) > 50 or len(document["taxes"]) > 20:
             raise HistoricalEvidenceError("rich capture child row bounds are invalid")
         for context_field in ("supplier", "posting_date", "currency", "credit_to"):
-            if not isinstance(document[context_field], str) or not document[context_field].strip():
+            if not _non_empty_string(document[context_field]):
                 raise HistoricalEvidenceError("rich capture parent context is invalid")
+        for date_field in ("posting_date", "due_date"):
+            if not _parse_date(document[date_field]):
+                raise HistoricalEvidenceError("rich capture parent date is invalid")
+        if not _finite_number(document["grand_total"]):
+            raise HistoricalEvidenceError("rich capture grand_total is invalid")
+        for optional_field in ("cost_center", "project", "payment_terms_template", "taxes_and_charges", "purchase_order", "set_warehouse"):
+            if not _optional_string(document[optional_field]):
+                raise HistoricalEvidenceError("rich capture optional parent field is invalid")
         projected = {field: document[field] for field in PARENT_FIELDS}
         projected["items"] = [_project_row(row, ITEM_FIELDS) for row in document["items"]]
         projected["taxes"] = [_project_row(row, TAX_FIELDS) for row in document["taxes"]]
@@ -155,12 +164,50 @@ class _PrivateRichTransport:
 def _project_row(row: object, fields: tuple[str, ...]) -> dict[str, object]:
     if not isinstance(row, Mapping):
         raise HistoricalEvidenceError("rich capture child row is invalid")
-    if not isinstance(row.get("item_name"), str) and "item_name" in fields:
+    if fields == TAX_FIELDS:
+        for text_field in ("account_head", "add_deduct_tax", "charge_type"):
+            if not _non_empty_string(row.get(text_field)):
+                raise HistoricalEvidenceError("rich capture tax context is invalid")
+        if not _optional_string(row.get("cost_center")):
+            raise HistoricalEvidenceError("rich capture optional tax field is invalid")
+        for numeric_field in ("rate", "tax_amount"):
+            if row.get(numeric_field) is not None and not _finite_number(row[numeric_field]):
+                raise HistoricalEvidenceError("rich capture numeric tax field is invalid")
+        if row.get("included_in_print_rate") is not None and type(row["included_in_print_rate"]) is not bool:
+            raise HistoricalEvidenceError("rich capture tax boolean field is invalid")
+        return {field: row.get(field) for field in fields}
+    if "item_name" in fields and not _non_empty_string(row.get("item_name")):
         raise HistoricalEvidenceError("rich capture item_name is required")
     for numeric_field in ("qty", "rate", "amount"):
-        if numeric_field in fields and (type(row.get(numeric_field)) not in {int, float} or isinstance(row.get(numeric_field), bool)):
+        if numeric_field in fields and not _finite_number(row.get(numeric_field)):
             raise HistoricalEvidenceError("rich capture numeric child field is invalid")
     for text_field in ("account_head", "add_deduct_tax", "charge_type"):
-        if text_field in fields and (not isinstance(row.get(text_field), str) or not row[text_field].strip()):
+        if text_field in fields and not _non_empty_string(row.get(text_field)):
             raise HistoricalEvidenceError("rich capture tax context is invalid")
+    for optional_field in set(fields) - {"item_name", "qty", "rate", "amount", "account_head", "add_deduct_tax", "charge_type", "included_in_print_rate"}:
+        if not _optional_string(row.get(optional_field)):
+            raise HistoricalEvidenceError("rich capture optional child field is invalid")
+    if "included_in_print_rate" in fields and row.get("included_in_print_rate") is not None and type(row["included_in_print_rate"]) is not bool:
+        raise HistoricalEvidenceError("rich capture tax boolean field is invalid")
     return {field: row.get(field) for field in fields}
+
+
+def _non_empty_string(value: object) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and value == value.strip()
+
+
+def _optional_string(value: object) -> bool:
+    return value is None or _non_empty_string(value)
+
+
+def _finite_number(value: object) -> bool:
+    return type(value) in {int, float} and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _parse_date(value: object) -> date | None:
+    if not _non_empty_string(value):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
