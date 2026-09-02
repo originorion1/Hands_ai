@@ -1,5 +1,4 @@
 import sqlite3
-from pathlib import Path
 
 import pytest
 
@@ -14,35 +13,28 @@ from orion.stores.sqlite_historical_evidence import SQLiteHistoricalEvidenceStor
         (SQLiteHistoricalEvidenceStore, "orion_historical_evidence"),
     ),
 )
-def test_read_only_connection_rejects_sql_and_preserves_sidecars(
+def test_read_only_connection_sees_wal_and_rejects_sql(
     tmp_path, store_type, table_name
 ):
     path = tmp_path / "state.sqlite3"
     store_type(path)
-    tracked_paths = (path, Path(f"{path}-wal"), Path(f"{path}-shm"))
-    before = _snapshot(tracked_paths)
-
-    store = store_type(path, read_only=True)
-    if store_type is SQLiteStudyCheckpointStore:
-        assert store.load_latest(tenant_id="synthetic-tenant") is None
-    else:
-        assert store.load_all(
-            tenant_id="synthetic-tenant",
-            resource="Synthetic Resource",
-        ) == ()
-
-    connection = store._connect()
+    writer = sqlite3.connect(path)
     try:
-        with pytest.raises(sqlite3.OperationalError, match="readonly"):
-            connection.execute(f"DELETE FROM {table_name}")
+        assert writer.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        writer.execute("CREATE TABLE wal_probe (value TEXT NOT NULL)")
+        writer.execute("INSERT INTO wal_probe VALUES ('committed-through-wal')")
+        writer.commit()
+        assert path.with_name(f"{path.name}-wal").stat().st_size > 0
+
+        store = store_type(path, read_only=True)
+        connection = store._connect()
+        try:
+            assert connection.execute("SELECT value FROM wal_probe").fetchone() == (
+                "committed-through-wal",
+            )
+            with pytest.raises(sqlite3.OperationalError, match="readonly"):
+                connection.execute(f"DELETE FROM {table_name}")
+        finally:
+            connection.close()
     finally:
-        connection.close()
-
-    assert _snapshot(tracked_paths) == before
-
-
-def _snapshot(paths: tuple[Path, ...]) -> tuple[tuple[bool, bytes | None], ...]:
-    return tuple(
-        (path.exists(), path.read_bytes() if path.exists() else None)
-        for path in paths
-    )
+        writer.close()
