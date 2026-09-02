@@ -75,7 +75,7 @@ class SQLiteHistoricalEvidenceStore:
     def _connect(self) -> sqlite3.Connection:
         if self._read_only:
             return sqlite3.connect(
-                f"{self._path.resolve().as_uri()}?mode=ro",
+                f"{self._path.resolve().as_uri()}?mode=ro&immutable=1",
                 timeout=5.0,
                 uri=True,
             )
