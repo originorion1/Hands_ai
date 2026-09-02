@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
 
-from ..understanding.metadata import MetadataUnderstanding
+from ..understanding.metadata import MetadataUnderstanding, relationship_target
 
 
 class DiscoveryPlanError(ValueError):
@@ -125,16 +125,8 @@ def plan_authorized_discovery(
 
     for entity in understanding.entities:
         for field in entity.fields:
-            if field.fieldtype not in {
-                "Link",
-                "Table",
-                "Table MultiSelect",
-            }:
-                continue
-
-            target = field.options
-
-            if not isinstance(target, str) or not target:
+            target = relationship_target(field)
+            if target is None:
                 continue
 
             validate_discovery_target(target)

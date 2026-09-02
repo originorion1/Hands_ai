@@ -16,11 +16,16 @@ from orion.learning.autonomous_loop import (
     resume_checkpoint,
     run_autonomous_loop,
 )
-from orion.understanding.metadata import MetadataUnderstanding, StructuralEntity, StructuralField
+from orion.understanding.metadata import (
+    MetadataUnderstanding,
+    StructuralEntity,
+    StructuralField,
+    relationship_target,
+)
 
 
 def model_a():
-    fields = (StructuralField("DocumentA", "field_alpha", "Data", None, "ReferenceA", True, False, False, False), StructuralField("DocumentA", "field_gamma", "Data", None, None, False, False, False, False), StructuralField("DocumentA", "layout", "Section Break", None, None, False, True, False, False))
+    fields = (StructuralField("DocumentA", "field_alpha", "Link", None, "ReferenceA", True, False, False, False), StructuralField("DocumentA", "field_gamma", "Data", None, None, False, False, False, False), StructuralField("DocumentA", "layout", "Section Break", None, None, False, True, False, False))
     return MetadataUnderstanding("tenant-a", (StructuralEntity("DocumentA", None, False, False, False, fields, ()),))
 
 
@@ -199,3 +204,17 @@ def test_checkpoint_rejects_narrowed_record_scope_and_coverage():
 def test_two_unrelated_real_schemas_use_same_planner():
     assert discover_opportunities(objective(), model_b(), ())[0].entity == "RecordB"
     assert discover_opportunities(objective(), model_single(), ())[0].entity == "Solo"
+
+
+def test_options_only_becomes_relationship_for_relationship_field_types():
+    understanding = MetadataUnderstanding("tenant-a", (StructuralEntity("Choice", None, False, False, False, (
+        StructuralField("Choice", "status", "Select", None, "Alpha\nBeta", False, False, False, False),
+        StructuralField("Choice", "note", "Data", None, "Reference", False, False, False, False),
+        StructuralField("Choice", "link", "Link", None, "MissingEntity", False, False, False, False),
+    ), ()),))
+    assert relationship_target(understanding.entities[0].fields[0]) is None
+    assert relationship_target(understanding.entities[0].fields[1]) is None
+    assert relationship_target(understanding.entities[0].fields[2]) == "MissingEntity"
+    opportunities = discover_opportunities(objective(), understanding, ())
+    assert not any(item.study_kind == "metadata_gap" and item.entity in {"Reference", "Alpha\nBeta"} for item in opportunities)
+    assert any(item.study_kind == "metadata_gap" and item.entity == "MissingEntity" for item in opportunities)

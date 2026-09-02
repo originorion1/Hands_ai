@@ -55,6 +55,21 @@ class MetadataUnderstanding:
     entities: tuple[StructuralEntity, ...]
 
 
+def relationship_target(field: StructuralField) -> str | None:
+    """Return a relationship target only for relationship field types.
+
+    ``options`` is also used by selectable/enumerated fields and may contain
+    arbitrary display text.  It is never a relationship signal by itself.
+    """
+    if not isinstance(field, StructuralField):
+        raise TypeError("field must be StructuralField")
+    if field.fieldtype not in {"Link", "Table", "Table MultiSelect"}:
+        return None
+    if not isinstance(field.options, str) or not field.options or field.options != field.options.strip() or any(ord(char) < 32 for char in field.options) or "\n" in field.options or "\r" in field.options:
+        return None
+    return field.options
+
+
 @dataclass(frozen=True, slots=True)
 class MetadataProjectionReport:
     added_nodes: int
@@ -477,12 +492,9 @@ def project_metadata_understanding(
                 provenance_ids=entity.provenance_ids,
             )
 
-            if (
-                field.fieldtype
-                in {"Link", "Table", "Table MultiSelect"}
-                and field.options in schema_ids
-            ):
-                target_id = schema_ids[field.options]
+            target = relationship_target(field)
+            if target in schema_ids:
+                target_id = schema_ids[target]
 
                 relates_id = _stable_id(
                     tenant_id,

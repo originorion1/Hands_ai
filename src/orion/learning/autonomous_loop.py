@@ -13,7 +13,7 @@ from enum import StrEnum
 from typing import Any
 
 from ..discovery.planner import validate_discovery_target
-from ..understanding.metadata import MetadataUnderstanding
+from ..understanding.metadata import MetadataUnderstanding, relationship_target
 
 
 class StudyStopReason(StrEnum):
@@ -344,12 +344,13 @@ def discover_opportunities(
                 - penalty
             )
             opportunities.append(StudyOpportunity(entity.doctype, (field.fieldname,), score, (("gap", gap), ("importance", importance), ("penalty", -penalty)), "generic structural evidence gap"))
-            if field.options and field.options not in known_entities:
-                state_meta = metadata.get(field.options, MetadataStudyState(field.options))
+            target = relationship_target(field)
+            if target and target not in known_entities:
+                state_meta = metadata.get(target, MetadataStudyState(target))
                 meta_penalty = min(2.0, state_meta.study_count * 0.5)
                 if state_meta.resolved:
                     continue
-                opportunities.append(StudyOpportunity(field.options, (), weights.get("increase_evidence_coverage", 0.0) - meta_penalty, (("metadata_gap", 1.0), ("penalty", -meta_penalty)), "unresolved structural relationship", "metadata_gap"))
+                opportunities.append(StudyOpportunity(target, (), weights.get("increase_evidence_coverage", 0.0) - meta_penalty, (("metadata_gap", 1.0), ("penalty", -meta_penalty)), "unresolved structural relationship", "metadata_gap"))
     return tuple(sorted(opportunities, key=lambda item: (-item.score, item.entity, item.fields)))
 
 
