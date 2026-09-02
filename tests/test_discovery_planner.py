@@ -120,6 +120,41 @@ def test_does_not_replan_metadata_already_understood():
     assert plan.is_empty
 
 
+def test_non_relationship_options_do_not_propose_metadata_targets():
+    understanding = MetadataUnderstanding(
+        tenant_id="customer-a",
+        entities=(
+            entity(
+                "Company",
+                fields=(
+                    field(
+                        "status",
+                        fieldtype="Select",
+                        options="Open\nClosed",
+                    ),
+                    field(
+                        "reference_note",
+                        fieldtype="Data",
+                        options="Customer",
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    plan = plan_authorized_discovery(
+        understanding,
+        authorization=DiscoveryAuthorization(
+            tenant_id="customer-a",
+            metadata_targets=frozenset(
+                {"Open\nClosed", "Customer"}
+            ),
+        ),
+    )
+
+    assert plan.is_empty
+
+
 def test_plans_records_only_after_structure_is_understood():
     understanding = company_understanding()
 

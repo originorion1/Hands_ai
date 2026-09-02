@@ -93,6 +93,48 @@ def test_checkpoint_json_round_trip():
     assert restored == original
 
 
+def test_checkpoint_round_trip_preserves_relationship_and_other_options():
+    fields = (
+        StructuralField(
+            "Company",
+            "status",
+            "Select",
+            None,
+            "Open\nClosed",
+            False,
+            False,
+            False,
+            False,
+        ),
+        StructuralField(
+            "Company",
+            "contacts",
+            "Table MultiSelect",
+            None,
+            "Contact",
+            False,
+            False,
+            False,
+            False,
+        ),
+    )
+    company = StructuralEntity(
+        "Company",
+        None,
+        False,
+        False,
+        False,
+        fields,
+        (uuid4(),),
+    )
+    original = checkpoint(entities=(company,))
+
+    restored = checkpoint_from_json(checkpoint_to_json(original))
+
+    assert restored == original
+    assert restored.understanding.entities[0].fields == fields
+
+
 def test_checkpoint_json_is_deterministic():
     current = checkpoint()
 

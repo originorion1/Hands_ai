@@ -16,10 +16,12 @@ from orion.learning.autonomous_loop import (
     resume_checkpoint,
     run_autonomous_loop,
 )
+from orion.understanding.graph import GraphStore, RelationshipType
 from orion.understanding.metadata import (
     MetadataUnderstanding,
     StructuralEntity,
     StructuralField,
+    project_metadata_understanding,
     relationship_target,
 )
 
@@ -206,15 +208,153 @@ def test_two_unrelated_real_schemas_use_same_planner():
     assert discover_opportunities(objective(), model_single(), ())[0].entity == "Solo"
 
 
-def test_options_only_becomes_relationship_for_relationship_field_types():
-    understanding = MetadataUnderstanding("tenant-a", (StructuralEntity("Choice", None, False, False, False, (
-        StructuralField("Choice", "status", "Select", None, "Alpha\nBeta", False, False, False, False),
-        StructuralField("Choice", "note", "Data", None, "Reference", False, False, False, False),
-        StructuralField("Choice", "link", "Link", None, "MissingEntity", False, False, False, False),
-    ), ()),))
+def relationship_model(fieldtype, options, *, include_target=False):
+    source = StructuralEntity(
+        "Choice",
+        None,
+        False,
+        False,
+        False,
+        (
+            StructuralField(
+                "Choice",
+                "value",
+                fieldtype,
+                None,
+                options,
+                False,
+                False,
+                False,
+                False,
+            ),
+        ),
+        (),
+    )
+    entities = (source,)
+    if include_target:
+        entities += (
+            StructuralEntity(
+                options,
+                None,
+                False,
+                False,
+                False,
+                (),
+                (),
+            ),
+        )
+    return MetadataUnderstanding("tenant-a", entities)
+
+
+@pytest.mark.parametrize("fieldtype", ["Table", "Table MultiSelect"])
+def test_unresolved_table_relationship_is_a_metadata_gap(fieldtype):
+    opportunities = discover_opportunities(
+        objective(),
+        relationship_model(fieldtype, "Missing Child"),
+        (),
+    )
+
+    assert any(
+        item.study_kind == "metadata_gap"
+        and item.entity == "Missing Child"
+        for item in opportunities
+    )
+
+
+@pytest.mark.parametrize("fieldtype", ["Link", "Table"])
+def test_already_understood_relationship_target_is_not_a_metadata_gap(
+    fieldtype,
+):
+    opportunities = discover_opportunities(
+        objective(),
+        relationship_model(
+            fieldtype,
+            "Understood Target",
+            include_target=True,
+        ),
+        (),
+    )
+
+    assert not any(
+        item.study_kind == "metadata_gap"
+        and item.entity == "Understood Target"
+        for item in opportunities
+    )
+
+
+def test_select_multiline_options_are_not_a_relationship_and_do_not_crash():
+    understanding = relationship_model("Select", "Alpha\nBeta")
+
     assert relationship_target(understanding.entities[0].fields[0]) is None
-    assert relationship_target(understanding.entities[0].fields[1]) is None
-    assert relationship_target(understanding.entities[0].fields[2]) == "MissingEntity"
     opportunities = discover_opportunities(objective(), understanding, ())
-    assert not any(item.study_kind == "metadata_gap" and item.entity in {"Reference", "Alpha\nBeta"} for item in opportunities)
-    assert any(item.study_kind == "metadata_gap" and item.entity == "MissingEntity" for item in opportunities)
+    assert not any(item.study_kind == "metadata_gap" for item in opportunities)
+
+
+def test_data_arbitrary_options_are_not_a_relationship():
+    understanding = relationship_model("Data", "Not A DocType Target")
+
+    assert relationship_target(understanding.entities[0].fields[0]) is None
+    opportunities = discover_opportunities(objective(), understanding, ())
+    assert not any(item.study_kind == "metadata_gap" for item in opportunities)
+
+
+@pytest.mark.parametrize("options", [object(), 42, ("not", "text")])
+def test_malformed_non_relationship_options_are_ignored_safely(options):
+    understanding = relationship_model("Data", options)
+
+    assert relationship_target(understanding.entities[0].fields[0]) is None
+    assert discover_opportunities(objective(), understanding, ())
+
+
+def test_graph_projection_and_autonomous_planner_share_relationship_semantics():
+    source = StructuralEntity(
+        "Choice",
+        None,
+        False,
+        False,
+        False,
+        (
+            StructuralField(
+                "Choice",
+                "owner",
+                "Link",
+                None,
+                "User",
+                False,
+                False,
+                False,
+                False,
+            ),
+            StructuralField(
+                "Choice",
+                "status",
+                "Select",
+                None,
+                "Open\nClosed",
+                False,
+                False,
+                False,
+                False,
+            ),
+        ),
+        (),
+    )
+    target = StructuralEntity(
+        "User", None, False, False, False, (), ()
+    )
+    understanding = MetadataUnderstanding("tenant-a", (source, target))
+    graph = GraphStore()
+
+    report = project_metadata_understanding(graph, understanding)
+    relationships = tuple(
+        graph.get_relationship(item, tenant_id="tenant-a")
+        for item in report.relationship_ids
+    )
+    opportunities = discover_opportunities(objective(), understanding, ())
+
+    assert sum(
+        item is not None
+        and item.relationship_type is RelationshipType.RELATES_TO
+        for item in relationships
+    ) == 1
+    assert not any(item.study_kind == "metadata_gap" for item in opportunities)
