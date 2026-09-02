@@ -292,6 +292,122 @@ def test_repeated_positive_learning_is_bounded():
     assert 0 <= state.prior_prediction_coverage <= 1
 
 
+def test_evidence_only_learning_preserves_prediction_state_and_missing_count():
+    from orion.learning.autonomous_loop import _learn
+
+    intent = StudyIntent(
+        "tenant-a", "Solo", ("only",), "record_evidence", 5, "h", "e", "r"
+    )
+    request = authorize_intent(intent, envelope("Solo"), model_single())
+    baseline = EvidenceCoverage(
+        "Solo",
+        "only",
+        observations_seen=4,
+        valid_observations=3,
+        missing_count=1,
+        prior_prediction_attempts=2,
+        prior_prediction_coverage=0.4,
+        prior_error=0.2,
+    )
+    outcome = StudyOutcome(
+        "Solo",
+        ("only",),
+        3,
+        2,
+        0.9,
+        0.8,
+        "high",
+        "SUPPORTED",
+        prediction_evaluated=False,
+    )
+
+    learned = _learn(LearningMemory(coverage=(baseline,)), request, outcome)
+    state = learned.coverage[0]
+
+    assert (state.observations_seen, state.valid_observations, state.missing_count) == (
+        7,
+        5,
+        2,
+    )
+    assert (
+        state.prior_prediction_attempts,
+        state.prior_prediction_coverage,
+        state.prior_error,
+    ) == (2, 0.4, 0.2)
+    assert state.study_count == 1
+    assert learned.attempted == (("Solo", "only"),)
+
+
+def test_all_missing_repeated_evidence_only_learning_is_bounded_and_deterministic():
+    from orion.learning.autonomous_loop import _learn
+
+    intent = StudyIntent(
+        "tenant-a", "Solo", ("only",), "record_evidence", 2, "h", "e", "r"
+    )
+    request = authorize_intent(intent, envelope("Solo"), model_single())
+    outcome = StudyOutcome(
+        "Solo",
+        ("only",),
+        2,
+        0,
+        1.0,
+        1.0,
+        "high",
+        "SUPPORTED",
+        prediction_evaluated=False,
+    )
+
+    first = _learn(LearningMemory(), request, outcome)
+    repeated = _learn(first, request, outcome)
+    replayed = _learn(_learn(LearningMemory(), request, outcome), request, outcome)
+    state = repeated.coverage[0]
+
+    assert repeated == replayed
+    assert (state.observations_seen, state.valid_observations, state.missing_count) == (
+        4,
+        0,
+        4,
+    )
+    assert (
+        state.prior_prediction_attempts,
+        state.prior_prediction_coverage,
+        state.prior_error,
+    ) == (0, 0.0, None)
+    assert state.study_count == 2
+
+
+def test_prediction_evaluated_learning_remains_backward_compatible():
+    from orion.learning.autonomous_loop import _learn
+
+    intent = StudyIntent(
+        "tenant-a", "Solo", ("only",), "record_evidence", 2, "h", "e", "r"
+    )
+    request = authorize_intent(intent, envelope("Solo"), model_single())
+    baseline = EvidenceCoverage(
+        "Solo",
+        "only",
+        observations_seen=2,
+        valid_observations=1,
+        missing_count=1,
+        prior_prediction_attempts=1,
+        prior_prediction_coverage=0.4,
+        prior_error=0.2,
+    )
+    outcome = StudyOutcome(
+        "Solo", ("only",), 2, 1, 0.5, 0.5, "medium", "SUPPORTED"
+    )
+
+    state = _learn(
+        LearningMemory(coverage=(baseline,)), request, outcome
+    ).coverage[0]
+
+    assert (state.observations_seen, state.valid_observations) == (4, 2)
+    assert state.missing_count == 1
+    assert state.prior_prediction_attempts == 2
+    assert state.prior_prediction_coverage == pytest.approx(0.7)
+    assert state.prior_error == 0.2
+
+
 def test_metadata_learning_resolves_and_penalizes():
     intent = StudyIntent("tenant-a", "ReferenceA", (), "metadata_gap", 0, "h", "e", "r")
     auth = AuthorizationEnvelope("tenant-a", "objective-1", allowed_metadata_entities=frozenset({"ReferenceA"}), allowed_record_entities=frozenset({"DocumentA"}), allowed_record_fields=(("DocumentA", ("field_alpha",)),))

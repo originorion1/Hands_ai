@@ -229,6 +229,7 @@ class StudyOutcome:
     promotion_allowed: bool = False
     execution_allowed: bool = False
     study_kind: str = "record_evidence"
+    prediction_evaluated: bool = True
 
     def __post_init__(self) -> None:
         _target(self.entity, "outcome entity")
@@ -248,6 +249,8 @@ class StudyOutcome:
             raise ValueError("invalid outcome state")
         if any((type(flag) is not bool or flag) for flag in (self.recommendation_allowed, self.promotion_allowed, self.execution_allowed)):
             raise ValueError("outcome authority flags must remain false")
+        if type(self.prediction_evaluated) is not bool:
+            raise ValueError("prediction_evaluated must be boolean")
 
 
 @dataclass(frozen=True, slots=True)
@@ -506,11 +509,18 @@ def _learn(memory: LearningMemory, request: AuthorizedStudyRequest, outcome: Stu
         return LearningMemory(memory.attempted, memory.outcomes + (outcome,), tuple(coverage), tuple(states))
     for index, item in enumerate(coverage):
         if item.entity == outcome.entity and item.field in outcome.fields:
-            updated = min(1.0, item.prior_prediction_coverage + outcome.coverage_change * (1.0 - item.prior_prediction_coverage))
-            coverage[index] = EvidenceCoverage(item.entity, item.field, item.observations_seen + outcome.observations_acquired, item.valid_observations + outcome.valid_count, item.distinct_value_count, item.missing_count, item.prior_prediction_attempts + 1, updated, item.prior_error, item.study_count + 1)
+            if outcome.prediction_evaluated:
+                prediction_attempts = item.prior_prediction_attempts + 1
+                prediction_coverage = min(1.0, item.prior_prediction_coverage + outcome.coverage_change * (1.0 - item.prior_prediction_coverage))
+                missing_count = item.missing_count
+            else:
+                prediction_attempts = item.prior_prediction_attempts
+                prediction_coverage = item.prior_prediction_coverage
+                missing_count = item.missing_count + outcome.observations_acquired - outcome.valid_count
+            coverage[index] = EvidenceCoverage(item.entity, item.field, item.observations_seen + outcome.observations_acquired, item.valid_observations + outcome.valid_count, item.distinct_value_count, missing_count, prediction_attempts, prediction_coverage, item.prior_error, item.study_count + 1)
     for field in outcome.fields:
         if not any(item.entity == outcome.entity and item.field == field for item in coverage):
-            coverage.append(EvidenceCoverage(outcome.entity, field, outcome.observations_acquired, outcome.valid_count, prior_prediction_attempts=1, prior_prediction_coverage=outcome.coverage_change, study_count=1))
+            coverage.append(EvidenceCoverage(outcome.entity, field, outcome.observations_acquired, outcome.valid_count, missing_count=(0 if outcome.prediction_evaluated else outcome.observations_acquired - outcome.valid_count), prior_prediction_attempts=(1 if outcome.prediction_evaluated else 0), prior_prediction_coverage=(outcome.coverage_change if outcome.prediction_evaluated else 0.0), study_count=1))
     return LearningMemory(memory.attempted + tuple((outcome.entity, field) for field in outcome.fields), memory.outcomes + (outcome,), tuple(coverage), memory.metadata)
 
 
