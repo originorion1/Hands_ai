@@ -59,6 +59,30 @@ def test_sqlite_tenant_and_resource_isolation(tmp_path):
     assert store.load_all(tenant_id="customer-a", resource="Sales Invoice") == (other_resource,)
 
 
+def test_list_resources_is_tenant_scoped_deterministic_and_read_only(tmp_path):
+    store = SQLiteHistoricalEvidenceStore(tmp_path / "historical.sqlite3")
+    store.append(batch(resource="Resource Z"))
+    store.append(batch(resource="Resource A"))
+    store.append(batch(tenant_id="customer-b", resource="Resource B"))
+
+    before = store.load_all(tenant_id="customer-a", resource="Resource A")
+
+    assert store.list_resources(tenant_id="customer-a") == (
+        "Resource A",
+        "Resource Z",
+    )
+    assert store.list_resources(tenant_id="customer-b") == ("Resource B",)
+    assert store.load_all(tenant_id="customer-a", resource="Resource A") == before
+
+
+@pytest.mark.parametrize("tenant_id", ["", " tenant-a", "tenant-a "])
+def test_list_resources_rejects_invalid_tenant_scope(tmp_path, tenant_id):
+    store = SQLiteHistoricalEvidenceStore(tmp_path / "historical.sqlite3")
+
+    with pytest.raises(ValueError):
+        store.list_resources(tenant_id=tenant_id)
+
+
 def test_sqlite_exact_replay_is_idempotent_and_conflict_is_rejected(tmp_path):
     store = SQLiteHistoricalEvidenceStore(tmp_path / "historical.sqlite3")
     original = batch()

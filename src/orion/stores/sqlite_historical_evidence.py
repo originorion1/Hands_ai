@@ -168,6 +168,25 @@ class SQLiteHistoricalEvidenceStore:
             batches.append(batch)
         return tuple(batches)
 
+    def list_resources(self, *, tenant_id: str) -> tuple[str, ...]:
+        """List stored resource names for one tenant in deterministic order."""
+
+        _validate_tenant(tenant_id)
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT resource
+                FROM orion_historical_evidence
+                WHERE tenant_id = ?
+                ORDER BY resource ASC
+                """,
+                (tenant_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        return tuple(row[0] for row in rows)
+
 
 def _validate_query_scope(tenant_id: str, resource: str) -> None:
     _validate_tenant(tenant_id)
