@@ -1,6 +1,7 @@
 import pytest
 
 from orion.learning.autonomous_loop import (
+    USEFUL_GAIN_THRESHOLD,
     AuthorizationEnvelope,
     EvidenceCoverage,
     LearningCheckpoint,
@@ -162,6 +163,53 @@ def test_loop_stops_explicitly_for_gain_budget_and_conflict():
     def many(req): return StudyOutcome(req.intent.entity, req.intent.fields, 5, 5, 1.0, 1.0, "high", "SUPPORTED")
     assert run_autonomous_loop(objective(), model_a(), (), envelope(cycles=3, records=5), many).stop_reason is StudyStopReason.EVIDENCE_BUDGET_LIMIT
     assert run_autonomous_loop(objective(), model_single(), (), envelope("Solo"), low).stop_reason is StudyStopReason.NO_INFORMATION_GAIN
+
+
+def test_context_relevance_cannot_keep_unproductive_loop_alive():
+    context_only = LearningObjective(
+        "objective-1",
+        "neutral boundary regression",
+        aim_weights=(
+            ("reduce_human_input", 0.0),
+            ("increase_evidence_coverage", 1.25),
+            ("increase_predictability", 0.0),
+            ("reduce_uncertainty_error", 0.0),
+        ),
+    )
+    calls = []
+
+    def no_gain(request):
+        calls.append(request)
+        return StudyOutcome(
+            request.intent.entity,
+            request.intent.fields,
+            1,
+            1,
+            0.0,
+            0.0,
+            "none",
+            "INCONCLUSIVE",
+        )
+
+    result = run_autonomous_loop(
+        context_only,
+        model_single(),
+        (),
+        envelope("Solo"),
+        no_gain,
+    )
+    remaining = discover_opportunities(
+        context_only,
+        model_single(),
+        result.memory.coverage,
+        result.memory,
+    )[0]
+    relevance = dict(remaining.score_components)["relevance"]
+
+    assert remaining.score > USEFUL_GAIN_THRESHOLD
+    assert remaining.score - relevance <= USEFUL_GAIN_THRESHOLD
+    assert len(calls) == 1
+    assert result.stop_reason is StudyStopReason.NO_INFORMATION_GAIN
 
 
 def test_checkpoint_restores_memory_but_requires_fresh_authorization():
