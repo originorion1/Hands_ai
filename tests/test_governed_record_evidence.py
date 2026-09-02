@@ -121,10 +121,28 @@ def test_current_authorization_rejects_before_reader(
             request(),
             envelope=current_envelope,
             understanding=current_understanding,
-            reader=lambda: calls.append(True),
+            reader=lambda *_: calls.append(True),
         )
 
     assert calls == []
+
+
+def test_reader_receives_exact_reauthorized_scope():
+    received = []
+
+    def reader(entity, fields, requested_records):
+        received.append((entity, fields, requested_records))
+        return ()
+
+    outcome = run_governed_record_evidence(
+        request(records=3),
+        envelope=envelope(records=3),
+        understanding=understanding(),
+        reader=reader,
+    )
+
+    assert received == [(ENTITY, (FIELD,), 3)]
+    assert outcome.observations_acquired == 0
 
 
 def test_raw_and_metadata_requests_fail_before_reader():
@@ -134,7 +152,7 @@ def test_raw_and_metadata_requests_fail_before_reader():
             object(),
             envelope=envelope(),
             understanding=understanding(),
-            reader=lambda: calls.append(True),
+            reader=lambda *_: calls.append(True),
         )
 
     metadata_intent = StudyIntent(
@@ -153,7 +171,7 @@ def test_raw_and_metadata_requests_fail_before_reader():
             metadata_request,
             envelope=metadata_envelope,
             understanding=understanding(),
-            reader=lambda: calls.append(True),
+            reader=lambda *_: calls.append(True),
         )
 
     multi_intent = StudyIntent(
@@ -175,7 +193,7 @@ def test_raw_and_metadata_requests_fail_before_reader():
             multi_request,
             envelope=multi_envelope,
             understanding=understanding(),
-            reader=lambda: calls.append(True),
+            reader=lambda *_: calls.append(True),
         )
 
     assert calls == []
@@ -199,7 +217,7 @@ def test_malformed_observations_fail_closed(bad_observation, match):
             request(),
             envelope=envelope(),
             understanding=understanding(),
-            reader=lambda: (bad_observation,),
+            reader=lambda *_: (bad_observation,),
         )
 
 
@@ -209,17 +227,17 @@ def test_reader_bound_type_and_exception_fail_closed():
             request(records=1),
             envelope=envelope(records=1),
             understanding=understanding(),
-            reader=lambda: (observation(), observation()),
+            reader=lambda *_: (observation(), observation()),
         )
     with pytest.raises(TypeError, match="Observation"):
         run_governed_record_evidence(
             request(),
             envelope=envelope(),
             understanding=understanding(),
-            reader=lambda: (object(),),
+            reader=lambda *_: (object(),),
         )
 
-    def failed_reader():
+    def failed_reader(*_):
         raise RuntimeError("synthetic reader failure")
 
     with pytest.raises(RuntimeError, match="synthetic reader failure"):
@@ -239,13 +257,13 @@ def test_missing_semantics_are_canonical_and_outcome_is_aggregate_only():
         request(),
         envelope=envelope(),
         understanding=understanding(),
-        reader=lambda: observations,
+        reader=lambda *_: observations,
     )
     second = run_governed_record_evidence(
         request(),
         envelope=envelope(),
         understanding=understanding(),
-        reader=lambda: observations,
+        reader=lambda *_: observations,
     )
 
     assert first == second

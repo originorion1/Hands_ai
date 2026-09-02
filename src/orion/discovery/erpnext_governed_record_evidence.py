@@ -31,12 +31,11 @@ def run_erpnext_submitted_company_record_evidence(
 ) -> StudyOutcome:
     """Run one authorized study through the existing bounded GET adapter."""
 
-    def reader():
-        intent = request.intent
-        if intent.requested_records > MAX_SAMPLE_SIZE:
+    def reader(entity: str, fields: tuple[str, ...], requested_records: int):
+        if requested_records > MAX_SAMPLE_SIZE:
             raise ValueError("requested records exceed ERPNext reader capacity")
-        selected_field = intent.fields[0]
-        fields = tuple(
+        selected_field = fields[0]
+        sample_fields = tuple(
             dict.fromkeys((selected_field, "name", "company", "docstatus"))
         )
         return ERPNextHistoricalSampleAdapter(
@@ -44,10 +43,10 @@ def run_erpnext_submitted_company_record_evidence(
             tenant_id=request.tenant_id,
             api_key=api_key,
             api_secret=api_secret,
-            resource=intent.entity,
+            resource=entity,
             company=company,
-            fields=fields,
-            sample_size=intent.requested_records,
+            fields=sample_fields,
+            sample_size=requested_records,
             order_by="name desc",
             opener=opener,
         ).discover()

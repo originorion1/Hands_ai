@@ -20,7 +20,7 @@ def run_governed_record_evidence(
     *,
     envelope: AuthorizationEnvelope,
     understanding: MetadataUnderstanding,
-    reader: Callable[[], Sequence[Observation]],
+    reader: Callable[[str, tuple[str, ...], int], Sequence[Observation]],
 ) -> StudyOutcome:
     """Reauthorize, read, validate, and return evidence-only aggregates."""
 
@@ -37,7 +37,11 @@ def run_governed_record_evidence(
     if not callable(reader):
         raise TypeError("reader must be callable")
 
-    observations = reader()
+    observations = reader(
+        intent.entity,
+        intent.fields,
+        intent.requested_records,
+    )
     if not isinstance(observations, Sequence):
         raise TypeError("reader must return a bounded observation sequence")
     if len(observations) > intent.requested_records:
