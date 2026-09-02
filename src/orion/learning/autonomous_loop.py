@@ -116,7 +116,6 @@ class AuthorizationEnvelope:
     allowed_metadata_entities: frozenset[str] = frozenset()
     allowed_record_entities: frozenset[str] = frozenset()
     allowed_record_fields: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    max_entities_per_cycle: int = 1
     max_fields_per_proposal: int = 3
     max_records_per_proposal: int = 100
     max_cycles: int = 10
@@ -138,7 +137,6 @@ class AuthorizationEnvelope:
             for field in fields:
                 _target(field, "authorized field")
         for name, value in (
-            ("max_entities_per_cycle", self.max_entities_per_cycle),
             ("max_fields_per_proposal", self.max_fields_per_proposal),
             ("max_records_per_proposal", self.max_records_per_proposal),
             ("max_cycles", self.max_cycles),

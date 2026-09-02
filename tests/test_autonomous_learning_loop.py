@@ -6,6 +6,7 @@ from orion.learning.autonomous_loop import (
     LearningCheckpoint,
     LearningMemory,
     LearningObjective,
+    StudyIntent,
     StudyOpportunity,
     StudyOutcome,
     StudyStopReason,
@@ -127,3 +128,74 @@ def test_field_scope_is_explicit_and_understanding_is_tenant_bound():
     scoped = AuthorizationEnvelope("tenant-a", objective_id="objective-1", allowed_record_entities=frozenset({"DocumentA"}), allowed_record_fields=(("DocumentA", ("field_alpha",)),))
     intent = generate_intent(StudyOpportunity("DocumentA", ("field_gamma",), 1, (), "x"), "tenant-a", 1)
     with pytest.raises(ValueError): authorize_intent(intent, scoped, model_a())
+
+
+def test_missing_field_scope_and_missing_understanding_fail_closed():
+    intent = generate_intent(StudyOpportunity("DocumentA", ("field_alpha",), 1.0, (), "x"), "tenant-a", 1)
+    no_fields = AuthorizationEnvelope("tenant-a", "objective-1", allowed_record_entities=frozenset({"DocumentA"}))
+    with pytest.raises(ValueError):
+        authorize_intent(intent, no_fields, model_a())
+    scoped = AuthorizationEnvelope("tenant-a", "objective-1", allowed_record_entities=frozenset({"DocumentA"}), allowed_record_fields=(("DocumentA", ("field_alpha",)),))
+    with pytest.raises(ValueError):
+        authorize_intent(intent, scoped, None)
+    with pytest.raises(ValueError):
+        authorize_intent(intent, scoped, object())
+
+
+@pytest.mark.parametrize("target", ["*", "../x", "x?y", "x#y", " x", "x ", "x\x00y"])
+def test_canonical_target_rejection(target):
+    with pytest.raises((ValueError, TypeError)):
+        StudyIntent("tenant-a", target, ("field_alpha",), "record_evidence", 1, "h", "e", "r")
+
+
+def test_rejected_request_never_calls_runner():
+    calls = []
+    denied = AuthorizationEnvelope("tenant-a", "objective-1", allowed_record_entities=frozenset(), allowed_record_fields=())
+    result = run_autonomous_loop(objective(), model_a(), (), denied, lambda request: calls.append(request))
+    assert result.stop_reason is StudyStopReason.NO_AUTHORIZED_OPPORTUNITY and calls == []
+
+
+def test_repeated_positive_learning_is_bounded():
+    def runner(request):
+        return StudyOutcome(request.intent.entity, request.intent.fields, 1, 1, 0.8, 0.2, "low", "SUPPORTED")
+    result = run_autonomous_loop(objective(), model_single(), (), envelope("Solo", cycles=3, records=10), runner)
+    state = result.memory.coverage[0]
+    assert 0 <= state.prior_prediction_coverage <= 1
+
+
+def test_metadata_learning_resolves_and_penalizes():
+    intent = StudyIntent("tenant-a", "ReferenceA", (), "metadata_gap", 0, "h", "e", "r")
+    auth = AuthorizationEnvelope("tenant-a", "objective-1", allowed_metadata_entities=frozenset({"ReferenceA"}), allowed_record_entities=frozenset({"DocumentA"}), allowed_record_fields=(("DocumentA", ("field_alpha",)),))
+    request = authorize_intent(intent, auth, model_a())
+    from orion.learning.autonomous_loop import _learn
+    memory = _learn(LearningMemory(), request, StudyOutcome("ReferenceA", (), 0, 0, 0.0, 0.0, "high", "SUPPORTED", study_kind="metadata_gap"))
+    assert memory.metadata[0].resolved is True
+
+
+def test_metadata_budget_and_unauthorized_target():
+    calls = []
+    auth = AuthorizationEnvelope("tenant-a", "objective-1", allowed_metadata_entities=frozenset(), max_metadata_targets=1)
+    result = run_autonomous_loop(objective(), model_a(), (), auth, lambda request: calls.append(request))
+    assert not calls and result.stop_reason in {StudyStopReason.NO_AUTHORIZED_OPPORTUNITY, StudyStopReason.EXHAUSTED}
+
+
+def test_runner_firewall_rejects_mismatched_kind_and_nonfinite_values():
+    def bad(request):
+        return StudyOutcome(request.intent.entity, request.intent.fields, 1, 1, float("nan"), 0.0, "high", "SUPPORTED", study_kind="metadata_gap")
+    with pytest.raises(ValueError):
+        run_autonomous_loop(objective(), model_single(), (), envelope("Solo"), bad)
+    with pytest.raises(ValueError):
+        StudyOutcome("Solo", ("only",), True, 0, 0.0, 0.0, "high", "SUPPORTED")
+
+
+def test_checkpoint_rejects_narrowed_record_scope_and_coverage():
+    memory = LearningMemory(attempted=(("DocumentA", "field_alpha"),), coverage=(EvidenceCoverage("DocumentA", "field_alpha"),))
+    checkpoint = LearningCheckpoint(1, "tenant-a", "objective-1", 1, memory)
+    narrowed = AuthorizationEnvelope("tenant-a", "objective-1", allowed_record_entities=frozenset({"DocumentA"}), allowed_record_fields=(("DocumentA", ("field_gamma",)),))
+    with pytest.raises(ValueError):
+        resume_checkpoint(checkpoint, narrowed)
+
+
+def test_two_unrelated_real_schemas_use_same_planner():
+    assert discover_opportunities(objective(), model_b(), ())[0].entity == "RecordB"
+    assert discover_opportunities(objective(), model_single(), ())[0].entity == "Solo"
