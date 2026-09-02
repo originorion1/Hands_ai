@@ -338,6 +338,36 @@ def test_evidence_only_learning_preserves_prediction_state_and_missing_count():
     assert learned.attempted == (("Solo", "only"),)
 
 
+def test_multifield_evidence_only_outcome_fails_before_learning():
+    memory = LearningMemory()
+
+    with pytest.raises(ValueError, match="requires exactly one field"):
+        StudyOutcome(
+            "Synthetic",
+            ("first", "second"),
+            2,
+            1,
+            0.0,
+            0.0,
+            "none",
+            "INCONCLUSIVE",
+            prediction_evaluated=False,
+        )
+
+    assert memory == LearningMemory()
+    assert StudyOutcome(
+        "Synthetic",
+        ("only",),
+        1,
+        1,
+        0.0,
+        0.0,
+        "none",
+        "INCONCLUSIVE",
+        prediction_evaluated=False,
+    ).fields == ("only",)
+
+
 def test_all_missing_repeated_evidence_only_learning_is_bounded_and_deterministic():
     from orion.learning.autonomous_loop import _learn
 

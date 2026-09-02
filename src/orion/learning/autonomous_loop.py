@@ -251,6 +251,12 @@ class StudyOutcome:
             raise ValueError("outcome authority flags must remain false")
         if type(self.prediction_evaluated) is not bool:
             raise ValueError("prediction_evaluated must be boolean")
+        if (
+            self.study_kind == "record_evidence"
+            and not self.prediction_evaluated
+            and len(self.fields) != 1
+        ):
+            raise ValueError("evidence-only record outcome requires exactly one field")
 
 
 @dataclass(frozen=True, slots=True)
