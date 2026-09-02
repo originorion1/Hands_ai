@@ -6,6 +6,7 @@ from orion.learning.autonomous_loop import (
     LearningCheckpoint,
     LearningMemory,
     LearningObjective,
+    MetadataStudyState,
     StudyIntent,
     StudyOpportunity,
     StudyOutcome,
@@ -431,3 +432,138 @@ def test_graph_projection_and_autonomous_planner_share_relationship_semantics():
         for item in relationships
     ) == 1
     assert not any(item.study_kind == "metadata_gap" for item in opportunities)
+
+
+@pytest.mark.parametrize("fieldtype", ["Select", "Data"])
+def test_non_relationship_options_do_not_create_relevance_edges(fieldtype):
+    source = StructuralEntity(
+        "Source", None, False, False, False,
+        (StructuralField("Source", "choice", fieldtype, None, "Anchor", False, False, False, False),),
+        (),
+    )
+    anchor = StructuralEntity(
+        "Anchor", None, False, False, False,
+        (StructuralField("Anchor", "seen", "Data", None, None, False, True, False, False),),
+        (),
+    )
+    understanding = MetadataUnderstanding("tenant-a", (source, anchor))
+
+    opportunity = next(
+        item
+        for item in discover_opportunities(
+            objective(), understanding,
+            (EvidenceCoverage("Anchor", "seen", 1, 1),),
+        )
+        if item.entity == "Source"
+    )
+
+    assert relationship_target(source.fields[0]) is None
+    assert dict(opportunity.score_components)["relevance"] == 0.0
+
+
+def test_cycles_and_multiple_anchors_use_nearest_distance_deterministically():
+    def linked(name, target, *, anchor=False):
+        fields = [
+            StructuralField(name, "next", "Link", None, target, False, False, False, False)
+        ]
+        if anchor:
+            fields.append(
+                StructuralField(name, "seen", "Data", None, None, False, True, False, False)
+            )
+        return StructuralEntity(name, None, False, False, False, tuple(fields), ())
+
+    understanding = MetadataUnderstanding(
+        "tenant-a",
+        (
+            linked("A", "B", anchor=True),
+            linked("B", "C"),
+            linked("C", "A"),
+            linked("D", "E"),
+            linked("E", "F"),
+            linked("F", "F", anchor=True),
+        ),
+    )
+    coverage = (
+        EvidenceCoverage("A", "seen", 1, 1),
+        EvidenceCoverage("F", "seen", 1, 1),
+    )
+
+    first = discover_opportunities(objective(), understanding, coverage)
+    second = discover_opportunities(objective(), understanding, coverage)
+    relevance = {
+        item.entity: dict(item.score_components)["relevance"]
+        for item in first
+        if item.study_kind == "record_evidence"
+    }
+
+    assert first == second
+    assert relevance == {
+        "A": 1.0, "B": 0.5, "C": 0.5,
+        "D": 1 / 3, "E": 0.5, "F": 1.0,
+    }
+
+
+def test_no_anchor_scores_and_existing_components_are_preserved():
+    understanding = MetadataUnderstanding(
+        "tenant-a",
+        (
+            StructuralEntity(
+                "Only", None, False, False, False,
+                (
+                    StructuralField("Only", "required", "Data", None, None, True, False, False, False),
+                    StructuralField("Only", "optional", "Data", None, None, False, False, False, False),
+                    StructuralField("Only", "attempted", "Data", None, None, False, False, False, False),
+                ),
+                (),
+            ),
+        ),
+    )
+    coverage = (EvidenceCoverage("Only", "attempted", study_count=1),)
+    memory = LearningMemory(attempted=(("Only", "attempted"),))
+
+    opportunities = discover_opportunities(
+        objective(), understanding, coverage, memory
+    )
+    components = {
+        item.fields[0]: dict(item.score_components) for item in opportunities
+    }
+
+    assert [item.fields for item in opportunities] == [
+        ("required",), ("optional",), ("attempted",),
+    ]
+    assert {
+        item.fields[0]: item.score for item in opportunities
+    } == {"required": 6.0, "optional": 4.5, "attempted": 2.5}
+    assert components["required"] == {
+        "gap": 3.0, "importance": 2.0, "relevance": 0.0, "penalty": 0.0,
+    }
+    assert components["optional"]["importance"] == 0.5
+    assert components["attempted"]["penalty"] == -2.0
+
+
+def test_metadata_gap_inherits_only_source_relevance_and_penalty():
+    understanding = relationship_model("Link", "Unknown Target")
+    source_coverage = (EvidenceCoverage("Choice", "value", 1, 1),)
+    attempted = LearningMemory(
+        metadata=(MetadataStudyState("Unknown Target", study_count=2),)
+    )
+
+    relevant = next(
+        item for item in discover_opportunities(
+            objective(), understanding, source_coverage, attempted
+        )
+        if item.study_kind == "metadata_gap"
+    )
+    target_only = next(
+        item for item in discover_opportunities(
+            objective(), understanding,
+            (EvidenceCoverage("Unknown Target", "invented", 1, 1),),
+        )
+        if item.study_kind == "metadata_gap"
+    )
+
+    assert dict(relevant.score_components) == {
+        "metadata_gap": 1.0, "relevance": 1.0, "penalty": -1.0,
+    }
+    assert relevant.score == 1.0
+    assert dict(target_only.score_components)["relevance"] == 0.0

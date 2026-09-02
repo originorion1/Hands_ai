@@ -386,7 +386,7 @@ def discover_opportunities(
                 meta_penalty = min(2.0, state_meta.study_count * 0.5)
                 if state_meta.resolved:
                     continue
-                opportunities.append(StudyOpportunity(target, (), weights.get("increase_evidence_coverage", 0.0) - meta_penalty, (("metadata_gap", 1.0), ("penalty", -meta_penalty)), "unresolved structural relationship", "metadata_gap"))
+                opportunities.append(StudyOpportunity(target, (), weights.get("increase_evidence_coverage", 0.0) + relevance - meta_penalty, (("metadata_gap", 1.0), ("relevance", relevance), ("penalty", -meta_penalty)), "unresolved structural relationship", "metadata_gap"))
     return tuple(sorted(opportunities, key=lambda item: (-item.score, item.entity, item.fields)))
 
 
