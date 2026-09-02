@@ -140,7 +140,10 @@ def run_offline_proposal(
 
     checkpoint_path = _existing_file(checkpoint_path, "checkpoint")
     history_path = _existing_file(history_path, "history")
-    checkpoint = SQLiteStudyCheckpointStore(checkpoint_path).load_latest(
+    checkpoint = SQLiteStudyCheckpointStore(
+        checkpoint_path,
+        read_only=True,
+    ).load_latest(
         tenant_id=tenant_id
     )
     if checkpoint is None:
@@ -148,7 +151,10 @@ def run_offline_proposal(
     if checkpoint.tenant_id != tenant_id:
         raise ValueError("checkpoint crosses tenant boundary")
 
-    history_store = SQLiteHistoricalEvidenceStore(history_path)
+    history_store = SQLiteHistoricalEvidenceStore(
+        history_path,
+        read_only=True,
+    )
     resources = history_store.list_resources(tenant_id=tenant_id)
     batches = tuple(
         batch

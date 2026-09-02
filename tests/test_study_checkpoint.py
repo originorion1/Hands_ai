@@ -225,6 +225,64 @@ def test_sqlite_store_survives_reopen(tmp_path):
     ) == original
 
 
+def test_sqlite_store_read_only_load_does_not_modify_database(tmp_path):
+    path = tmp_path / "orion-checkpoints.sqlite3"
+    original = checkpoint()
+    SQLiteStudyCheckpointStore(path).append(original)
+    connection = sqlite3.connect(path)
+    try:
+        journal_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+        schema = connection.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()
+    finally:
+        connection.close()
+    database_bytes = path.read_bytes()
+
+    store = SQLiteStudyCheckpointStore(path, read_only=True)
+
+    assert store.load_latest(tenant_id="customer-a") == original
+    assert path.read_bytes() == database_bytes
+    connection = sqlite3.connect(path)
+    try:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == journal_mode
+        assert connection.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall() == schema
+    finally:
+        connection.close()
+
+
+def test_sqlite_store_read_only_requires_existing_database(tmp_path):
+    path = tmp_path / "missing.sqlite3"
+
+    with pytest.raises(ValueError, match="database file is required"):
+        SQLiteStudyCheckpointStore(path, read_only=True)
+
+    assert not path.exists()
+
+
+def test_sqlite_store_read_only_requires_expected_schema(tmp_path):
+    path = tmp_path / "wrong-schema.sqlite3"
+    connection = sqlite3.connect(path)
+    connection.close()
+    database_bytes = path.read_bytes()
+
+    with pytest.raises(sqlite3.OperationalError, match="schema is missing"):
+        SQLiteStudyCheckpointStore(path, read_only=True)
+
+    assert path.read_bytes() == database_bytes
+
+
+def test_sqlite_store_read_only_rejects_append(tmp_path):
+    path = tmp_path / "orion-checkpoints.sqlite3"
+    SQLiteStudyCheckpointStore(path)
+    store = SQLiteStudyCheckpointStore(path, read_only=True)
+
+    with pytest.raises(sqlite3.OperationalError, match="read-only"):
+        store.append(checkpoint())
+
+
 def test_sqlite_store_is_tenant_isolated(tmp_path):
     store = SQLiteStudyCheckpointStore(
         tmp_path / "orion-checkpoints.sqlite3"

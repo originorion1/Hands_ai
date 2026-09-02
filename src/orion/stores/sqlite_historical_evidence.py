@@ -35,25 +35,50 @@ CREATE TABLE IF NOT EXISTS orion_historical_evidence (
 class SQLiteHistoricalEvidenceStore:
     """Transactional append-only store with tenant and resource isolation."""
 
-    def __init__(self, database_path: str | Path) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        read_only: bool = False,
+    ) -> None:
         self._path = Path(database_path)
+        self._read_only = read_only
         if not str(self._path):
             raise ValueError("historical evidence database path must be non-empty")
         if not self._path.parent.exists():
             raise ValueError("historical evidence database parent directory does not exist")
         if self._path.exists() and self._path.is_dir():
             raise ValueError("historical evidence database path must not be a directory")
+        if self._read_only and not self._path.is_file():
+            raise ValueError("historical evidence database file is required")
 
         connection = self._connect()
         try:
-            connection.execute("PRAGMA journal_mode=WAL")
-            connection.execute("PRAGMA synchronous=FULL")
-            connection.execute(_SCHEMA)
-            connection.commit()
+            if self._read_only:
+                if connection.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type = 'table' AND name = 'orion_historical_evidence'
+                    """
+                ).fetchone() is None:
+                    raise sqlite3.OperationalError(
+                        "historical evidence database schema is missing"
+                    )
+            else:
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("PRAGMA synchronous=FULL")
+                connection.execute(_SCHEMA)
+                connection.commit()
         finally:
             connection.close()
 
     def _connect(self) -> sqlite3.Connection:
+        if self._read_only:
+            return sqlite3.connect(
+                f"{self._path.resolve().as_uri()}?mode=ro",
+                timeout=5.0,
+                uri=True,
+            )
         connection = sqlite3.connect(self._path, timeout=5.0)
         connection.execute("PRAGMA busy_timeout=5000")
         connection.execute("PRAGMA synchronous=FULL")
@@ -61,6 +86,9 @@ class SQLiteHistoricalEvidenceStore:
 
     def append(self, batch: HistoricalEvidenceBatch) -> None:
         """Append a single next sequence, accepting only exact replays."""
+
+        if self._read_only:
+            raise sqlite3.OperationalError("historical evidence store is read-only")
 
         if not isinstance(batch, HistoricalEvidenceBatch):
             raise HistoricalEvidenceError("batch must be HistoricalEvidenceBatch")

@@ -35,8 +35,14 @@ CREATE TABLE IF NOT EXISTS orion_study_checkpoints (
 class SQLiteStudyCheckpointStore:
     """Append-only transactional checkpoint store."""
 
-    def __init__(self, database_path: str | Path) -> None:
+    def __init__(
+        self,
+        database_path: str | Path,
+        *,
+        read_only: bool = False,
+    ) -> None:
         self._path = Path(database_path)
+        self._read_only = read_only
 
         if not str(self._path):
             raise ValueError(
@@ -53,17 +59,37 @@ class SQLiteStudyCheckpointStore:
                 "checkpoint database path must not be a directory"
             )
 
+        if self._read_only and not self._path.is_file():
+            raise ValueError("checkpoint database file is required")
+
         connection = self._connect()
 
         try:
-            connection.execute("PRAGMA journal_mode=WAL")
-            connection.execute("PRAGMA synchronous=FULL")
-            connection.execute(_SCHEMA)
-            connection.commit()
+            if self._read_only:
+                if connection.execute(
+                    """
+                    SELECT 1 FROM sqlite_master
+                    WHERE type = 'table' AND name = 'orion_study_checkpoints'
+                    """
+                ).fetchone() is None:
+                    raise sqlite3.OperationalError(
+                        "checkpoint database schema is missing"
+                    )
+            else:
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("PRAGMA synchronous=FULL")
+                connection.execute(_SCHEMA)
+                connection.commit()
         finally:
             connection.close()
 
     def _connect(self) -> sqlite3.Connection:
+        if self._read_only:
+            return sqlite3.connect(
+                f"{self._path.resolve().as_uri()}?mode=ro",
+                timeout=5.0,
+                uri=True,
+            )
         connection = sqlite3.connect(
             self._path,
             timeout=5.0,
@@ -74,6 +100,9 @@ class SQLiteStudyCheckpointStore:
 
     def append(self, checkpoint: StudyCheckpoint) -> None:
         """Append exactly one monotonic immutable checkpoint."""
+
+        if self._read_only:
+            raise sqlite3.OperationalError("checkpoint store is read-only")
 
         payload_json = checkpoint_to_json(checkpoint)
         checksum = checkpoint_checksum(payload_json)
