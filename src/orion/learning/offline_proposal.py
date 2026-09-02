@@ -18,6 +18,7 @@ from .autonomous_loop import (
     LearningObjective,
     StudyOpportunity,
     discover_opportunities,
+    is_missing_evidence,
 )
 
 
@@ -72,7 +73,7 @@ def project_historical_coverage(
                 state = scopes[(batch.resource, field)]
                 value = record[field]
                 state[0] += 1
-                if _is_missing(value):
+                if is_missing_evidence(value):
                     state[2] += 1
                 else:
                     state[1] += 1
@@ -190,10 +191,6 @@ def run_offline_proposal(
         ),
         selected_rationale=(selected.rationale if selected else None),
     )
-
-
-def _is_missing(value: object) -> bool:
-    return value is None or (isinstance(value, str) and not value.strip())
 
 
 def _canonical_value(value: object) -> str:

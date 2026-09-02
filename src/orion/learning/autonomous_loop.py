@@ -47,6 +47,12 @@ def _finite(value: object, label: str) -> None:
         raise ValueError(f"{label} must be finite")
 
 
+def is_missing_evidence(value: object) -> bool:
+    """Return whether a single observed field value is missing."""
+
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
 @dataclass(frozen=True, slots=True)
 class LearningObjective:
     objective_id: str
