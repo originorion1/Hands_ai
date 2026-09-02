@@ -26,12 +26,16 @@ def model_b():
     return SimpleNamespace(entities=(SimpleNamespace(doctype="RecordB", fields=(SimpleNamespace(fieldname="value_beta", required=False, read_only=False, hidden=False, options=None),)),))
 
 
+def model_single():
+    return SimpleNamespace(entities=(SimpleNamespace(doctype="Solo", fields=(SimpleNamespace(fieldname="only", required=False, read_only=False, hidden=False, options=None),)),))
+
+
 def objective():
     return LearningObjective("objective-1", "reduce first-level human data entry", ("less manual entry",), ("no automatic action",))
 
 
 def envelope(entity="DocumentA", cycles=2, records=10):
-    return AuthorizationEnvelope("tenant-a", allowed_record_entities=frozenset({entity}), max_cycles=cycles, max_cumulative_records=records, max_records_per_proposal=5)
+    return AuthorizationEnvelope("tenant-a", objective_id="objective-1", allowed_metadata_entities=frozenset({entity}), allowed_record_entities=frozenset({entity}), max_cycles=cycles, max_cumulative_records=records, max_records_per_proposal=5)
 
 
 def test_objective_and_planner_are_deterministic_and_generic():
@@ -66,12 +70,14 @@ def test_loop_chooses_next_target_without_manual_sequence_and_updates_memory():
 
 
 def test_loop_stops_explicitly_for_gain_budget_and_conflict():
-    def low(_): return StudyOutcome("DocumentA", ("field_alpha",), 1, 1, 0.0, 0.0, "none", "INCONCLUSIVE")
-    assert run_autonomous_loop(objective(), model_a(), (), envelope(), low).stop_reason is StudyStopReason.NO_INFORMATION_GAIN
-    def conflict(_): return StudyOutcome("DocumentA", ("field_alpha",), 1, 0, 0.0, 0.0, "high", "INCONCLUSIVE", conflict=True)
+    def low(request): return StudyOutcome(request.intent.entity, request.intent.fields, 1, 1, 0.0, 0.0, "none", "INCONCLUSIVE")
+    low_run = run_autonomous_loop(objective(), model_a(), (), envelope(), low)
+    assert low_run.stop_reason is StudyStopReason.CYCLE_LIMIT and len(low_run.intents) == 2
+    def conflict(request): return StudyOutcome(request.intent.entity, request.intent.fields, 1, 0, 0.0, 0.0, "high", "INCONCLUSIVE", conflict=True)
     assert run_autonomous_loop(objective(), model_a(), (), envelope(), conflict).stop_reason is StudyStopReason.CONFLICT
     def many(req): return StudyOutcome(req.intent.entity, req.intent.fields, 5, 5, 1.0, 1.0, "high", "SUPPORTED")
     assert run_autonomous_loop(objective(), model_a(), (), envelope(cycles=3, records=5), many).stop_reason is StudyStopReason.EVIDENCE_BUDGET_LIMIT
+    assert run_autonomous_loop(objective(), model_single(), (), envelope("Solo"), low).stop_reason is StudyStopReason.NO_INFORMATION_GAIN
 
 
 def test_checkpoint_restores_memory_but_requires_fresh_authorization():
