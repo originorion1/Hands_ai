@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import pytest
 
 from orion.learning.autonomous_loop import (
@@ -17,18 +15,20 @@ from orion.learning.autonomous_loop import (
     resume_checkpoint,
     run_autonomous_loop,
 )
+from orion.understanding.metadata import MetadataUnderstanding, StructuralEntity, StructuralField
 
 
 def model_a():
-    return SimpleNamespace(entities=(SimpleNamespace(doctype="DocumentA", fields=(SimpleNamespace(fieldname="field_alpha", required=True, read_only=False, hidden=False, options="ReferenceA"), SimpleNamespace(fieldname="field_gamma", required=False, read_only=False, hidden=False, options=None), SimpleNamespace(fieldname="layout", required=False, read_only=True, hidden=False, options=None))),))
+    fields = (StructuralField("DocumentA", "field_alpha", "Data", None, "ReferenceA", True, False, False, False), StructuralField("DocumentA", "field_gamma", "Data", None, None, False, False, False, False), StructuralField("DocumentA", "layout", "Section Break", None, None, False, True, False, False))
+    return MetadataUnderstanding("tenant-a", (StructuralEntity("DocumentA", None, False, False, False, fields, ()),))
 
 
 def model_b():
-    return SimpleNamespace(entities=(SimpleNamespace(doctype="RecordB", fields=(SimpleNamespace(fieldname="value_beta", required=False, read_only=False, hidden=False, options=None),)),))
+    return MetadataUnderstanding("tenant-a", (StructuralEntity("RecordB", None, False, False, False, (StructuralField("RecordB", "value_beta", "Data", None, None, False, False, False, False),), ()),))
 
 
 def model_single():
-    return SimpleNamespace(entities=(SimpleNamespace(doctype="Solo", fields=(SimpleNamespace(fieldname="only", required=False, read_only=False, hidden=False, options=None),)),))
+    return MetadataUnderstanding("tenant-a", (StructuralEntity("Solo", None, False, False, False, (StructuralField("Solo", "only", "Data", None, None, False, False, False, False),), ()),))
 
 
 def objective():
@@ -36,7 +36,8 @@ def objective():
 
 
 def envelope(entity="DocumentA", cycles=2, records=10):
-    return AuthorizationEnvelope("tenant-a", objective_id="objective-1", allowed_metadata_entities=frozenset({entity}), allowed_record_entities=frozenset({entity}), max_cycles=cycles, max_cumulative_records=records, max_records_per_proposal=5)
+    fields = ("field_alpha", "field_gamma") if entity == "DocumentA" else (("value_beta",) if entity == "RecordB" else ("only",))
+    return AuthorizationEnvelope("tenant-a", objective_id="objective-1", allowed_metadata_entities=frozenset({entity, "ReferenceA"}), allowed_record_entities=frozenset({entity}), allowed_record_fields=((entity, fields),), max_cycles=cycles, max_cumulative_records=records, max_records_per_proposal=5)
 
 
 def test_objective_and_planner_are_deterministic_and_generic():
@@ -54,7 +55,7 @@ def test_required_unobserved_and_low_coverage_raise_priority():
 
 def test_authorization_rejects_wrong_scope_wildcards_and_budget():
     intent = generate_intent(discover_opportunities(objective(), model_a(), ())[0], "tenant-a", 5)
-    assert authorize_intent(intent, envelope())
+    assert authorize_intent(intent, envelope(), model_a())
     with pytest.raises(ValueError): authorize_intent(intent, envelope("Other"))
     with pytest.raises(ValueError): authorize_intent(intent.__class__("tenant-a", "../bad", ("x",), "record_evidence", 1, "h", "e", "r"), envelope())
     with pytest.raises(ValueError): authorize_intent(intent.__class__("tenant-a", "DocumentA", ("field_alpha",), "record_evidence", 99, "h", "e", "r"), envelope())
