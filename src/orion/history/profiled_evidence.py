@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -26,7 +27,7 @@ class ProfiledEvidenceBatch:
     def __post_init__(self) -> None:
         if not all(isinstance(value, str) and value.strip() == value and value for value in (self.tenant_id, self.resource, self.profile_id)):
             raise HistoricalEvidenceError("profiled evidence scope is invalid")
-        if type(self.sequence) is not int or self.sequence < 1 or not isinstance(self.created_at, datetime) or self.created_at.tzinfo is None:
+        if type(self.sequence) is not int or self.sequence < 1 or not isinstance(self.created_at, datetime) or self.created_at.tzinfo is None or self.created_at.utcoffset() is None:
             raise HistoricalEvidenceError("profiled evidence envelope is invalid")
         if not isinstance(self.observations, tuple) or not self.observations or len(self.observations) > 100:
             raise HistoricalEvidenceError("profiled observations must contain 1..100 values")
@@ -34,14 +35,19 @@ class ProfiledEvidenceBatch:
         observation_ids: set[UUID] = set()
         evidence_ids: set[UUID] = set()
         for observation in self.observations:
-            if observation.mode is not ObservationMode.READ_ONLY or observation.evidence.kind is not EvidenceKind.API:
+            if not isinstance(observation, Observation) or not isinstance(observation.observation_id, UUID) or observation.mode is not ObservationMode.READ_ONLY or not isinstance(observation.evidence, Evidence) or not isinstance(observation.evidence.evidence_id, UUID) or observation.evidence.kind is not EvidenceKind.API:
                 raise HistoricalEvidenceError("profiled observations must be read-only API evidence")
             if observation.evidence.tenant_id != self.tenant_id:
                 raise HistoricalEvidenceError("profiled evidence tenant mismatch")
             if observation.observation_id in observation_ids or observation.evidence.evidence_id in evidence_ids:
                 raise HistoricalEvidenceError("duplicate profiled observation/evidence identity")
+            if not isinstance(observation.evidence.source, str) or not observation.evidence.source.strip() or not isinstance(observation.evidence.observed_at, datetime) or observation.evidence.observed_at.tzinfo is None or observation.evidence.observed_at.utcoffset() is None:
+                raise HistoricalEvidenceError("profiled evidence metadata is invalid")
+            confidence = observation.evidence.confidence
+            if confidence is not None and (type(confidence) not in {int, float} or isinstance(confidence, bool) or not math.isfinite(confidence)):
+                raise HistoricalEvidenceError("profiled confidence is invalid")
             payload = observation.evidence.payload
-            if set(payload) != {"resource", "profile_id", "record"} or payload["resource"] != self.resource or payload["profile_id"] != self.profile_id or not isinstance(payload["record"], dict):
+            if not isinstance(payload, Mapping) or set(payload) != {"resource", "profile_id", "record"} or payload["resource"] != self.resource or payload["profile_id"] != self.profile_id or not isinstance(payload["record"], Mapping):
                 raise HistoricalEvidenceError("profiled payload contract is invalid")
             name = payload["record"].get("name")
             if not isinstance(name, str) or not name.strip() or name in names:
@@ -54,6 +60,7 @@ class ProfiledEvidenceBatch:
 
 def profiled_evidence_to_json(batch: ProfiledEvidenceBatch) -> str:
     payload = {
+        "format_version": 1,
         "profile_id": batch.profile_id,
         "tenant_id": batch.tenant_id,
         "resource": batch.resource,
@@ -86,6 +93,8 @@ def profiled_evidence_checksum(payload_json: str) -> str:
 def profiled_evidence_from_json(payload_json: str) -> ProfiledEvidenceBatch:
     try:
         data = json.loads(payload_json)
+        if not isinstance(data, dict) or set(data) != {"format_version", "profile_id", "tenant_id", "resource", "sequence", "created_at", "observations"} or data["format_version"] != 1 or not isinstance(data["observations"], list):
+            raise HistoricalEvidenceError("profiled evidence envelope keys are invalid")
         observations = tuple(
             Observation(
                 observation_id=UUID(item["observation_id"]),
@@ -101,9 +110,15 @@ def profiled_evidence_from_json(payload_json: str) -> ProfiledEvidenceBatch:
                 ),
             )
             for item in data["observations"]
+            if isinstance(item, dict)
+            and set(item) == {"observation_id", "mode", "evidence"}
+            and isinstance(item.get("evidence"), dict)
+            and set(item["evidence"]) == {"evidence_id", "kind", "source", "tenant_id", "observed_at", "confidence", "payload"}
         )
+        if len(observations) != len(data["observations"]):
+            raise HistoricalEvidenceError("profiled observation keys are invalid")
         return ProfiledEvidenceBatch(data["tenant_id"], data["resource"], data["profile_id"], data["sequence"], datetime.fromisoformat(data["created_at"]), observations)
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError, HistoricalEvidenceError) as exc:
         raise HistoricalEvidenceError("invalid profiled evidence payload") from exc
 
 

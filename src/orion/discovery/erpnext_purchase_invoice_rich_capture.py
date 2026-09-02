@@ -15,6 +15,7 @@ from ..history.evidence import HistoricalEvidenceError
 from ..history.profiled_evidence import ProfiledEvidenceBatch
 from ..stores.sqlite_historical_evidence import SQLiteHistoricalEvidenceStore
 from ..stores.sqlite_profiled_evidence import SQLiteProfiledEvidenceStore
+from .erpnext_adapter import _default_opener, _normalize_base_url
 from .erpnext_historical_capture import (
     FIRST_CAPTURE_FIELDS,
     PURCHASE_INVOICE_RESOURCE,
@@ -35,6 +36,16 @@ class RichCaptureConfig:
     company: str
     api_key: str = field(repr=False)
     api_secret: str = field(repr=False)
+
+    def __post_init__(self) -> None:
+        for value in (self.base_url, self.tenant_id, self.company, self.api_key, self.api_secret):
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError("rich capture configuration values must be non-empty")
+        if not self.tenant_id == self.tenant_id.strip() or not self.company == self.company.strip():
+            raise ValueError("rich capture scope values must not have surrounding whitespace")
+        normalized = _normalize_base_url(self.base_url)
+        if not normalized.lower().startswith("https://"):
+            raise ValueError("rich capture requires HTTPS")
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,16 +120,14 @@ def capture_purchase_invoice_rich_v1(
 class _PrivateRichTransport:
     def __init__(self, config: RichCaptureConfig, opener: Callable[..., object] | None) -> None:
         self._config = config
-        self._opener = opener
+        self._opener = opener or _default_opener
 
     def fetch(self, name: str) -> tuple[dict[str, object], int, int]:
         url = f"{self._config.base_url.rstrip('/')}/api/resource/{quote(PURCHASE_INVOICE_RESOURCE, safe='')}/{quote(name, safe='')}"
         request = Request(url, headers={"Authorization": f"token {self._config.api_key}:{self._config.api_secret}", "Accept": "application/json"}, method="GET")
-        opener = self._opener
-        if opener is None:
-            raise HistoricalEvidenceError("rich capture requires an offline transport")
-        with opener(request, timeout=30) as response:
-            if response.geturl() != request.full_url:
+        with self._opener(request, timeout=30) as response:
+            final_url = getattr(response, "geturl", lambda: request.full_url)()
+            if final_url != request.full_url:
                 raise HistoricalEvidenceError("rich capture redirects are not allowed")
             body = response.read(1_000_001)
         if len(body) > 1_000_000:
@@ -134,6 +143,9 @@ class _PrivateRichTransport:
             raise HistoricalEvidenceError("rich capture document projection is invalid")
         if not document["items"] or len(document["items"]) > 50 or len(document["taxes"]) > 20:
             raise HistoricalEvidenceError("rich capture child row bounds are invalid")
+        for context_field in ("supplier", "posting_date", "currency", "credit_to"):
+            if not isinstance(document[context_field], str) or not document[context_field].strip():
+                raise HistoricalEvidenceError("rich capture parent context is invalid")
         projected = {field: document[field] for field in PARENT_FIELDS}
         projected["items"] = [_project_row(row, ITEM_FIELDS) for row in document["items"]]
         projected["taxes"] = [_project_row(row, TAX_FIELDS) for row in document["taxes"]]
@@ -143,4 +155,12 @@ class _PrivateRichTransport:
 def _project_row(row: object, fields: tuple[str, ...]) -> dict[str, object]:
     if not isinstance(row, Mapping):
         raise HistoricalEvidenceError("rich capture child row is invalid")
+    if not isinstance(row.get("item_name"), str) and "item_name" in fields:
+        raise HistoricalEvidenceError("rich capture item_name is required")
+    for numeric_field in ("qty", "rate", "amount"):
+        if numeric_field in fields and (type(row.get(numeric_field)) not in {int, float} or isinstance(row.get(numeric_field), bool)):
+            raise HistoricalEvidenceError("rich capture numeric child field is invalid")
+    for text_field in ("account_head", "add_deduct_tax", "charge_type"):
+        if text_field in fields and (not isinstance(row.get(text_field), str) or not row[text_field].strip()):
+            raise HistoricalEvidenceError("rich capture tax context is invalid")
     return {field: row.get(field) for field in fields}
