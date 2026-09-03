@@ -31,6 +31,14 @@ written locally and is neither committed nor pushed. Success commits and pushes
 only the declared feature branch and posts an allowlisted report without the
 Codex transcript.
 
+The source/capability scan continues to reject general new network capability.
+Its sole urllib exception is statically provable, bodyless `Request(...)`
+construction with an explicit literal `method="GET"`, using exactly
+`from urllib.request import Request`, under `src/orion/discovery/`. This makes a
+narrow discovery-edge change eligible for code review; it does not permit live
+or customer access. Human merge authority and the separate live-authorization
+gate remain unchanged.
+
 Immediately before commit, a final integrity gate rechecks the exact preserved
 stash baseline, canonical cleanliness and local/remote base SHA, feature HEAD,
 and a content-and-mode fingerprint of the complete verified changed/untracked

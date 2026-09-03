@@ -295,6 +295,108 @@ def test_source_scan_rejects_network_and_dangerous_codex_mode(tmp_path):
     assert lab.Orchestrator.source_capability_scan(tmp_path, ("tool.py",)) is False
 
 
+def scan_source(tmp_path, name, source):
+    path = tmp_path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source)
+    return lab.Orchestrator.source_capability_scan(tmp_path, (name,))
+
+
+def test_source_scan_accepts_explicit_get_at_discovery_edge(tmp_path):
+    source = 'from urllib.request import Request\nrequest = Request("https://example.invalid", method="GET")\n'
+    assert scan_source(tmp_path, "src/orion/discovery/adapter.py", source) is True
+
+
+def test_source_scan_rejects_get_adapter_outside_discovery(tmp_path):
+    source = 'from urllib.request import Request\nRequest("https://example.invalid", method="GET")\n'
+    assert scan_source(tmp_path, "src/orion/other.py", source) is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import urllib.request\n',
+        'import urllib\nurllib.request.Request("x", method="GET")\n',
+        'import urllib as u\nu.request.Request("x", method="GET")\n',
+        'from urllib import request\n',
+        'from urllib.request import urlopen\n',
+        'from urllib.request import build_opener\n',
+        'from urllib.request import Request as HTTPRequest\n',
+    ],
+)
+def test_source_scan_rejects_broad_or_aliased_urllib_imports(tmp_path, source):
+    assert scan_source(tmp_path, "src/orion/discovery/adapter.py", source) is False
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        'Request("https://example.invalid")',
+        'Request("https://example.invalid", method=method)',
+        'Request("https://example.invalid", method="POST")',
+        'Request("https://example.invalid", method="PUT")',
+        'Request("https://example.invalid", method="PATCH")',
+        'Request("https://example.invalid", method="DELETE")',
+        'Request("https://example.invalid", data=b"body", method="GET")',
+        'Request("https://example.invalid", b"body", method="GET")',
+        'Request(*arguments, method="GET")',
+        'Request("https://example.invalid", method="GET", **options)',
+    ],
+)
+def test_source_scan_rejects_request_without_provable_bodyless_get(tmp_path, call):
+    source = f"from urllib.request import Request\n{call}\n"
+    assert scan_source(tmp_path, "src/orion/discovery/adapter.py", source) is False
+
+
+def test_source_scan_checks_every_request_call(tmp_path):
+    source = '''from urllib.request import Request
+Request("https://example.invalid/one", method="GET")
+Request("https://example.invalid/two", method="POST")
+'''
+    assert scan_source(tmp_path, "src/orion/discovery/adapter.py", source) is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'from .urllib.request import Request\nRequest("x", method="GET")\n',
+        'from urllib.request import Request\ndef Request(url): return url\nRequest("x", method="GET")\n',
+        'from urllib.request import Request\ndef make(Request): return Request("x", method="GET")\n',
+        'from urllib.request import Request\nfactory = Request\nfactory("x", method="GET")\n',
+    ],
+)
+def test_source_scan_rejects_nonexact_or_shadowed_request_binding(tmp_path, source):
+    assert scan_source(tmp_path, "src/orion/discovery/adapter.py", source) is False
+
+
+def test_source_scan_fails_closed_for_invalid_production_python(tmp_path):
+    assert scan_source(tmp_path, "src/orion/discovery/broken.py", "def broken(:\n") is False
+
+
+@pytest.mark.parametrize("module", ["requests", "httpx", "socket"])
+def test_source_scan_preserves_general_network_rejections(tmp_path, module):
+    assert scan_source(tmp_path, "src/orion/change.py", f"import {module}\n") is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'command = ["git", "merge", "topic"]\n',
+        'command = ["git", "reset", "--hard"]\n',
+        'command = ["git", "stash", "pop"]\n',
+        'command = ["git", "stash", "drop"]\n',
+        'mode = "danger-full-access"\n',
+        'mode = "dangerously-bypass-approvals-and-sandbox"\n',
+    ],
+)
+def test_source_scan_preserves_destructive_command_rejections(tmp_path, source):
+    assert scan_source(tmp_path, "tools/change.py", source) is False
+
+
+def test_source_scan_accepts_normal_production_change(tmp_path):
+    assert scan_source(tmp_path, "src/orion/change.py", "value = 1\n") is True
+
+
 def test_stash_baseline_is_preserved_and_never_mutated(tmp_path):
     commands = []
 

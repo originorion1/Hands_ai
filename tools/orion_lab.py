@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import fcntl
 import hashlib
@@ -32,6 +33,8 @@ META_KEYS = (
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 BRANCH_RE = re.compile(r"codex/[A-Za-z0-9._/-]+\Z")
 TEST_COUNT_RE = re.compile(r"(\d+) passed")
+URLLIB = "url" + "lib"
+URLLIB_REQUEST = URLLIB + "." + "request"
 
 
 class SafeFail(RuntimeError):
@@ -374,7 +377,6 @@ class Orchestrator:
                 + "|".join(("requ" + "ests", "htt" + "px", "sock" + "et"))
                 + r")\b"
             ),
-            re.compile("urllib" + r"\." + "request"),
             re.compile(r"['\"]git['\"].{0,80}['\"](?:merge|reset)['\"]", re.DOTALL),
             re.compile(r"['\"]stash['\"]\s*,\s*['\"](?:pop|drop)['\"]"),
             re.compile(
@@ -388,6 +390,96 @@ class Orchestrator:
                 continue
             text = (worktree / name).read_text(encoding="utf-8")
             if any(pattern.search(text) for pattern in forbidden):
+                return False
+            try:
+                tree = ast.parse(text, filename=name)
+            except (SyntaxError, ValueError):
+                return False
+            if not Orchestrator._urllib_request_is_get_only(name, tree):
+                return False
+        return True
+
+    @staticmethod
+    def _urllib_request_is_get_only(name: str, tree: ast.AST) -> bool:
+        request_imported = False
+        urllib_names = {URLLIB}
+        parents = {child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)}
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "request"
+                and isinstance(node.value, ast.Name)
+                and node.value.id in urllib_names
+            ):
+                return False
+            if isinstance(node, ast.Import):
+                urllib_names.update(
+                    alias.asname or alias.name
+                    for alias in node.names
+                    if alias.name == URLLIB
+                )
+                if any(
+                    alias.name == URLLIB_REQUEST
+                    or alias.name.startswith(URLLIB_REQUEST + ".")
+                    for alias in node.names
+                ):
+                    return False
+            elif isinstance(node, ast.ImportFrom) and node.module == URLLIB:
+                if any(alias.name == "request" for alias in node.names):
+                    return False
+            elif isinstance(node, ast.ImportFrom) and (
+                node.module == URLLIB_REQUEST
+                or (node.module or "").startswith(URLLIB_REQUEST + ".")
+            ):
+                if (
+                    node.module != URLLIB_REQUEST
+                    or
+                    node.level != 0
+                    or
+                    len(node.names) != 1
+                    or node.names[0].name != "Request"
+                    or node.names[0].asname is not None
+                ):
+                    return False
+                request_imported = True
+
+        if not request_imported:
+            return True
+        if not name.startswith("src/orion/discovery/"):
+            return False
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "Request" and isinstance(node.ctx, ast.Load):
+                parent = parents.get(node)
+                if not (isinstance(parent, ast.Call) and parent.func is node):
+                    return False
+            if isinstance(node, ast.Name) and node.id == "Request" and not isinstance(node.ctx, ast.Load):
+                return False
+            if isinstance(node, ast.arg) and node.arg == "Request":
+                return False
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == "Request":
+                return False
+            if isinstance(node, ast.ExceptHandler) and node.name == "Request":
+                return False
+            if isinstance(node, (ast.Import, ast.ImportFrom)) and any(
+                alias.asname == "Request" for alias in node.names
+            ):
+                return False
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+                continue
+            if node.func.id != "Request":
+                continue
+            if (
+                len(node.args) > 1
+                or any(isinstance(argument, ast.Starred) for argument in node.args)
+                or any(keyword.arg in {None, "data"} for keyword in node.keywords)
+            ):
+                return False
+            methods = [keyword.value for keyword in node.keywords if keyword.arg == "method"]
+            if len(methods) != 1:
+                return False
+            method = methods[0]
+            if not (isinstance(method, ast.Constant) and method.value == "GET"):
                 return False
         return True
 
