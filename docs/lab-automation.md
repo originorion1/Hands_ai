@@ -31,6 +31,11 @@ written locally and is neither committed nor pushed. Success commits and pushes
 only the declared feature branch and posts an allowlisted report without the
 Codex transcript.
 
+Immediately before commit, a final integrity gate rechecks the exact preserved
+stash baseline, canonical cleanliness and local/remote base SHA, feature HEAD,
+and a content-and-mode fingerprint of the complete verified changed/untracked
+file set. Any drift produces only the existing sanitized local failure report.
+
 `watch` polls open issues labeled `orion-codex-ready`, processes at most the
 lowest-numbered pending issue under the same exclusive local lock, and skips
 issues carrying the completion marker. `--once` performs one poll. A minimum

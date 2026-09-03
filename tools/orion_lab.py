@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
+import hashlib
 import json
 import platform
 import re
@@ -51,6 +52,12 @@ class CheckResult:
     name: str
     passed: bool
     detail: str = ""
+
+
+@dataclass(frozen=True)
+class ChangeSnapshot:
+    files: tuple[str, ...]
+    digest: str
 
 
 @dataclass(frozen=True)
@@ -189,8 +196,8 @@ class Orchestrator:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         if snapshot.exists():
             expected = json.loads(snapshot.read_text(encoding="utf-8"))
-            if any(stash not in current for stash in expected):
-                raise SafeFail("preserved_stash_missing")
+            if current != expected:
+                raise SafeFail("preserved_stash_changed")
         else:
             snapshot.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
 
@@ -289,11 +296,29 @@ class Orchestrator:
         untracked = self._git("ls-files", "--others", "--exclude-standard", cwd=worktree)
         return tuple(sorted(set(filter(None, (*output.splitlines(), *untracked.splitlines())))))
 
-    def verify(self, worktree: Path, base_sha: str) -> tuple[list[CheckResult], tuple[str, ...], int | None]:
-        changed = self._changed_files(worktree, base_sha)
-        if not changed:
+    def _change_snapshot(self, worktree: Path, base_sha: str) -> ChangeSnapshot:
+        files = self._changed_files(worktree, base_sha)
+        digest = hashlib.sha256()
+        for name in files:
+            path = worktree / name
+            digest.update(name.encode("utf-8"))
+            digest.update(b"\0")
+            if path.is_symlink():
+                digest.update(b"symlink\0")
+                digest.update(path.readlink().as_posix().encode("utf-8"))
+            elif path.is_file():
+                digest.update(f"file:{path.stat().st_mode:o}\0".encode())
+                digest.update(path.read_bytes())
+            else:
+                digest.update(b"deleted\0")
+            digest.update(b"\0")
+        return ChangeSnapshot(files=files, digest=digest.hexdigest())
+
+    def verify(self, worktree: Path, base_sha: str) -> tuple[list[CheckResult], ChangeSnapshot, int | None]:
+        snapshot = self._change_snapshot(worktree, base_sha)
+        if not snapshot.files:
             raise SafeFail("no_changes")
-        python_files = [name for name in changed if name.endswith(".py")]
+        python_files = [name for name in snapshot.files if name.endswith(".py")]
         commands: list[tuple[str, list[str]]] = []
         commands.append(("py_compile", [sys.executable, "-m", "py_compile", *python_files]))
         commands.extend(
@@ -320,10 +345,26 @@ class Orchestrator:
                 tests = int(match.group(1)) if match else None
             results.append(CheckResult(name, passed, "passed" if passed else "failed"))
             if not passed:
-                return results, changed, tests
-        scan = self.source_capability_scan(worktree, changed)
+                return results, snapshot, tests
+        scan = self.source_capability_scan(worktree, snapshot.files)
         results.append(CheckResult("source_capability_scan", scan, "passed" if scan else "failed"))
-        return results, changed, tests
+        return results, snapshot, tests
+
+    def final_integrity_gate(
+        self,
+        contract: AutomationContract,
+        worktree: Path,
+        verified: ChangeSnapshot,
+    ) -> None:
+        """Revalidate every mutable boundary immediately before commit and push."""
+        self._ensure_stashes()
+        if self._git("status", "--porcelain", cwd=self._canonical_worktree()):
+            raise SafeFail("canonical_changed_after_verification")
+        self.verify_base(contract)
+        if self._git("rev-parse", "HEAD", cwd=worktree) != contract.base_sha:
+            raise SafeFail("feature_head_changed_after_verification")
+        if self._change_snapshot(worktree, contract.base_sha) != verified:
+            raise SafeFail("verified_changes_changed")
 
     @staticmethod
     def source_capability_scan(worktree: Path, changed: tuple[str, ...]) -> bool:
@@ -406,10 +447,13 @@ class Orchestrator:
                     raise SafeFail("canonical_changed_by_codex")
                 if self._git("rev-parse", "HEAD", cwd=worktree) != contract.base_sha:
                     raise SafeFail("codex_created_commit")
-                checks, changed, tests = self.verify(worktree, contract.base_sha)
+                checks, snapshot, tests = self.verify(worktree, contract.base_sha)
                 if not all(check.passed for check in checks):
                     raise SafeFail(next(check.name for check in checks if not check.passed) + "_failed")
-                return self.commit_push_report(number, contract, worktree, checks, changed, tests)
+                self.final_integrity_gate(contract, worktree, snapshot)
+                return self.commit_push_report(
+                    number, contract, worktree, checks, snapshot.files, tests
+                )
             except SafeFail as error:
                 self._write_failure(number, str(error))
                 raise

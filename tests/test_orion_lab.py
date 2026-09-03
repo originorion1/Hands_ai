@@ -136,6 +136,105 @@ def test_verification_failure_prevents_commit_push(tmp_path, monkeypatch):
     assert called is False
 
 
+def configure_verified_run(runner, tmp_path, monkeypatch, snapshot):
+    monkeypatch.setattr(
+        runner,
+        "fetch_issue",
+        lambda number: {
+            "number": number,
+            "title": "x",
+            "body": METADATA,
+            "comments": [],
+            "state": "OPEN",
+        },
+    )
+    monkeypatch.setattr(runner, "verify_base", lambda contract: None)
+    monkeypatch.setattr(runner, "prepare_worktree", lambda number, contract: tmp_path)
+    monkeypatch.setattr(runner, "invoke_codex", lambda *args: None)
+    monkeypatch.setattr(runner, "_canonical_worktree", lambda: tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "verify",
+        lambda *args: ([lab.CheckResult("ruff", True, "passed")], snapshot, 1),
+    )
+
+
+def test_stash_loss_after_verification_prevents_commit_push(tmp_path, monkeypatch):
+    stash_checks = 0
+    commit_called = False
+    snapshot = lab.ChangeSnapshot(("x.py",), "verified")
+    runner = lab.Orchestrator(tmp_path)
+    configure_verified_run(runner, tmp_path, monkeypatch, snapshot)
+
+    def fake_git(*args, **kwargs):
+        nonlocal stash_checks
+        if args[:2] == ("stash", "list"):
+            stash_checks += 1
+            return "preserved-stash" if stash_checks == 1 else ""
+        if args[:2] == ("rev-parse", "HEAD"):
+            return BASE
+        return ""
+
+    def commit(*args):
+        nonlocal commit_called
+        commit_called = True
+
+    monkeypatch.setattr(runner, "_git", fake_git)
+    monkeypatch.setattr(runner, "doctor", runner._ensure_stashes)
+    monkeypatch.setattr(runner, "_change_snapshot", lambda *args: snapshot)
+    monkeypatch.setattr(runner, "commit_push_report", commit)
+    with pytest.raises(lab.SafeFail, match="preserved_stash_changed"):
+        runner.run_issue(1)
+    assert stash_checks == 2
+    assert commit_called is False
+
+
+@pytest.mark.parametrize(
+    "drifted",
+    [
+        lab.ChangeSnapshot(("x.py", "extra.py"), "drifted"),
+        lab.ChangeSnapshot(("x.py",), "changed-content"),
+    ],
+)
+def test_post_verification_change_drift_prevents_commit_push(tmp_path, monkeypatch, drifted):
+    commit_called = False
+    verified = lab.ChangeSnapshot(("x.py",), "verified")
+    runner = lab.Orchestrator(tmp_path)
+    configure_verified_run(runner, tmp_path, monkeypatch, verified)
+    monkeypatch.setattr(runner, "doctor", lambda: None)
+    monkeypatch.setattr(
+        runner,
+        "_git",
+        lambda *args, **kwargs: BASE if args[:2] == ("rev-parse", "HEAD") else "",
+    )
+    monkeypatch.setattr(runner, "_change_snapshot", lambda *args: drifted)
+
+    def commit(*args):
+        nonlocal commit_called
+        commit_called = True
+
+    monkeypatch.setattr(runner, "commit_push_report", commit)
+    with pytest.raises(lab.SafeFail, match="verified_changes_changed"):
+        runner.run_issue(1)
+    assert commit_called is False
+
+
+def test_unchanged_verified_tree_reaches_success_path(tmp_path, monkeypatch):
+    verified = lab.ChangeSnapshot(("x.py",), "verified")
+    expected = object()
+    runner = lab.Orchestrator(tmp_path)
+    configure_verified_run(runner, tmp_path, monkeypatch, verified)
+    monkeypatch.setattr(runner, "doctor", lambda: None)
+    monkeypatch.setattr(
+        runner,
+        "_git",
+        lambda *args, **kwargs: BASE if args[:2] == ("rev-parse", "HEAD") else "",
+    )
+    monkeypatch.setattr(runner, "_change_snapshot", lambda *args: verified)
+    monkeypatch.setattr(runner, "commit_push_report", lambda *args: expected)
+    assert runner.run_issue(1) is expected
+
+
 def test_demo_must_explicitly_deny_execution(tmp_path, monkeypatch):
     (tmp_path / "x.py").write_text("x = 1\n")
     runner = lab.Orchestrator(tmp_path)
