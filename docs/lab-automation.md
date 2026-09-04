@@ -31,6 +31,13 @@ written locally and is neither committed nor pushed. Success commits and pushes
 only the declared feature branch and posts an allowlisted report without the
 Codex transcript.
 
+The source/capability scan rejects general new network capability and dynamic
+import or name-resolution escape paths. Its sole urllib exception is an exact
+`from urllib.request import Request` followed by statically provable, bodyless
+`Request(...)` construction with literal `method="GET"` under
+`src/orion/discovery/`. The verifier also scans its own changed source, so this
+bootstrap constraint remains part of the regression suite.
+
 Immediately before commit, a final integrity gate rechecks the exact preserved
 stash baseline, canonical cleanliness and local/remote base SHA, feature HEAD,
 and a content-and-mode fingerprint of the complete verified changed/untracked

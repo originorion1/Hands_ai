@@ -295,6 +295,108 @@ def test_source_scan_rejects_network_and_dangerous_codex_mode(tmp_path):
     assert lab.Orchestrator.source_capability_scan(tmp_path, ("tool.py",)) is False
 
 
+def scan_source(tmp_path, name, source):
+    path = tmp_path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(source)
+    return lab.Orchestrator.source_capability_scan(tmp_path, (name,))
+
+
+def test_source_scan_accepts_direct_bodyless_literal_get_at_discovery_edge(tmp_path):
+    source = 'from urllib.request import Request\nRequest("https://example.invalid", method="GET")\n'
+    assert scan_source(tmp_path, "src/orion/discovery/adapter.py", source) is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'value = getattr(record, "status")\n',
+        'value = globals()["APPLICATION_SETTING"]\n',
+        'value = locals().get("temporary_value")\n',
+        'value = vars(record)\n',
+        'value = eval("1 + 1")\n',
+        'namespace = {}\nexec("result = 1", namespace)\n',
+        'from builtins import getattr as resolve\nvalue = resolve(record, "status")\n',
+        'import importlib\nmodule = importlib.import_module("decimal")\n',
+        'module = __import__("decimal")\n',
+    ],
+)
+def test_source_scan_accepts_provably_unrelated_reflection_helpers(tmp_path, source):
+    assert scan_source(tmp_path, "src/orion/service.py", source) is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import urllib.request\nurllib.request.Request("x", method="GET")\n',
+        'from urllib import request\nrequest.Request("x", method="GET")\n',
+        'from urllib.request import Request as R\nR("x", method="GET")\n',
+        'from urllib.request import urlopen\n',
+        'from urllib.request import Request\n',
+        '__import__("urllib.request").request.urlopen("x")\n',
+        'import importlib\nimportlib.import_module("urllib.request").urlopen("x")\n',
+        'from importlib import import_module as load\nload("urllib.request")\n',
+        'import builtins\nloader = builtins.__import__\nloader("urllib.request")\n',
+        'import importlib\nloader = importlib.import_module\nloader("urllib.request")\n',
+        'from builtins import getattr as resolve\nresolve(object(), "request")\n',
+        'getattr(__import__("urllib"), "request").urlopen("x")\n',
+        'object.__getattribute__(__import__("urllib"), "request")\n',
+        'globals()["__builtins__"]["__import__"]("urllib.request")\n',
+        'locals()["Request"]("x", method="GET")\n',
+        'vars(__builtins__)["__import__"]("urllib.request")\n',
+        'vars(__builtins__).get("__import__")("urllib.request")\n',
+        'eval("__import__(\\"urllib.request\\")")\n',
+        'exec("import urllib.request")\n',
+        'module_name = get_module_name()\n__import__(module_name)\n',
+        'attribute = get_attribute_name()\ngetattr(module, attribute)\n',
+        'source = get_source()\neval(source)\n',
+        'from urllib.request import Request\nvalue = globals()["Request"]\n',
+    ],
+)
+def test_source_scan_rejects_import_and_name_resolution_escape_paths(tmp_path, source):
+    assert scan_source(tmp_path, "src/orion/discovery/adapter.py", source) is False
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        'Request("x")',
+        'Request("x", method=method)',
+        'Request("x", method="POST")',
+        'Request("x", data=b"body", method="GET")',
+        'Request("x", b"body", method="GET")',
+        'Request(*arguments, method="GET")',
+        'Request("x", method="GET", **options)',
+    ],
+)
+def test_source_scan_rejects_request_without_provable_bodyless_get(tmp_path, call):
+    source = f"from urllib.request import Request\n{call}\n"
+    assert scan_source(tmp_path, "src/orion/discovery/adapter.py", source) is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'from urllib.request import Request\nfactory = Request\nfactory("x", method="GET")\n',
+        'from urllib.request import Request\ndef Request(url): return url\n',
+        'from urllib.request import Request\ndef make(Request): return Request("x", method="GET")\n',
+    ],
+)
+def test_source_scan_rejects_shadowed_or_indirect_request_binding(tmp_path, source):
+    assert scan_source(tmp_path, "src/orion/discovery/adapter.py", source) is False
+
+
+def test_source_scan_rejects_get_outside_discovery_and_invalid_python(tmp_path):
+    source = 'from urllib.request import Request\nRequest("x", method="GET")\n'
+    assert scan_source(tmp_path, "src/orion/other.py", source) is False
+    assert scan_source(tmp_path, "src/orion/discovery/broken.py", "def broken(:\n") is False
+
+
+def test_source_scan_can_scan_its_own_verifier_source():
+    root = Path(lab.__file__).resolve().parents[1]
+    assert lab.Orchestrator.source_capability_scan(root, ("tools/orion_lab.py",)) is True
+
+
 def test_stash_baseline_is_preserved_and_never_mutated(tmp_path):
     commands = []
 

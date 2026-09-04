@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import fcntl
 import hashlib
@@ -32,6 +33,13 @@ META_KEYS = (
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 BRANCH_RE = re.compile(r"codex/[A-Za-z0-9._/-]+\Z")
 TEST_COUNT_RE = re.compile(r"(\d+) passed")
+URLLIB = "url" + "lib"
+URLLIB_REQUEST = URLLIB + "." + "request"
+DYNAMIC_IMPORT = "__" + "import__"
+IMPORT_MODULE = "import_" + "module"
+DYNAMIC_RESOLVERS = frozenset(
+    ("get" + "attr", "globals", "locals", "vars", "ev" + "al", "ex" + "ec")
+)
 
 
 class SafeFail(RuntimeError):
@@ -374,7 +382,6 @@ class Orchestrator:
                 + "|".join(("requ" + "ests", "htt" + "px", "sock" + "et"))
                 + r")\b"
             ),
-            re.compile("urllib" + r"\." + "request"),
             re.compile(r"['\"]git['\"].{0,80}['\"](?:merge|reset)['\"]", re.DOTALL),
             re.compile(r"['\"]stash['\"]\s*,\s*['\"](?:pop|drop)['\"]"),
             re.compile(
@@ -389,7 +396,234 @@ class Orchestrator:
             text = (worktree / name).read_text(encoding="utf-8")
             if any(pattern.search(text) for pattern in forbidden):
                 return False
+            try:
+                tree = ast.parse(text, filename=name)
+            except (SyntaxError, ValueError):
+                return False
+            if not Orchestrator._urllib_request_is_get_only(name, tree):
+                return False
         return True
+
+    @staticmethod
+    def _urllib_request_is_get_only(name: str, tree: ast.AST) -> bool:
+        request_imported = False
+        urllib_names = {URLLIB}
+        importlib_names = {"importlib"}
+        resolver_names = {resolver: resolver for resolver in DYNAMIC_RESOLVERS}
+        resolver_names[DYNAMIC_IMPORT] = DYNAMIC_IMPORT
+        parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "request"
+                and isinstance(node.value, ast.Name)
+                and node.value.id in urllib_names
+            ):
+                return False
+            if isinstance(node, ast.Import):
+                importlib_names.update(
+                    alias.asname or alias.name
+                    for alias in node.names
+                    if alias.name == "importlib"
+                )
+                urllib_names.update(
+                    alias.asname or alias.name for alias in node.names if alias.name == URLLIB
+                )
+                if any(
+                    alias.name == URLLIB_REQUEST
+                    or alias.name.startswith(URLLIB_REQUEST + ".")
+                    for alias in node.names
+                ):
+                    return False
+            elif isinstance(node, ast.ImportFrom) and node.module == URLLIB:
+                if any(alias.name == "request" for alias in node.names):
+                    return False
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    if (
+                        node.module == "builtins"
+                        and alias.name in (DYNAMIC_IMPORT, *DYNAMIC_RESOLVERS)
+                    ) or (node.module == "importlib" and alias.name == IMPORT_MODULE):
+                        resolver_names[alias.asname or alias.name] = alias.name
+            if isinstance(node, ast.ImportFrom) and (
+                node.module == URLLIB_REQUEST
+                or (node.module or "").startswith(URLLIB_REQUEST + ".")
+            ):
+                if (
+                    node.module != URLLIB_REQUEST
+                    or node.level != 0
+                    or len(node.names) != 1
+                    or node.names[0].name != "Request"
+                    or node.names[0].asname is not None
+                ):
+                    return False
+                request_imported = True
+
+        sensitive_names = {
+            URLLIB,
+            URLLIB_REQUEST,
+            "request",
+            "Request",
+            "builtins",
+            "__builtins__",
+            DYNAMIC_IMPORT,
+            IMPORT_MODULE,
+        }
+
+        def literal_string(node: ast.AST) -> str | None:
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                return node.value
+            return None
+
+        def safe_lookup_name(node: ast.AST) -> bool:
+            value = literal_string(node)
+            return value is not None and value not in sensitive_names
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == DYNAMIC_IMPORT:
+                return False
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == IMPORT_MODULE
+                and isinstance(node.value, ast.Name)
+                and node.value.id in importlib_names
+            ):
+                parent = parents.get(node)
+                if not (isinstance(parent, ast.Call) and parent.func is node):
+                    return False
+            if not isinstance(node, ast.Call):
+                if (
+                    isinstance(node, ast.Name)
+                    and isinstance(node.ctx, ast.Load)
+                    and node.id in resolver_names
+                ):
+                    parent = parents.get(node)
+                    if not (isinstance(parent, ast.Call) and parent.func is node):
+                        return False
+                continue
+
+            resolver = None
+            if isinstance(node.func, ast.Name):
+                resolver = resolver_names.get(node.func.id)
+            elif (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == IMPORT_MODULE
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in importlib_names
+            ):
+                resolver = IMPORT_MODULE
+            elif isinstance(node.func, ast.Attribute) and node.func.attr == "__get" + "attribute__":
+                resolver = "get" + "attr"
+            if resolver is None:
+                continue
+
+            if resolver in (DYNAMIC_IMPORT, IMPORT_MODULE):
+                module = literal_string(node.args[0]) if len(node.args) == 1 else None
+                if module is None or module == URLLIB_REQUEST or module.startswith(URLLIB_REQUEST + "."):
+                    return False
+            elif resolver == "get" + "attr":
+                if len(node.args) not in (2, 3) or not safe_lookup_name(node.args[1]):
+                    return False
+            elif resolver in ("globals", "locals"):
+                if node.args or node.keywords:
+                    return False
+                parent = parents.get(node)
+                if isinstance(parent, ast.Subscript) and parent.value is node:
+                    if not safe_lookup_name(parent.slice):
+                        return False
+                elif isinstance(parent, ast.Attribute) and parent.value is node and parent.attr == "get":
+                    lookup = parents.get(parent)
+                    if (
+                        not isinstance(lookup, ast.Call)
+                        or lookup.func is not parent
+                        or not lookup.args
+                        or not safe_lookup_name(lookup.args[0])
+                    ):
+                        return False
+                else:
+                    return False
+            elif resolver == "vars":
+                if (
+                    len(node.args) != 1
+                    or node.keywords
+                    or (
+                        isinstance(node.args[0], ast.Name)
+                        and node.args[0].id in {"builtins", "__builtins__"}
+                    )
+                ):
+                    return False
+                parent = parents.get(node)
+                if (
+                    isinstance(parent, ast.Subscript)
+                    and parent.value is node
+                    and not safe_lookup_name(parent.slice)
+                ):
+                    return False
+                if isinstance(parent, ast.Attribute) and parent.value is node and parent.attr == "get":
+                    lookup = parents.get(parent)
+                    if (
+                        not isinstance(lookup, ast.Call)
+                        or lookup.func is not parent
+                        or not lookup.args
+                        or not safe_lookup_name(lookup.args[0])
+                    ):
+                        return False
+            elif resolver in ("ev" + "al", "ex" + "ec"):
+                source = literal_string(node.args[0]) if node.args else None
+                if source is None:
+                    return False
+                try:
+                    dynamic_tree = ast.parse(source, mode="eval" if resolver == "ev" + "al" else "exec")
+                except (SyntaxError, ValueError):
+                    return False
+                if not Orchestrator._urllib_request_is_get_only(name, dynamic_tree):
+                    return False
+
+        if not request_imported:
+            return True
+        if not name.startswith("src/orion/discovery/"):
+            return False
+
+        request_calls = 0
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "Request" and isinstance(node.ctx, ast.Load):
+                parent = parents.get(node)
+                if not (isinstance(parent, ast.Call) and parent.func is node):
+                    return False
+            if isinstance(node, ast.Name) and node.id == "Request" and not isinstance(node.ctx, ast.Load):
+                return False
+            if isinstance(node, ast.arg) and node.arg == "Request":
+                return False
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == "Request":
+                return False
+            if isinstance(node, ast.ExceptHandler) and node.name == "Request":
+                return False
+            if isinstance(node, (ast.Import, ast.ImportFrom)) and any(
+                alias.asname == "Request" for alias in node.names
+            ):
+                return False
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+                continue
+            if node.func.id != "Request":
+                continue
+            request_calls += 1
+            if (
+                len(node.args) > 1
+                or any(isinstance(argument, ast.Starred) for argument in node.args)
+                or any(keyword.arg in {None, "data"} for keyword in node.keywords)
+            ):
+                return False
+            methods = [keyword.value for keyword in node.keywords if keyword.arg == "method"]
+            if len(methods) != 1:
+                return False
+            method = methods[0]
+            if not (isinstance(method, ast.Constant) and method.value == "GET"):
+                return False
+        return request_calls > 0
 
     def _write_failure(self, issue: int, category: str) -> None:
         self.state_dir.mkdir(parents=True, exist_ok=True)
