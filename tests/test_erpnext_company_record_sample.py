@@ -1,5 +1,5 @@
 import json
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -145,6 +145,44 @@ def test_company_record_sample_rejects_redirect_and_network_failure():
 
     with pytest.raises(ERPNextCompanyRecordSampleError, match="failed"):
         adapter(opener=network_failure).discover()
+
+
+def test_company_record_sample_rejects_oversize_response():
+    def opener(request, timeout):
+        return FakeResponse(body=b"x" * 33, url=request.full_url)
+
+    sample = ERPNextCompanyRecordSampleAdapter(
+        base_url="https://synthetic.invalid",
+        tenant_id=TENANT,
+        api_key="memory-key",
+        api_secret="memory-secret",
+        resource=ENTITY,
+        company=COMPANY,
+        fields=FIELDS,
+        sample_size=2,
+        max_response_bytes=32,
+        opener=opener,
+    )
+
+    with pytest.raises(
+        ERPNextCompanyRecordSampleError,
+        match="response exceeds configured bound",
+    ):
+        sample.discover()
+
+
+def test_company_record_sample_wraps_http_error():
+    def opener(request, timeout):
+        raise HTTPError(
+            request.full_url,
+            500,
+            "synthetic failure",
+            hdrs=None,
+            fp=None,
+        )
+
+    with pytest.raises(ERPNextCompanyRecordSampleError, match="failed"):
+        adapter(opener=opener).discover()
 
 
 def structural_understanding(
