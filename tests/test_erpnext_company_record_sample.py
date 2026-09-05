@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlsplit
 
@@ -284,6 +285,9 @@ def test_governed_company_composition_passes_exact_scope_and_sink():
     assert query["limit_page_length"] == ["1"]
     assert first == second
     assert first.prediction_evaluated is False
+    assert first.recommendation_allowed is False
+    assert first.promotion_allowed is False
+    assert first.execution_allowed is False
     assert sink_calls[0][0] == governed_request(records=1)
     assert len(sink_calls[0][1]) == 1
 
@@ -310,6 +314,33 @@ def test_governed_company_composition_rejects_wrong_structure_before_opener(
         )
 
     assert calls == []
+
+
+@pytest.mark.parametrize("flag", ("hidden", "read_only"))
+def test_governed_company_composition_rejects_restricted_field_before_opener(flag):
+    understanding = structural_understanding()
+    entity = understanding.entities[0]
+    fields = tuple(
+        replace(field, **{flag: True}) if field.fieldname == FIELD else field
+        for field in entity.fields
+    )
+    understanding = replace(understanding, entities=(replace(entity, fields=fields),))
+    calls = []
+    sink_calls = []
+
+    def opener(request, timeout):
+        calls.append(request)
+        return FakeResponse({"data": [row(value="synthetic")]}, url=request.full_url)
+
+    with pytest.raises(ValueError, match="hidden or read-only"):
+        run_composition(
+            understanding,
+            opener=opener,
+            evidence_sink=lambda *args: sink_calls.append(args),
+        )
+
+    assert calls == []
+    assert sink_calls == []
 
 
 def test_governed_company_composition_rejects_capacity_before_opener():

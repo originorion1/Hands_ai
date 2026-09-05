@@ -58,6 +58,11 @@ def run_erpnext_company_record_evidence(
             raise ValueError("company record entity requires a company field")
         if any(field not in structural_fields for field in fields):
             raise ValueError("authorized field is absent from structural understanding")
+        if any(
+            structural_fields[field].hidden or structural_fields[field].read_only
+            for field in fields
+        ):
+            raise ValueError("company record evidence does not support hidden or read-only fields")
         if any(is_collection_relationship(structural_fields[field]) for field in fields):
             raise ValueError("company record evidence does not support collection fields")
         sample_fields = tuple(dict.fromkeys((*fields, "name", "company")))
