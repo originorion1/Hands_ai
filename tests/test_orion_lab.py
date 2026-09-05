@@ -2,6 +2,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,13 @@ allow_merge: false
 
 def completed(command, returncode=0, stdout=""):
     return subprocess.CompletedProcess(command, returncode, stdout=stdout)
+
+
+def scan_source(tmp_path, source, name="src/orion/discovery/probe.py"):
+    path = tmp_path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(textwrap.dedent(source).lstrip(), encoding="utf-8")
+    return lab.Orchestrator.source_capability_scan(tmp_path, (name,))
 
 
 @pytest.mark.parametrize(
@@ -293,6 +301,304 @@ def test_source_scan_rejects_network_and_dangerous_codex_mode(tmp_path):
     source = tmp_path / "tool.py"
     source.write_text("import socket\nmode = 'danger-full-access'\n")
     assert lab.Orchestrator.source_capability_scan(tmp_path, ("tool.py",)) is False
+
+
+def test_source_scan_allows_exact_bodyless_discovery_get(tmp_path):
+    assert scan_source(
+        tmp_path,
+        """
+        from urllib.request import Request
+
+        request = Request(
+            "https://example.invalid/resource",
+            headers={"Accept": "application/json"},
+            method="GET",
+        )
+        """,
+    )
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        "value: consume(Request)",
+        "def function(value: consume(Request)):\n    pass",
+        "def function() -> consume(Request):\n    pass",
+        "class Record:\n    value: consume(Request)",
+        "value: Container[Request]",
+    ],
+)
+def test_source_scan_rejects_constructor_escape_in_annotations(tmp_path, annotation):
+    source = (
+        "from urllib.request import Request\n"
+        "def consume(factory):\n"
+        "    return factory('https://example.invalid', method='POST')\n"
+        + annotation + "\n"
+    )
+    assert scan_source(tmp_path, source) is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        (
+            "from urllib.request import Request\nfrom replacement import *\n"
+            "Request('url', method='GET')\n"
+        ),
+        (
+            "from replacement import *\nfrom urllib.request import Request\n"
+            "Request('url', method='GET')\n"
+        ),
+        (
+            "from replacement import *\ndef read():\n"
+            "    from urllib.request import Request\n"
+            "    return Request('url', method='GET')\n"
+        ),
+        "from importlib import *\nimport_module('urllib.request')\n",
+        "from builtins import *\ngetattr(__import__('urllib'), 'request')\n",
+    ],
+)
+def test_source_scan_rejects_wildcard_request_binding(tmp_path, source):
+    assert scan_source(tmp_path, source) is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import harmless\nharmless = harmless.member\n",
+        "import harmless\nfirst = second.member\nsecond = first.member\nfirst = harmless\n",
+    ],
+)
+def test_source_scan_rejects_extending_alias_cycles_within_bound(tmp_path, source):
+    # Keep the regression bounded even when run against the broken verifier.
+    path = tmp_path / "probe.py"
+    path.write_text(source, encoding="utf-8")
+    script = (
+        "import importlib.util, sys\n"
+        "from pathlib import Path\n"
+        f"spec = importlib.util.spec_from_file_location('bounded_lab', {str(MODULE_PATH)!r})\n"
+        "module = importlib.util.module_from_spec(spec)\n"
+        "sys.modules[spec.name] = module\n"
+        "spec.loader.exec_module(module)\n"
+        f"assert module.Orchestrator.source_capability_scan(Path({str(tmp_path)!r}), ('probe.py',)) is False\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=5, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_source_scan_preserves_acyclic_aliases_and_quoted_annotations(tmp_path):
+    assert scan_source(
+        tmp_path,
+        "from urllib.request import Request\n"
+        "import json\nthird = second\nsecond = first\nfirst = json\n"
+        "value: 'Request'\nRequest('url', method='GET')\n",
+    ) is True
+
+
+def test_source_scan_requires_every_request_call_to_be_safe(tmp_path):
+    safe = """
+        from urllib.request import Request
+
+        first = Request("https://example.invalid/one", method="GET")
+        second = Request("https://example.invalid/two", method="GET")
+    """
+    unsafe = safe.replace('method="GET")\n', 'method="POST")\n', 1)
+    assert scan_source(tmp_path, safe) is True
+    assert scan_source(tmp_path, unsafe) is False
+
+
+def test_source_scan_rejects_request_outside_discovery(tmp_path):
+    assert scan_source(
+        tmp_path,
+        'from urllib.request import Request\nrequest = Request("url", method="GET")\n',
+        name="src/orion/service.py",
+    ) is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import urllib.request\n",
+        "from urllib.request import urlopen\n",
+        "from urllib.request import build_opener\n",
+        "from urllib.request import Request, urlopen\n",
+        "from urllib.request import Request as WebRequest\n",
+        "from .urllib.request import Request\n",
+    ],
+)
+def test_source_scan_rejects_unapproved_urllib_imports(tmp_path, source):
+    assert scan_source(tmp_path, source) is False
+
+
+@pytest.mark.parametrize(
+    "request_arguments",
+    [
+        '"url"',
+        '"url", method=method',
+        '"url", method="POST"',
+        '"url", method="PUT"',
+        '"url", method="PATCH"',
+        '"url", method="DELETE"',
+        '"url", method="get"',
+    ],
+)
+def test_source_scan_rejects_unprovable_or_non_get_methods(tmp_path, request_arguments):
+    source = f"from urllib.request import Request\nrequest = Request({request_arguments})\n"
+    assert scan_source(tmp_path, source) is False
+
+
+@pytest.mark.parametrize(
+    "request_arguments",
+    [
+        '"url", data=None, method="GET"',
+        '"url", None, method="GET"',
+        '"url", method="GET", **headers',
+    ],
+)
+def test_source_scan_rejects_request_bodies_or_unprovable_keywords(
+    tmp_path, request_arguments
+):
+    source = f"from urllib.request import Request\nrequest = Request({request_arguments})\n"
+    assert scan_source(tmp_path, source) is False
+
+
+def test_source_scan_rejects_invalid_production_python(tmp_path):
+    assert scan_source(tmp_path, "def broken(:\n    pass\n", name="src/orion/broken.py") is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import importlib\nmodule = importlib.import_module("urllib.request")\n',
+        'from importlib import import_module as load\nmodule = load("urllib.request")\n',
+        'module = __import__("urllib.request")\n',
+        'import importlib\nname = "json"\nmodule = importlib.import_module(name)\n',
+        'name = "json"\nmodule = __import__(name)\n',
+    ],
+)
+def test_source_scan_rejects_network_or_dynamic_import_resolution(tmp_path, source):
+    assert scan_source(tmp_path, source, name="tools/probe.py") is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'from urllib.request import Request\nfactory = globals()["Request"]\n',
+        'from urllib.request import Request\nfactory = locals().get("Request")\n',
+        'from urllib.request import Request\nfactory = vars()["Request"]\n',
+        'import sys\nmodule = sys.modules["urllib.request"]\n',
+        'import sys\nmodule = sys.modules.get("urllib.request")\n',
+        (
+            'import sys as system\nregistry = system.modules\n'
+            'module = registry.get("urllib.request")\n'
+        ),
+        (
+            'import sys\nlookup = sys.modules.get\n'
+            'module = lookup("urllib.request")\n'
+        ),
+        'import sys\nlookup = sys.modules.get\nkey = "json"\nmodule = lookup(key)\n',
+        'import sys\nfactory = sys.modules["urllib"].request.Request\n',
+        'import builtins\nloader = builtins.__dict__["__import__"]\n',
+        'import builtins\nloader = vars(builtins).get("__import__")\n',
+        'import importlib\nloader = importlib.__dict__["import_module"]\n',
+        'import importlib\nkey = "import_module"\nloader = importlib.__dict__.get(key)\n',
+        'import builtins\nloader = getattr(builtins, "__import__")\n',
+        'import importlib\nloader = getattr(importlib, "import_module")\n',
+    ],
+)
+def test_source_scan_rejects_indirect_capability_recovery(tmp_path, source):
+    assert scan_source(tmp_path, source) is False
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "Request",
+        "[*Request]",
+        "{**Request}",
+    ],
+)
+def test_source_scan_rejects_request_pattern_capture(tmp_path, pattern):
+    source = f"""
+        from urllib.request import Request
+
+        request = Request("url", method="GET")
+        match value:
+            case {pattern}:
+                pass
+    """
+    assert scan_source(tmp_path, source) is False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import http.client\nconnection = http.client.HTTPSConnection("example.invalid")\n',
+        'from http.client import HTTPSConnection\nconnection = HTTPSConnection("example.invalid")\n',
+        'from http import client\nconnection = client.HTTPSConnection("example.invalid")\n',
+        'connection = http.client.HTTPSConnection("example.invalid")\n',
+        'import http\nname = "client"\nclient = getattr(http, name)\n',
+    ],
+)
+def test_source_scan_rejects_alternative_http_client_construction(tmp_path, source):
+    assert scan_source(tmp_path, source, name="src/orion/service.py") is False
+
+
+@pytest.mark.parametrize("module", ["requests", "httpx", "socket"])
+def test_source_scan_preserves_existing_direct_network_rejections(tmp_path, module):
+    assert scan_source(tmp_path, f"import {module}\n", name="src/orion/service.py") is False
+
+
+def test_source_scan_allows_statically_unrelated_reflection(tmp_path):
+    assert scan_source(
+        tmp_path,
+        """
+        import importlib
+        import sys
+
+        json_module = importlib.import_module("json")
+        loads = getattr(json_module, "loads")
+        cached = sys.modules.get("json")
+        labels = {"Request": "display only"}
+        label = labels["Request"]
+        field = getattr(object(), "field", None)
+        """,
+        name="tools/probe.py",
+    ) is True
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'subprocess.run(["git", "merge", "feature"])\n',
+        'subprocess.run(["git", "reset", "--hard"])\n',
+        'subprocess.run(["git", "stash", "pop"])\n',
+        'subprocess.run(["git", "stash", "drop"])\n',
+        'mode = "danger-full-access"\n',
+        'mode = "dangerously-bypass-approvals-and-sandbox"\n',
+    ],
+)
+def test_source_scan_preserves_destructive_command_rejections(tmp_path, source):
+    assert scan_source(tmp_path, source, name="tools/probe.py") is False
+
+
+def test_source_scan_allows_normal_non_network_production_change(tmp_path):
+    assert scan_source(
+        tmp_path,
+        'import json\npayload = json.dumps({"status": "observed"})\n',
+        name="src/orion/reporting.py",
+    ) is True
+
+
+def test_source_scan_is_bootstrap_compatible_and_scans_itself():
+    source = MODULE_PATH.read_text(encoding="utf-8")
+    old_gate_sentinels = ("requests", "httpx", "socket", "urllib.request")
+    assert all(sentinel not in source for sentinel in old_gate_sentinels)
+    assert lab.Orchestrator.source_capability_scan(
+        MODULE_PATH.parents[1], ("tools/orion_lab.py",)
+    ) is True
 
 
 def test_stash_baseline_is_preserved_and_never_mutated(tmp_path):

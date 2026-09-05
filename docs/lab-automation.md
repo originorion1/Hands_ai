@@ -31,6 +31,18 @@ written locally and is neither committed nor pushed. Success commits and pushes
 only the declared feature branch and posts an allowlisted report without the
 Codex transcript.
 
+For changed non-test Python, direct network construction fails closed except for
+a direct, unaliased `Request(...)` imported alone from `urllib.request` under
+`src/orion/discovery/`. Every such request must be statically provable as a
+bodyless literal `method="GET"` call. Alternative network modules and dynamic or
+indirect import, mapping, and attribute resolution fail closed. Passing this
+scan grants code-review eligibility only; human merge approval and separate
+live/customer authorization remain required.
+
+Constructor uses in evaluated annotations and wildcard imports that leave the
+`Request` binding unprovable are rejected. Alias propagation must reach a stable
+result within its finite assignment-derived bound; non-convergence fails closed.
+
 Immediately before commit, a final integrity gate rechecks the exact preserved
 stash baseline, canonical cleanliness and local/remote base SHA, feature HEAD,
 and a content-and-mode fingerprint of the complete verified changed/untracked
