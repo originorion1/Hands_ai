@@ -27,6 +27,11 @@ class StudyStopReason(StrEnum):
     NO_AUTHORIZED_OPPORTUNITY = "NO_AUTHORIZED_OPPORTUNITY"
     NO_INFORMATION_GAIN = "NO_INFORMATION_GAIN"
     CONFLICT = "CONFLICT"
+    UNSUPPORTED_CAPABILITY = "UNSUPPORTED_CAPABILITY"
+
+
+class UnsupportedStudyCapabilityError(ValueError):
+    """Raised when governed structure has no compatible study capability."""
 
 
 STUDY_KINDS = frozenset({"record_evidence", "metadata_gap"})
@@ -412,7 +417,7 @@ def discover_opportunities(
 
 def generate_intent(opportunity: StudyOpportunity, tenant_id: str, max_records: int = 100) -> StudyIntent:
     _target(tenant_id, "intent tenant")
-    return StudyIntent(tenant_id, opportunity.entity, opportunity.fields, opportunity.study_kind, 0 if opportunity.study_kind == "metadata_gap" else min(max_records, 100), "observed evidence will reduce uncertainty", "aggregate observations", opportunity.rationale)
+    return StudyIntent(tenant_id, opportunity.entity, opportunity.fields, opportunity.study_kind, 0 if opportunity.study_kind == "metadata_gap" else max_records, "observed evidence will reduce uncertainty", "aggregate observations", opportunity.rationale)
 
 
 def authorize_intent(intent: StudyIntent, envelope: AuthorizationEnvelope, understanding: MetadataUnderstanding | None = None) -> AuthorizedStudyRequest:
@@ -487,7 +492,15 @@ def run_autonomous_loop(objective: LearningObjective, understanding: MetadataUnd
         intent = authorized.intent
         if intent.study_kind == "record_evidence" and records + intent.requested_records > envelope.max_cumulative_records:
             return StudyRun(tuple(intents), tuple(outcomes), current, StudyStopReason.EVIDENCE_BUDGET_LIMIT)
-        outcome = runner(authorized)
+        try:
+            outcome = runner(authorized)
+        except UnsupportedStudyCapabilityError:
+            return StudyRun(
+                tuple(intents),
+                tuple(outcomes),
+                current,
+                StudyStopReason.UNSUPPORTED_CAPABILITY,
+            )
         _validate_outcome(outcome, authorized, envelope.max_cumulative_records - records)
         intents.append(intent)
         outcomes.append(outcome)
