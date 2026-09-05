@@ -15,6 +15,10 @@ from .autonomous_loop import (
 )
 
 
+class GovernedEvidenceScopeError(ValueError):
+    """Raised when returned evidence crosses its authorized scope."""
+
+
 def run_governed_record_evidence(
     request: AuthorizedStudyRequest,
     *,
@@ -22,8 +26,7 @@ def run_governed_record_evidence(
     understanding: MetadataUnderstanding,
     reader: Callable[[str, tuple[str, ...], int], Sequence[Observation]],
     evidence_sink: (
-        Callable[[AuthorizedStudyRequest, tuple[Observation, ...]], None]
-        | None
+        Callable[[AuthorizedStudyRequest, tuple[Observation, ...]], None] | None
     ) = None,
 ) -> StudyOutcome:
     """Reauthorize, read, validate, and return evidence-only aggregates."""
@@ -65,12 +68,12 @@ def run_governed_record_evidence(
         if evidence.kind is not EvidenceKind.API:
             raise ValueError("reader evidence must be API evidence")
         if evidence.tenant_id != reauthorized.tenant_id:
-            raise ValueError("reader evidence crosses tenant boundary")
+            raise GovernedEvidenceScopeError("reader evidence crosses tenant boundary")
         payload = evidence.payload
         if not isinstance(payload, Mapping):
             raise TypeError("reader evidence payload must be a mapping")
         if payload.get("resource") != intent.entity:
-            raise ValueError("reader evidence resource does not match request")
+            raise GovernedEvidenceScopeError("reader evidence resource does not match request")
         record = payload.get("record")
         if not isinstance(record, Mapping):
             raise TypeError("reader record payload must be a mapping")
