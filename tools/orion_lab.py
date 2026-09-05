@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import contextlib
 import fcntl
 import hashlib
@@ -32,6 +33,33 @@ META_KEYS = (
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 BRANCH_RE = re.compile(r"codex/[A-Za-z0-9._/-]+\Z")
 TEST_COUNT_RE = re.compile(r"(\d+) passed")
+
+_NETWORK_MODULES = (
+    "requ" + "ests",
+    "htt" + "px",
+    "sock" + "et",
+    "http" + "." + "client",
+    "urllib" + "." + "request",
+)
+_NETWORK_ROOTS = {module.partition(".")[0] for module in _NETWORK_MODULES}
+_IMPORT_RESOLVERS = {"builtins.__import__", "importlib.import_module"}
+_SENSITIVE_MAPPINGS = {
+    "sys.modules": _NETWORK_MODULES,
+    "builtins.__dict__": ("__import__",),
+    "importlib.__dict__": ("import_module",),
+    "http.__dict__": ("client",),
+    "urllib.__dict__": ("request",),
+    "runtime.globals": ("Request",),
+    "runtime.locals": ("Request",),
+}
+_SENSITIVE_ATTRIBUTES = {
+    "builtins": ("__import__",),
+    "importlib": ("import_module",),
+    "http": ("client",),
+    "urllib": ("request",),
+    "runtime.globals": ("Request",),
+    "runtime.locals": ("Request",),
+}
 
 
 class SafeFail(RuntimeError):
@@ -179,6 +207,273 @@ ISSUE TITLE:
 ISSUE BODY:
 {issue['body']}
 """
+
+
+class _PythonNetworkPolicy:
+    """Prove the one permitted direct network-construction shape."""
+
+    def __init__(self, tree: ast.AST, *, discovery: bool) -> None:
+        self.tree = tree
+        self.discovery = discovery
+        self.safe = True
+        self.request_imported = False
+        self.aliases: dict[str, set[str]] = {}
+        self.parents = {
+            child: parent
+            for parent in ast.walk(tree)
+            for child in ast.iter_child_nodes(parent)
+        }
+        self.annotation_nodes = self._annotation_nodes()
+
+    @staticmethod
+    def _is_network(path: str) -> bool:
+        return any(path == module or path.startswith(module + ".") for module in _NETWORK_MODULES)
+
+    @staticmethod
+    def _string(node: ast.AST | None) -> str | None:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return node.value
+        return None
+
+    def _annotation_nodes(self) -> set[ast.AST]:
+        roots: list[ast.AST] = []
+        for node in ast.walk(self.tree):
+            if (
+                isinstance(node, ast.arg)
+                and node.annotation is not None
+                or isinstance(node, ast.AnnAssign)
+            ):
+                roots.append(node.annotation)
+            elif (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.returns is not None
+            ):
+                roots.append(node.returns)
+        return {nested for root in roots for nested in ast.walk(root)}
+
+    def _add_alias(self, name: str, path: str) -> bool:
+        paths = self.aliases.setdefault(name, set())
+        before = len(paths)
+        paths.add(path)
+        return len(paths) != before
+
+    def _resolve(self, node: ast.AST) -> set[str]:
+        if isinstance(node, ast.Name):
+            known = {
+                "__builtins__": "builtins.__dict__",
+                "__import__": "builtins.__import__",
+                "getattr": "builtins.getattr",
+                "globals": "builtins.globals",
+                "locals": "builtins.locals",
+                "vars": "builtins.vars",
+            }
+            if node.id in self.aliases:
+                return self.aliases[node.id]
+            if node.id in known:
+                return {known[node.id]}
+            if node.id in _NETWORK_ROOTS:
+                return {node.id}
+            return set()
+        if isinstance(node, ast.Attribute):
+            return {f"{base}.{node.attr}" for base in self._resolve(node.value)}
+        if isinstance(node, ast.Subscript):
+            key = self._string(node.slice)
+            if key is None:
+                return set()
+            resolved: set[str] = set()
+            for base in self._resolve(node.value):
+                if base == "sys.modules":
+                    resolved.add(key)
+                elif base.endswith(".__dict__"):
+                    resolved.add(f"{base.removesuffix('.__dict__')}.{key}")
+                else:
+                    resolved.add(f"{base}.{key}")
+            return resolved
+        if isinstance(node, ast.Call):
+            functions = self._resolve(node.func)
+            if "builtins.globals" in functions and not node.args and not node.keywords:
+                return {"runtime.globals"}
+            if "builtins.locals" in functions and not node.args and not node.keywords:
+                return {"runtime.locals"}
+            if "builtins.vars" in functions and not node.keywords:
+                if not node.args:
+                    return {"runtime.locals"}
+                if len(node.args) == 1:
+                    return {f"{base}.__dict__" for base in self._resolve(node.args[0])}
+            if "builtins.getattr" in functions and len(node.args) >= 2:
+                attribute = self._string(node.args[1])
+                if attribute is not None:
+                    return {f"{base}.{attribute}" for base in self._resolve(node.args[0])}
+            for function in functions:
+                if function.endswith(".get") and node.args:
+                    key = self._string(node.args[0])
+                    if key is not None:
+                        owner = function.removesuffix(".get")
+                        return {key if owner == "sys.modules" else f"{owner}.{key}"}
+        return set()
+
+    def _record_imports(self) -> None:
+        request_module = "urllib" + "." + "request"
+        for node in ast.walk(self.tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    path = alias.name
+                    bound = alias.asname or path.partition(".")[0]
+                    self._add_alias(bound, path if alias.asname else path.partition(".")[0])
+                    if self._is_network(path):
+                        self.safe = False
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                exact_request_import = (
+                    self.discovery
+                    and node.level == 0
+                    and module == request_module
+                    and len(node.names) == 1
+                    and node.names[0].name == "Request"
+                    and node.names[0].asname is None
+                )
+                if module == request_module:
+                    if exact_request_import:
+                        self.request_imported = True
+                    else:
+                        self.safe = False
+                    continue
+                for alias in node.names:
+                    path = f"{module}.{alias.name}" if module else alias.name
+                    if self._is_network(module) or self._is_network(path):
+                        self.safe = False
+                    elif alias.name != "*":
+                        self._add_alias(alias.asname or alias.name, path)
+
+    def _record_assignment_aliases(self) -> None:
+        assignments = [
+            node
+            for node in ast.walk(self.tree)
+            if isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
+        ]
+        changed = True
+        while changed:
+            changed = False
+            for node in assignments:
+                value = node.value
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                paths = self._resolve(value)
+                for target in targets:
+                    if isinstance(target, ast.Name):
+                        for path in paths:
+                            changed |= self._add_alias(target.id, path)
+
+    def _request_binding_is_safe(self, node: ast.AST) -> bool:
+        if isinstance(node, ast.Name) and node.id == "Request":
+            if isinstance(node.ctx, (ast.Store, ast.Del)):
+                return False
+            if isinstance(node.ctx, ast.Load) and node not in self.annotation_nodes:
+                parent = self.parents.get(node)
+                return isinstance(parent, ast.Call) and parent.func is node
+        if isinstance(node, ast.arg) and node.arg == "Request":
+            return False
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+            and node.name == "Request"
+        ):
+            return False
+        if isinstance(node, (ast.Global, ast.Nonlocal)) and "Request" in node.names:
+            return False
+        if isinstance(node, ast.ExceptHandler) and node.name == "Request":
+            return False
+        if isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name == "Request":
+            return False
+        if isinstance(node, ast.MatchMapping) and node.rest == "Request":
+            return False
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound = alias.asname or alias.name.partition(".")[0]
+                approved = (
+                    isinstance(node, ast.ImportFrom)
+                    and node.level == 0
+                    and node.module == "urllib" + "." + "request"
+                    and len(node.names) == 1
+                    and alias.name == "Request"
+                    and alias.asname is None
+                    and self.discovery
+                )
+                if bound == "Request" and not approved:
+                    return False
+        return True
+
+    def _request_call_is_safe(self, node: ast.Call) -> bool:
+        if not isinstance(node.func, ast.Name) or node.func.id != "Request":
+            return True
+        methods = [keyword for keyword in node.keywords if keyword.arg == "method"]
+        return (
+            self.request_imported
+            and len(node.args) <= 1
+            and len(methods) == 1
+            and self._string(methods[0].value) == "GET"
+            and all(keyword.arg not in {None, "data"} for keyword in node.keywords)
+        )
+
+    def _lookup_paths_are_safe(
+        self, owners: set[str], key_node: ast.AST | None
+    ) -> bool:
+        sensitive = owners.intersection(_SENSITIVE_MAPPINGS)
+        if not sensitive:
+            return True
+        key = self._string(key_node)
+        if key is None:
+            return False
+        return all(key not in _SENSITIVE_MAPPINGS[mapping] for mapping in sensitive)
+
+    def _lookup_is_safe(self, owner: ast.AST, key_node: ast.AST | None) -> bool:
+        return self._lookup_paths_are_safe(self._resolve(owner), key_node)
+
+    def _call_is_safe(self, node: ast.Call) -> bool:
+        functions = self._resolve(node.func)
+        if functions.intersection(_IMPORT_RESOLVERS):
+            argument = node.args[0] if node.args else next(
+                (keyword.value for keyword in node.keywords if keyword.arg == "name"), None
+            )
+            module = self._string(argument)
+            if module is None or self._is_network(module):
+                return False
+        for function in functions:
+            if not function.endswith(".get"):
+                continue
+            key = node.args[0] if node.args else next(
+                (keyword.value for keyword in node.keywords if keyword.arg in {"key", "name"}),
+                None,
+            )
+            owner = function.removesuffix(".get")
+            if not self._lookup_paths_are_safe({owner}, key):
+                return False
+        if "builtins.getattr" in functions and len(node.args) >= 2:
+            sources = self._resolve(node.args[0])
+            attribute = self._string(node.args[1])
+            for source in sources:
+                sensitive = _SENSITIVE_ATTRIBUTES.get(source)
+                if sensitive is not None and (attribute is None or attribute in sensitive):
+                    return False
+            if not sources and attribute in {"__import__", "import_module", "Request"}:
+                return False
+        return True
+
+    def permits(self) -> bool:
+        self._record_imports()
+        self._record_assignment_aliases()
+        for node in ast.walk(self.tree):
+            if not self._request_binding_is_safe(node):
+                return False
+            if isinstance(node, ast.Call) and (
+                not self._request_call_is_safe(node) or not self._call_is_safe(node)
+            ):
+                return False
+            if isinstance(node, ast.Subscript) and not self._lookup_is_safe(node.value, node.slice):
+                return False
+            if isinstance(node, ast.expr) and any(
+                self._is_network(path) for path in self._resolve(node)
+            ):
+                return False
+        return self.safe
 
 
 class Orchestrator:
@@ -369,12 +664,6 @@ class Orchestrator:
     @staticmethod
     def source_capability_scan(worktree: Path, changed: tuple[str, ...]) -> bool:
         forbidden = (
-            re.compile(
-                r"\b(?:"
-                + "|".join(("requ" + "ests", "htt" + "px", "sock" + "et"))
-                + r")\b"
-            ),
-            re.compile("urllib" + r"\." + "request"),
             re.compile(r"['\"]git['\"].{0,80}['\"](?:merge|reset)['\"]", re.DOTALL),
             re.compile(r"['\"]stash['\"]\s*,\s*['\"](?:pop|drop)['\"]"),
             re.compile(
@@ -386,8 +675,16 @@ class Orchestrator:
         for name in changed:
             if not name.endswith(".py") or name.startswith("tests/"):
                 continue
-            text = (worktree / name).read_text(encoding="utf-8")
+            try:
+                text = (worktree / name).read_text(encoding="utf-8")
+                tree = ast.parse(text, filename=name)
+            except (OSError, SyntaxError, UnicodeError):
+                return False
             if any(pattern.search(text) for pattern in forbidden):
+                return False
+            if not _PythonNetworkPolicy(
+                tree, discovery=name.startswith("src/orion/discovery/")
+            ).permits():
                 return False
         return True
 
