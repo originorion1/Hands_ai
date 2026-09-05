@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+import time
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -22,18 +23,28 @@ from .autonomous_loop import (
     AuthorizedStudyRequest,
     LearningObjective,
     StudyOpportunity,
+    StudyOutcome,
     authorize_intent,
     discover_opportunities,
     generate_intent,
 )
-from .governed_record_evidence import GovernedEvidenceScopeError
+from .governed_record_evidence import (
+    GovernedEvidenceScopeError,
+    validate_governed_record_observations,
+)
 from .offline_proposal import project_historical_coverage
 from .study_capability import (
-    RecordReader,
     StudyCapability,
     derive_study_capability,
-    run_routed_governed_record_evidence,
 )
+
+EvidenceSink = Callable[[AuthorizedStudyRequest, tuple[Observation, ...]], None]
+ReadPermit = Callable[[], None]
+GovernedStudyRunner = Callable[
+    [AuthorizedStudyRequest, EvidenceSink, ReadPermit],
+    StudyOutcome,
+]
+RecordLimitSelector = Callable[[StudyOpportunity, int], int]
 
 
 class ShadowSoakStopReason(StrEnum):
@@ -171,6 +182,34 @@ class _PersistenceFailure(RuntimeError):
     pass
 
 
+class _ReaderContractFailure(RuntimeError):
+    pass
+
+
+class _StopBeforeRead(BaseException):
+    def __init__(self, reason: ShadowSoakStopReason) -> None:
+        self.reason = reason
+
+
+class _SingleReadPermit:
+    def __init__(
+        self,
+        stop_reason: Callable[[], ShadowSoakStopReason | None],
+    ) -> None:
+        self._stop_reason = stop_reason
+        self.reads = 0
+
+    def __call__(self) -> None:
+        reason = self._stop_reason()
+        if reason is not None:
+            raise _StopBeforeRead(reason)
+        if self.reads:
+            raise _ReaderContractFailure(
+                "study runner attempted more than one ERP read"
+            )
+        self.reads = 1
+
+
 class _VerifiedEvidenceSink:
     def __init__(
         self,
@@ -178,30 +217,62 @@ class _VerifiedEvidenceSink:
         request: AuthorizedStudyRequest,
         store: ShadowSoakEvidenceStore,
         clock: Callable[[], datetime],
+        read_permit: _SingleReadPermit,
     ) -> None:
         self._request = request
         self._store = store
         self._clock = clock
+        self._read_permit = read_permit
         self.acknowledgements = []
+        self.invocations = 0
+        self.reconciled_observation_count = 0
+        self.valid_count = 0
+        self.validated_observation_count = 0
 
     def __call__(
         self,
         governed_request: AuthorizedStudyRequest,
         observations: tuple[Observation, ...],
     ) -> None:
+        if self.invocations:
+            raise _PersistenceFailure("evidence sink may be invoked only once")
+        self.invocations = 1
         if governed_request != self._request:
             raise _PersistenceFailure("governed request changed before append")
-        if not observations:
+        if self._read_permit.reads != 1:
+            raise _ReaderContractFailure(
+                "study runner produced evidence without an ERP read permit"
+            )
+        validated_observations, self.valid_count = (
+            validate_governed_record_observations(
+                governed_request,
+                observations,
+            )
+        )
+        self.validated_observation_count = len(validated_observations)
+        if not validated_observations:
             return
+        baseline: tuple[HistoricalEvidenceBatch, ...] | None = None
         try:
+            baseline = self._store.load_all(
+                tenant_id=self._request.tenant_id,
+                resource=self._request.intent.entity,
+            )
             acknowledgement = persist_historical_sample(
-                _ValidatedObservationSource(observations),
+                _ValidatedObservationSource(validated_observations),
                 self._store,
                 tenant_id=self._request.tenant_id,
                 resource=self._request.intent.entity,
                 clock=self._clock,
             )
         except Exception as exc:
+            if baseline is not None:
+                self.reconciled_observation_count = _reconcile_failed_append(
+                    self._store,
+                    baseline=baseline,
+                    request=self._request,
+                    observations=validated_observations,
+                )
             raise _PersistenceFailure from exc
         self.acknowledgements.append(acknowledgement)
 
@@ -212,21 +283,36 @@ def run_autonomous_shadow_soak(
     session: ShadowSoakSessionEnvelope,
     *,
     store: ShadowSoakEvidenceStore,
-    record_readers: Mapping[StudyCapability, RecordReader],
+    study_runner: GovernedStudyRunner,
+    record_limit_selector: RecordLimitSelector | None = None,
     clock: Callable[[], datetime] = utc_now,
+    monotonic: Callable[[], float] = time.monotonic,
     termination_requested: Callable[[], bool] | None = None,
 ) -> ShadowSoakReport:
     """Repeatedly select, authorize, read, validate, append, and reassess.
 
-    Network readers and the durable store are injected capabilities. This
-    runtime grants no recommendation, promotion, prediction, or execution
-    authority and performs no retries around an append.
+    The injected governed runner must call its read permit immediately before
+    invoking its single bounded opener. A record-limit selector may narrow the
+    session bound for adapter semantics such as exact-identity reads, but it
+    cannot widen that bound. This runtime grants no recommendation, promotion,
+    prediction, or execution authority and performs no retries around an append.
     """
 
-    _validate_runtime_inputs(objective, understanding, session, store, clock)
+    _validate_runtime_inputs(
+        objective,
+        understanding,
+        session,
+        store,
+        study_runner,
+        record_limit_selector,
+        clock,
+        monotonic,
+        termination_requested,
+    )
     authorization = session.authorization
     started_at = _read_clock(clock)
-    last_time = started_at
+    started_tick = _read_monotonic(monotonic)
+    last_tick = started_tick
     cycles_attempted = 0
     cycles_completed = 0
     erp_reads = 0
@@ -242,16 +328,30 @@ def run_autonomous_shadow_soak(
     first_target_type: str | None = None
     final_target_type: str | None = None
 
+    def elapsed() -> float:
+        nonlocal last_tick
+        current_tick = _read_monotonic(monotonic)
+        if current_tick < last_tick:
+            raise ValueError("monotonic clock must not move backwards")
+        last_tick = current_tick
+        return current_tick - started_tick
+
+    def stop_before_read() -> ShadowSoakStopReason | None:
+        if termination_requested is not None and termination_requested():
+            return ShadowSoakStopReason.USER_TERMINATION
+        if elapsed() >= session.max_wall_clock_seconds:
+            return ShadowSoakStopReason.DURATION_LIMIT
+        if erp_reads >= session.max_erp_reads:
+            return ShadowSoakStopReason.READ_LIMIT
+        return None
+
     def finish(reason: ShadowSoakStopReason) -> ShadowSoakReport:
-        nonlocal last_time
         ended_at = _read_clock(clock)
-        if ended_at < last_time:
-            raise ValueError("clock must not move backwards")
-        last_time = ended_at
+        elapsed_seconds = elapsed()
         return ShadowSoakReport(
             session_started_at=started_at,
             session_ended_at=ended_at,
-            elapsed_seconds=(ended_at - started_at).total_seconds(),
+            elapsed_seconds=elapsed_seconds,
             cycles_attempted=cycles_attempted,
             cycles_completed=cycles_completed,
             erp_reads=erp_reads,
@@ -273,20 +373,13 @@ def run_autonomous_shadow_soak(
         try:
             if termination_requested is not None and termination_requested():
                 return finish(ShadowSoakStopReason.USER_TERMINATION)
-            now = _read_clock(clock)
-            if now < last_time:
-                raise ValueError("clock must not move backwards")
-            last_time = now
-            if (now - started_at).total_seconds() >= session.max_wall_clock_seconds:
+            if elapsed() >= session.max_wall_clock_seconds:
                 return finish(ShadowSoakStopReason.DURATION_LIMIT)
             if cycles_attempted >= session.max_study_cycles:
                 return finish(ShadowSoakStopReason.CYCLE_LIMIT)
             if erp_reads >= session.max_erp_reads:
                 return finish(ShadowSoakStopReason.READ_LIMIT)
-            if (
-                observations_persisted + session.max_observations_per_study
-                > session.max_cumulative_observations
-            ):
+            if observations_persisted >= session.max_cumulative_observations:
                 return finish(ShadowSoakStopReason.OBSERVATION_LIMIT)
 
             try:
@@ -306,6 +399,8 @@ def run_autonomous_shadow_soak(
                 opportunities,
                 session,
                 understanding,
+                observations_persisted=observations_persisted,
+                record_limit_selector=record_limit_selector,
             )
             if selected is None:
                 return finish(ShadowSoakStopReason.NO_AUTHORIZED_CANDIDATE)
@@ -316,11 +411,10 @@ def run_autonomous_shadow_soak(
             final_target_type = target_type
             cycles_attempted += 1
 
-            reader = record_readers.get(capability)
             if capability not in {
                 StudyCapability.ORDINARY_RECORD,
                 StudyCapability.SUBMITTED_DOCUMENT,
-            } or not callable(reader):
+            }:
                 unsupported += 1
                 failures["unsupported_capability"] += 1
                 consecutive_non_progress += 1
@@ -329,23 +423,44 @@ def run_autonomous_shadow_soak(
                 continue
 
             supported += 1
-            erp_reads += 1
+            read_permit = _SingleReadPermit(stop_before_read)
             evidence_sink = _VerifiedEvidenceSink(
                 request=request,
                 store=store,
                 clock=clock,
+                read_permit=read_permit,
             )
 
             try:
-                outcome = run_routed_governed_record_evidence(
-                    request,
-                    envelope=authorization,
-                    understanding=understanding,
-                    readers={capability: reader},
-                    evidence_sink=evidence_sink,
-                )
+                try:
+                    reauthorized = authorize_intent(
+                        request.intent,
+                        authorization,
+                        understanding,
+                    )
+                    if reauthorized != request:
+                        raise _ReaderContractFailure(
+                            "request changed before governed study"
+                        )
+                    outcome = study_runner(
+                        request,
+                        evidence_sink,
+                        read_permit,
+                    )
+                    _validate_study_outcome(request, outcome, evidence_sink)
+                finally:
+                    erp_reads += read_permit.reads
+            except _StopBeforeRead as exc:
+                return finish(exc.reason)
             except _PersistenceFailure:
-                failures["persistence_failure"] += 1
+                verified_count = _verified_sink_observation_count(evidence_sink)
+                if verified_count:
+                    batches_appended += 1
+                    observations_persisted += verified_count
+                    studied_entities.add(opportunity.entity)
+                    failures["persistence_failure_after_verified_append"] += 1
+                else:
+                    failures["persistence_failure"] += 1
                 return finish(ShadowSoakStopReason.PERSISTENCE_FAILURE)
             except GovernedEvidenceScopeError:
                 failures["tenant_scope_mismatch"] += 1
@@ -353,6 +468,20 @@ def run_autonomous_shadow_soak(
             except (KeyboardInterrupt, SystemExit):
                 return finish(ShadowSoakStopReason.USER_TERMINATION)
             except Exception:  # noqa: BLE001 - reader boundary is failure-counted
+                verified_count = _verified_sink_observation_count(evidence_sink)
+                if verified_count:
+                    batches_appended += 1
+                    observations_persisted += verified_count
+                    studied_entities.add(opportunity.entity)
+                    failures["runner_failure_after_verified_append"] += 1
+                    return finish(ShadowSoakStopReason.PERSISTENCE_FAILURE)
+                failures["erp_contract_failure"] += 1
+                consecutive_non_progress += 1
+                if consecutive_non_progress >= session.max_consecutive_non_progress:
+                    return finish(ShadowSoakStopReason.ERP_CONTRACT_FAILURE)
+                continue
+
+            if read_permit.reads != 1:
                 failures["erp_contract_failure"] += 1
                 consecutive_non_progress += 1
                 if consecutive_non_progress >= session.max_consecutive_non_progress:
@@ -390,14 +519,34 @@ def _select_authorized_opportunity(
     opportunities: Sequence[StudyOpportunity],
     session: ShadowSoakSessionEnvelope,
     understanding: MetadataUnderstanding,
+    *,
+    observations_persisted: int,
+    record_limit_selector: RecordLimitSelector | None,
 ):
+    remaining = session.max_cumulative_observations - observations_persisted
+    upper_bound = min(session.max_observations_per_study, remaining)
+    if upper_bound < 1:
+        return None
     for opportunity in opportunities:
         try:
+            requested_records = upper_bound
+            if (
+                opportunity.study_kind == "record_evidence"
+                and record_limit_selector is not None
+            ):
+                requested_records = record_limit_selector(opportunity, upper_bound)
+                if (
+                    type(requested_records) is not int
+                    or not 1 <= requested_records <= upper_bound
+                ):
+                    raise ValueError(
+                        "record limit selector must return a positive bounded integer"
+                    )
             request = authorize_intent(
                 generate_intent(
                     opportunity,
                     session.authorization.tenant_id,
-                    session.max_observations_per_study,
+                    requested_records,
                 ),
                 session.authorization,
                 understanding,
@@ -439,7 +588,11 @@ def _validate_runtime_inputs(
     understanding: MetadataUnderstanding,
     session: ShadowSoakSessionEnvelope,
     store: object,
+    study_runner: object,
+    record_limit_selector: object,
     clock: object,
+    monotonic: object,
+    termination_requested: object,
 ) -> None:
     if not isinstance(objective, LearningObjective):
         raise TypeError("objective must be LearningObjective")
@@ -456,6 +609,14 @@ def _validate_runtime_inputs(
             raise TypeError("store must implement append-only evidence contract")
     if not callable(clock):
         raise TypeError("clock must be callable")
+    if not callable(monotonic):
+        raise TypeError("monotonic must be callable")
+    if not callable(study_runner):
+        raise TypeError("study_runner must be callable")
+    if record_limit_selector is not None and not callable(record_limit_selector):
+        raise TypeError("record_limit_selector must be callable")
+    if termination_requested is not None and not callable(termination_requested):
+        raise TypeError("termination_requested must be callable")
 
 
 def _read_clock(clock: Callable[[], datetime]) -> datetime:
@@ -465,7 +626,79 @@ def _read_clock(clock: Callable[[], datetime]) -> datetime:
     return value
 
 
+def _read_monotonic(monotonic: Callable[[], float]) -> float:
+    value = monotonic()
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(value)
+    ):
+        raise ValueError("monotonic must return a finite number")
+    return float(value)
+
+
+def _verified_sink_observation_count(sink: _VerifiedEvidenceSink) -> int:
+    if len(sink.acknowledgements) == 1:
+        return sink.acknowledgements[0].observation_count
+    return sink.reconciled_observation_count
+
+
+def _validate_study_outcome(
+    request: AuthorizedStudyRequest,
+    outcome: object,
+    sink: _VerifiedEvidenceSink,
+) -> None:
+    if not isinstance(outcome, StudyOutcome):
+        raise TypeError("study runner must return StudyOutcome")
+    if outcome.entity != request.intent.entity or outcome.fields != request.intent.fields:
+        raise ValueError("study outcome crosses authorized target scope")
+    if outcome.study_kind != request.intent.study_kind:
+        raise ValueError("study outcome kind does not match authorized request")
+    if outcome.observations_acquired != sink.validated_observation_count:
+        raise ValueError("study outcome observation count does not match evidence")
+    if outcome.valid_count != sink.valid_count:
+        raise ValueError("study outcome valid count does not match evidence")
+    if outcome.prediction_evaluated:
+        raise ValueError("record evidence outcome cannot claim prediction evaluation")
+
+
+def _reconcile_failed_append(
+    store: ShadowSoakEvidenceStore,
+    *,
+    baseline: tuple[HistoricalEvidenceBatch, ...],
+    request: AuthorizedStudyRequest,
+    observations: tuple[Observation, ...],
+) -> int:
+    """Count only an exact append proven by a fresh durable readback."""
+
+    try:
+        reloaded = store.load_all(
+            tenant_id=request.tenant_id,
+            resource=request.intent.entity,
+        )
+    except Exception:  # noqa: BLE001 - ambiguity remains safely unacknowledged
+        return 0
+    if (
+        not isinstance(reloaded, tuple)
+        or len(reloaded) != len(baseline) + 1
+        or reloaded[:-1] != baseline
+    ):
+        return 0
+    appended = reloaded[-1]
+    if (
+        not isinstance(appended, HistoricalEvidenceBatch)
+        or appended.tenant_id != request.tenant_id
+        or appended.resource != request.intent.entity
+        or appended.sequence != len(baseline) + 1
+        or appended.observations != observations
+    ):
+        return 0
+    return len(observations)
+
+
 __all__ = [
+    "GovernedStudyRunner",
+    "RecordLimitSelector",
     "ShadowSoakEvidenceStore",
     "ShadowSoakReport",
     "ShadowSoakSessionEnvelope",

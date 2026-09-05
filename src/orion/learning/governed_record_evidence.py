@@ -19,38 +19,24 @@ class GovernedEvidenceScopeError(ValueError):
     """Raised when returned evidence crosses its authorized scope."""
 
 
-def run_governed_record_evidence(
-    request: AuthorizedStudyRequest,
-    *,
-    envelope: AuthorizationEnvelope,
-    understanding: MetadataUnderstanding,
-    reader: Callable[[str, tuple[str, ...], int], Sequence[Observation]],
-    evidence_sink: (
-        Callable[[AuthorizedStudyRequest, tuple[Observation, ...]], None] | None
-    ) = None,
-) -> StudyOutcome:
-    """Reauthorize, read, validate, and return evidence-only aggregates."""
-
+def _record_intent(request: AuthorizedStudyRequest):
     if not isinstance(request, AuthorizedStudyRequest):
         raise TypeError("request must be AuthorizedStudyRequest")
-    reauthorized = authorize_intent(request.intent, envelope, understanding)
-    if reauthorized != request:
-        raise ValueError("request does not match current authorization")
-    intent = reauthorized.intent
+    intent = request.intent
     if intent.study_kind != "record_evidence":
         raise ValueError("record_evidence request is required")
     if len(intent.fields) != 1:
         raise ValueError("evidence-only request requires exactly one field")
-    if not callable(reader):
-        raise TypeError("reader must be callable")
-    if evidence_sink is not None and not callable(evidence_sink):
-        raise TypeError("evidence_sink must be callable")
+    return intent
 
-    observations = reader(
-        intent.entity,
-        intent.fields,
-        intent.requested_records,
-    )
+
+def validate_governed_record_observations(
+    request: AuthorizedStudyRequest,
+    observations: Sequence[Observation],
+) -> tuple[tuple[Observation, ...], int]:
+    """Validate immutable evidence against one exact authorized request."""
+
+    intent = _record_intent(request)
     if not isinstance(observations, Sequence):
         raise TypeError("reader must return a bounded observation sequence")
     validated_observations = tuple(observations)
@@ -67,13 +53,15 @@ def run_governed_record_evidence(
             raise ValueError("reader observation must be READ_ONLY")
         if evidence.kind is not EvidenceKind.API:
             raise ValueError("reader evidence must be API evidence")
-        if evidence.tenant_id != reauthorized.tenant_id:
+        if evidence.tenant_id != request.tenant_id:
             raise GovernedEvidenceScopeError("reader evidence crosses tenant boundary")
         payload = evidence.payload
         if not isinstance(payload, Mapping):
             raise TypeError("reader evidence payload must be a mapping")
         if payload.get("resource") != intent.entity:
-            raise GovernedEvidenceScopeError("reader evidence resource does not match request")
+            raise GovernedEvidenceScopeError(
+                "reader evidence resource does not match request"
+            )
         record = payload.get("record")
         if not isinstance(record, Mapping):
             raise TypeError("reader record payload must be a mapping")
@@ -81,6 +69,39 @@ def run_governed_record_evidence(
             raise ValueError("reader record is missing selected field")
         if not is_missing_evidence(record[field]):
             valid_count += 1
+    return validated_observations, valid_count
+
+
+def run_governed_record_evidence(
+    request: AuthorizedStudyRequest,
+    *,
+    envelope: AuthorizationEnvelope,
+    understanding: MetadataUnderstanding,
+    reader: Callable[[str, tuple[str, ...], int], Sequence[Observation]],
+    evidence_sink: (
+        Callable[[AuthorizedStudyRequest, tuple[Observation, ...]], None] | None
+    ) = None,
+) -> StudyOutcome:
+    """Reauthorize, read, validate, and return evidence-only aggregates."""
+
+    intent = _record_intent(request)
+    reauthorized = authorize_intent(request.intent, envelope, understanding)
+    if reauthorized != request:
+        raise ValueError("request does not match current authorization")
+    if not callable(reader):
+        raise TypeError("reader must be callable")
+    if evidence_sink is not None and not callable(evidence_sink):
+        raise TypeError("evidence_sink must be callable")
+
+    observations = reader(
+        intent.entity,
+        intent.fields,
+        intent.requested_records,
+    )
+    validated_observations, valid_count = validate_governed_record_observations(
+        reauthorized,
+        observations,
+    )
 
     if evidence_sink is not None:
         evidence_sink(reauthorized, validated_observations)
@@ -96,3 +117,10 @@ def run_governed_record_evidence(
         hypothesis_state="INCONCLUSIVE",
         prediction_evaluated=False,
     )
+
+
+__all__ = [
+    "GovernedEvidenceScopeError",
+    "run_governed_record_evidence",
+    "validate_governed_record_observations",
+]
