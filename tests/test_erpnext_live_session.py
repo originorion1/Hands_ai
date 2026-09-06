@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import pytest
 
+import orion.discovery.erpnext_live_session as live_session_module
 from orion.contracts import Evidence, EvidenceKind, Observation
 from orion.discovery.erpnext_historical_capture import default_historical_evidence_path
 from orion.discovery.erpnext_live_session import (
@@ -167,6 +168,18 @@ def test_company_authorization_rejects_non_exact_scope(companies):
         ERPNextCompanyAuthorization(TENANT, companies)
 
 
+def test_authorization_and_reviewed_scope_require_immutable_tuples(tmp_path):
+    companies = list(COMPANIES)
+    fields = ["alpha_value"]
+    with pytest.raises(TypeError, match="immutable tuple"):
+        ERPNextCompanyAuthorization(TENANT, companies)
+    with pytest.raises(TypeError, match="immutable tuple"):
+        ReviewedMetadataScope("Synthetic Alpha", fields)
+    plan = config(tmp_path)
+    with pytest.raises(TypeError, match="immutable tuple"):
+        replace(plan, reviewed_scopes=list(plan.reviewed_scopes))
+
+
 @pytest.mark.parametrize(
     "entity,fields",
     [
@@ -218,6 +231,47 @@ def test_readiness_is_non_mutating_and_reports_only_aggregate_facts(tmp_path):
     assert '"execution_allowed":false' in rendered
 
 
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"execution_allowed": True},
+        {"execution_allowed": 0},
+        {"recommendation_allowed": True},
+        {"promotion_allowed": True},
+        {"erp_writes": 1},
+        {"erp_writes": False},
+        {"live_gets_performed": 1},
+    ],
+)
+def test_readiness_report_cannot_be_replaced_with_authority(tmp_path, change):
+    report = inspect_live_session_readiness(
+        config(tmp_path),
+        environment=SECRET_ENVIRONMENT,
+    )
+    with pytest.raises(LiveSessionError, match="cannot (grant|claim)"):
+        replace(report, **change)
+
+
+def test_report_destination_must_be_owner_only(tmp_path):
+    plan = config(tmp_path)
+    plan.report_directory.chmod(0o770)
+    readiness = inspect_live_session_readiness(plan, environment=SECRET_ENVIRONMENT)
+    assert not readiness.report_destination_ready
+    assert not readiness.ready
+
+    metadata, records, _, _ = openers()
+    report = run_erpnext_live_session(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        metadata_opener=metadata,
+        record_opener=records,
+        clock=lambda: NOW,
+        monotonic=lambda: 0.0,
+    )
+    assert report.stop_reason == "read_limit"
+    assert plan.report_directory.stat().st_mode & 0o777 == 0o700
+
+
 def test_readiness_detects_missing_credentials_without_printing_references(tmp_path):
     report = inspect_live_session_readiness(config(tmp_path), environment={})
     assert not report.ready
@@ -241,6 +295,18 @@ def test_execute_with_missing_credentials_does_not_create_storage(tmp_path):
 
     assert not plan.state_directory.exists()
     assert not plan.report_directory.exists()
+
+
+def test_credential_resolver_sanitizes_mapping_errors():
+    class FailingEnvironment(dict):
+        def get(self, key, default=None):
+            raise RuntimeError("synthetic-secret-value-not-for-output")
+
+    with pytest.raises(LiveSessionError) as caught:
+        CredentialEnvironmentReferences(KEY_REF, SECRET_REF).resolve(
+            FailingEnvironment()
+        )
+    assert "synthetic-secret-value-not-for-output" not in str(caught.value)
 
 
 def test_readiness_reports_credentials_independently_of_missing_storage(tmp_path):
@@ -276,6 +342,7 @@ def test_metadata_preflight_and_study_budgets_are_separate_and_global(tmp_path):
         COMPANIES[1],
         COMPANIES[0],
     ]
+    assert report.distinct_companies_attempted == 2
     assert all(item["filters"][0] == ["company", "=", item["company"]] for item in record_requests)
     assert report.cycles_completed == report.observations_persisted == 3
     assert report.stop_reason == "read_limit"
@@ -412,6 +479,7 @@ def test_cross_company_response_stops_before_append(tmp_path):
 
     assert len(record_requests) == 2
     assert report.study_gets == 2
+    assert report.distinct_companies_attempted == 2
     assert report.observations_persisted == 0
     assert report.stop_reason == "erp_contract_failure"
 
@@ -477,6 +545,7 @@ def test_interruption_before_preflight_performs_no_get(tmp_path):
     )
     assert metadata_requests == record_requests == []
     assert report.total_live_gets == 0
+    assert report.distinct_companies_attempted == 0
     assert report.stop_reason == "user_termination"
 
 
@@ -518,6 +587,29 @@ def test_keyboard_interrupt_during_metadata_is_counted_without_record_read(tmp_p
 
     assert len(metadata_requests) == report.metadata_gets == 1
     assert record_requests == []
+    assert report.stop_reason == "user_termination"
+
+
+def test_keyboard_interrupt_during_soak_counts_one_shared_read(tmp_path):
+    metadata, _, _, _ = openers()
+    record_requests = []
+
+    def interrupted_record(request, *, timeout):
+        record_requests.append(request)
+        raise KeyboardInterrupt
+
+    report = run_erpnext_live_session(
+        config(tmp_path),
+        environment=SECRET_ENVIRONMENT,
+        metadata_opener=metadata,
+        record_opener=interrupted_record,
+        clock=lambda: NOW,
+        monotonic=lambda: 0.0,
+    )
+
+    assert len(record_requests) == report.study_gets == 1
+    assert report.distinct_companies_attempted == 1
+    assert report.observations_persisted == 0
     assert report.stop_reason == "user_termination"
 
 
@@ -606,6 +698,98 @@ def test_aggregate_report_rejects_unallowlisted_text(tmp_path):
         replace(report, stop_reason="synthetic-private-error-text")
     with pytest.raises(LiveSessionError, match="failure categories"):
         replace(report, failure_category_counts=(("synthetic-private-error-text", 1),))
+    with pytest.raises(LiveSessionError, match="downstream authority"):
+        replace(report, execution_allowed=0)
+    with pytest.raises(LiveSessionError, match="ERP writes"):
+        replace(report, erp_writes=False)
+
+
+def test_metadata_elapsed_time_reduces_one_shared_soak_duration(
+    tmp_path,
+    monkeypatch,
+):
+    class SteppedMonotonic:
+        def __init__(self):
+            self.value = -1.0
+
+        def __call__(self):
+            self.value += 1.0
+            return self.value
+
+    original = live_session_module.run_autonomous_shadow_soak
+    captured = []
+
+    def capture_session(*args, **kwargs):
+        captured.append(args[2].max_wall_clock_seconds)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        live_session_module,
+        "run_autonomous_shadow_soak",
+        capture_session,
+    )
+    metadata, records, _, _ = openers()
+    plan = config(tmp_path)
+    run_erpnext_live_session(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        metadata_opener=metadata,
+        record_opener=records,
+        clock=lambda: NOW,
+        monotonic=SteppedMonotonic(),
+    )
+
+    assert captured == [56.0]
+
+
+@pytest.mark.parametrize(
+    "stop_reason,expected",
+    [
+        ("metadata_preflight_failure", 2),
+        ("persistence_failure", 2),
+        ("erp_contract_failure", 2),
+        ("tenant_scope_mismatch", 2),
+        ("user_termination", 130),
+        ("read_limit", 0),
+    ],
+)
+def test_execute_cli_exit_status_matches_safe_stop_category(
+    tmp_path,
+    monkeypatch,
+    capsys,
+    stop_reason,
+    expected,
+):
+    plan = config(tmp_path)
+    metadata, records, _, _ = openers()
+    successful = run_erpnext_live_session(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        metadata_opener=metadata,
+        record_opener=records,
+        clock=lambda: NOW,
+        monotonic=lambda: 0.0,
+    )
+    readiness = inspect_live_session_readiness(plan, environment=SECRET_ENVIRONMENT)
+    monkeypatch.setattr(
+        live_session_module,
+        "live_session_config_from_environment",
+        lambda environment: plan,
+    )
+    monkeypatch.setattr(
+        live_session_module,
+        "inspect_live_session_readiness",
+        lambda config, environment: readiness,
+    )
+    monkeypatch.setattr(
+        live_session_module,
+        "run_erpnext_live_session",
+        lambda config, **kwargs: replace(successful, stop_reason=stop_reason),
+    )
+
+    assert live_session_module.main(["--execute"]) == expected
+    output = capsys.readouterr().out
+    assert '"execution_allowed":false' in output
 
 
 def test_configuration_rejects_metadata_budget_not_equal_to_scope(tmp_path):
@@ -653,16 +837,68 @@ def test_existing_state_files_cannot_share_one_inode(tmp_path):
     os.link(evidence_path, checkpoint_path)
     metadata, records, metadata_requests, record_requests = openers()
 
-    with pytest.raises(LiveSessionStorageError, match="roles must be distinct"):
-        run_erpnext_live_session(
-            plan,
-            environment=SECRET_ENVIRONMENT,
-            metadata_opener=metadata,
-            record_opener=records,
-            clock=lambda: NOW,
-            monotonic=lambda: 0.0,
-        )
+    report = run_erpnext_live_session(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        metadata_opener=metadata,
+        record_opener=records,
+        clock=lambda: NOW,
+        monotonic=lambda: 0.0,
+    )
     assert metadata_requests == record_requests == []
+    assert report.stop_reason == "persistence_failure"
+
+
+def test_state_database_cannot_hardlink_unrelated_file(tmp_path):
+    plan = config(tmp_path)
+    external_path = tmp_path / "unrelated.sqlite3"
+    _ = SQLiteHistoricalEvidenceStore(external_path)
+    evidence_path = default_historical_evidence_path(
+        TENANT,
+        resource="live-shadow-soak",
+        state_root=plan.state_directory,
+    )
+    os.link(external_path, evidence_path)
+    before = external_path.read_bytes()
+    metadata, records, metadata_requests, record_requests = openers()
+
+    report = run_erpnext_live_session(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        metadata_opener=metadata,
+        record_opener=records,
+        clock=lambda: NOW,
+        monotonic=lambda: 0.0,
+    )
+
+    assert metadata_requests == record_requests == []
+    assert report.total_live_gets == 0
+    assert report.stop_reason == "persistence_failure"
+    assert external_path.read_bytes() == before
+
+
+def test_corrupt_checkpoint_blocks_before_metadata(tmp_path):
+    plan = config(tmp_path)
+    checkpoint_digest = hashlib.sha256(
+        f"{TENANT}\0live-metadata".encode()
+    ).hexdigest()
+    checkpoint_path = plan.state_directory / f"study-checkpoints-{checkpoint_digest}.sqlite3"
+    checkpoint_path.write_bytes(b"not-a-sqlite-database")
+    checkpoint_path.chmod(0o600)
+    metadata, records, metadata_requests, record_requests = openers()
+
+    report = run_erpnext_live_session(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        metadata_opener=metadata,
+        record_opener=records,
+        clock=lambda: NOW,
+        monotonic=lambda: 0.0,
+    )
+
+    assert metadata_requests == record_requests == []
+    assert report.total_live_gets == 0
+    assert report.stop_reason == "persistence_failure"
 
 
 def test_environment_loader_accepts_references_but_not_secret_cli_values(tmp_path):

@@ -114,6 +114,14 @@ _SAFE_FAILURE_CATEGORIES = frozenset(
 _SAFE_STOP_REASONS = frozenset(reason.value for reason in ShadowSoakStopReason) | {
     "metadata_preflight_failure"
 }
+_FAILED_RUN_STOP_REASONS = frozenset(
+    {
+        "metadata_preflight_failure",
+        ShadowSoakStopReason.ERP_CONTRACT_FAILURE.value,
+        ShadowSoakStopReason.PERSISTENCE_FAILURE.value,
+        ShadowSoakStopReason.TENANT_SCOPE_MISMATCH.value,
+    }
+)
 
 
 class LiveSessionError(ValueError):
@@ -159,6 +167,10 @@ class ERPNextCompanyAuthorization:
 
     def __post_init__(self) -> None:
         _safe_text(self.tenant_id, "tenant_id")
+        if type(self.companies) is not tuple:
+            raise TypeError("companies must be an immutable tuple")
+        if any(not isinstance(company, str) for company in self.companies):
+            raise TypeError("authorized companies must be strings")
         if not self.companies or len(self.companies) != len(set(self.companies)):
             raise LiveSessionError("company authorization must be non-empty and unique")
         for company in self.companies:
@@ -178,11 +190,16 @@ class ReviewedMetadataScope:
     fields: tuple[str, ...]
 
     def __post_init__(self) -> None:
+        _safe_text(self.entity, "reviewed entity")
         try:
             validate_discovery_target(self.entity)
         except ValueError as exc:
             raise LiveSessionError("reviewed entity is invalid") from exc
         _reject_sensitive_name(self.entity, "reviewed entity")
+        if type(self.fields) is not tuple:
+            raise TypeError("reviewed fields must be an immutable tuple")
+        if any(not isinstance(name, str) for name in self.fields):
+            raise TypeError("reviewed fields must be strings")
         if not self.fields or len(self.fields) != len(set(self.fields)):
             raise LiveSessionError("reviewed fields must be non-empty and unique")
         for name in self.fields:
@@ -285,6 +302,19 @@ class ERPNextLiveSessionConfig:
     limits: LiveSessionLimits
 
     def __post_init__(self) -> None:
+        if not isinstance(self.company_authorization, ERPNextCompanyAuthorization):
+            raise TypeError("company_authorization must be explicit")
+        if type(self.reviewed_scopes) is not tuple or any(
+            not isinstance(scope, ReviewedMetadataScope)
+            for scope in self.reviewed_scopes
+        ):
+            raise TypeError("reviewed_scopes must be an immutable tuple")
+        if not isinstance(self.credential_references, CredentialEnvironmentReferences):
+            raise TypeError("credential_references must be explicit")
+        if not isinstance(self.objective, LearningObjective):
+            raise TypeError("objective must be LearningObjective")
+        if not isinstance(self.limits, LiveSessionLimits):
+            raise TypeError("limits must be LiveSessionLimits")
         _safe_text(self.tenant_id, "tenant_id")
         _safe_text(self.authorization_reference, "authorization reference")
         if _normalize_base_url(self.base_url) != self.base_url:
@@ -325,6 +355,27 @@ class LiveSessionReadinessReport:
     promotion_allowed: bool = False
     execution_allowed: bool = False
 
+    def __post_init__(self) -> None:
+        for name in (
+            "ready",
+            "credentials_available",
+            "state_destination_ready",
+            "report_destination_ready",
+        ):
+            if type(getattr(self, name)) is not bool:
+                raise LiveSessionError("readiness status values must be booleans")
+        if self.max_live_gets != self.metadata_get_budget + self.study_get_budget:
+            raise LiveSessionError("readiness GET maximum is inconsistent")
+        _validate_report_authority(
+            erp_writes=self.erp_writes,
+            recommendation_allowed=self.recommendation_allowed,
+            promotion_allowed=self.promotion_allowed,
+            execution_allowed=self.execution_allowed,
+            label="readiness report",
+        )
+        if type(self.live_gets_performed) is not int or self.live_gets_performed != 0:
+            raise LiveSessionError("readiness report cannot claim live GETs")
+
 
 @dataclass(frozen=True, slots=True)
 class LiveSessionRunReport:
@@ -350,6 +401,7 @@ class LiveSessionRunReport:
     unsupported_proposal_count: int
     failure_category_counts: tuple[tuple[str, int], ...]
     distinct_entities_studied: int
+    distinct_companies_attempted: int
     stop_reason: str
     erp_writes: int = 0
     recommendation_allowed: bool = False
@@ -357,6 +409,15 @@ class LiveSessionRunReport:
     execution_allowed: bool = False
 
     def __post_init__(self) -> None:
+        if type(self.metadata_preflight_completed) is not bool:
+            raise LiveSessionError("metadata preflight status must be boolean")
+        if (
+            type(self.distinct_companies_attempted) is not int
+            or not 0
+            <= self.distinct_companies_attempted
+            <= self.company_scope_count
+        ):
+            raise LiveSessionError("attempted company count is inconsistent")
         if self.stop_reason not in _SAFE_STOP_REASONS:
             raise LiveSessionError("live study stop reason is not allowlisted")
         if any(
@@ -368,16 +429,42 @@ class LiveSessionRunReport:
             raise LiveSessionError("live study failure categories are not allowlisted")
         if self.total_live_gets != self.metadata_gets + self.study_gets:
             raise LiveSessionError("live GET total is inconsistent")
+        if self.max_live_gets != self.metadata_get_budget + self.study_get_budget:
+            raise LiveSessionError("live GET maximum is inconsistent")
+        if self.metadata_gets > self.metadata_get_budget:
+            raise LiveSessionError("metadata GET total exceeds configured maximum")
+        if self.study_gets > self.study_get_budget:
+            raise LiveSessionError("study GET total exceeds configured maximum")
         if self.total_live_gets > self.max_live_gets:
             raise LiveSessionError("live GET total exceeds configured maximum")
-        if self.erp_writes != 0 or any(
-            (
-                self.recommendation_allowed,
-                self.promotion_allowed,
-                self.execution_allowed,
-            )
-        ):
-            raise LiveSessionError("live study report cannot grant downstream authority")
+        _validate_report_authority(
+            erp_writes=self.erp_writes,
+            recommendation_allowed=self.recommendation_allowed,
+            promotion_allowed=self.promotion_allowed,
+            execution_allowed=self.execution_allowed,
+            label="live study report",
+        )
+
+
+def _validate_report_authority(
+    *,
+    erp_writes: object,
+    recommendation_allowed: object,
+    promotion_allowed: object,
+    execution_allowed: object,
+    label: str,
+) -> None:
+    if type(erp_writes) is not int or erp_writes != 0:
+        raise LiveSessionError(f"{label} cannot claim ERP writes")
+    if any(
+        value is not False
+        for value in (
+            recommendation_allowed,
+            promotion_allowed,
+            execution_allowed,
+        )
+    ):
+        raise LiveSessionError(f"{label} cannot grant downstream authority")
 
 
 class _AuthorizedCompanyEvidenceStore:
@@ -471,6 +558,7 @@ class _CompanyScheduler:
     def __init__(self, authorization: ERPNextCompanyAuthorization) -> None:
         self._authorization = authorization
         self._index = 0
+        self._attempted: set[str] = set()
 
     def current(self) -> str:
         company = self._authorization.companies[
@@ -483,7 +571,12 @@ class _CompanyScheduler:
     def advance(self, company: str) -> None:
         if company != self.current():
             raise LiveSessionError("company scheduler advance is inconsistent")
+        self._attempted.add(company)
         self._index += 1
+
+    @property
+    def distinct_companies_attempted(self) -> int:
+        return len(self._attempted)
 
 
 def inspect_live_session_readiness(
@@ -494,7 +587,7 @@ def inspect_live_session_readiness(
     """Check launch inputs without network access, writes, or secret output."""
 
     state_ready = _destination_ready(config.state_directory, private=True)
-    report_ready = _destination_ready(config.report_directory, private=False)
+    report_ready = _destination_ready(config.report_directory, private=True)
     try:
         config.credential_references.resolve(environment)
     except (LiveSessionError, TypeError):
@@ -555,10 +648,13 @@ def run_erpnext_live_session(
         state_root=state_directory,
     )
     checkpoint_path = _metadata_checkpoint_path(config, state_directory)
-    _validate_storage_file(evidence_path)
-    _validate_storage_file(checkpoint_path)
-    _reject_storage_role_collision(evidence_path, checkpoint_path)
     try:
+        _validate_storage_file(evidence_path)
+        _validate_storage_file(checkpoint_path)
+        _reject_storage_role_collision(evidence_path, checkpoint_path)
+        checkpoint_store = SQLiteStudyCheckpointStore(checkpoint_path)
+        _enforce_private_file(checkpoint_path)
+        checkpoint_store.load_latest(tenant_id=config.tenant_id)
         evidence_store = SQLiteHistoricalEvidenceStore(evidence_path)
         _enforce_private_file(evidence_path)
         store = _AuthorizedCompanyEvidenceStore(
@@ -648,7 +744,12 @@ def run_erpnext_live_session(
         return report
 
     try:
-        _persist_understanding_checkpoint(config, state_directory, understanding, clock)
+        _persist_understanding_checkpoint(
+            config,
+            checkpoint_store,
+            understanding,
+            clock,
+        )
     except (KeyboardInterrupt, SystemExit):
         report = _empty_run_report(
             config,
@@ -743,6 +844,7 @@ def run_erpnext_live_session(
         started_at=started_at,
         metadata_gets=metadata_budget.reads,
         soak=soak,
+        distinct_companies_attempted=scheduler.distinct_companies_attempted,
     )
     _write_report(report_directory, report)
     return report
@@ -833,14 +935,10 @@ def _study_authorization(config: ERPNextLiveSessionConfig) -> AuthorizationEnvel
 
 def _persist_understanding_checkpoint(
     config: ERPNextLiveSessionConfig,
-    state_directory: Path,
+    store: SQLiteStudyCheckpointStore,
     understanding: MetadataUnderstanding,
     clock: Callable[[], datetime],
 ) -> None:
-    path = _metadata_checkpoint_path(config, state_directory)
-    _validate_storage_file(path)
-    store = SQLiteStudyCheckpointStore(path)
-    _enforce_private_file(path)
     latest = store.load_latest(tenant_id=config.tenant_id)
     checkpoint = StudyCheckpoint(
         tenant_id=config.tenant_id,
@@ -915,6 +1013,7 @@ def _empty_run_report(
         unsupported_proposal_count=0,
         failure_category_counts=(),
         distinct_entities_studied=0,
+        distinct_companies_attempted=0,
         stop_reason=stop_reason,
     )
 
@@ -925,6 +1024,7 @@ def _run_report_from_soak(
     started_at: datetime,
     metadata_gets: int,
     soak: ShadowSoakReport,
+    distinct_companies_attempted: int,
 ) -> LiveSessionRunReport:
     return LiveSessionRunReport(
         session_started_at=started_at,
@@ -947,6 +1047,7 @@ def _run_report_from_soak(
         unsupported_proposal_count=soak.unsupported_proposal_count,
         failure_category_counts=soak.failure_category_counts,
         distinct_entities_studied=soak.distinct_entities_studied,
+        distinct_companies_attempted=distinct_companies_attempted,
         stop_reason=soak.stop_reason.value,
     )
 
@@ -1058,20 +1159,29 @@ def _prepare_destinations(config: ERPNextLiveSessionConfig) -> tuple[Path, Path]
         _reject_symlink_path(path)
         if not path.is_dir():
             raise LiveSessionStorageError("live session destination is not a directory")
-    try:
-        config.state_directory.chmod(0o700)
-        state_info = config.state_directory.stat()
-    except OSError as exc:
-        raise LiveSessionStorageError("private state permissions could not be enforced") from exc
-    if state_info.st_uid != os.geteuid() or stat.S_IMODE(state_info.st_mode) != 0o700:
-        raise LiveSessionStorageError("private state directory must be owner-only")
+    for path in (config.state_directory, config.report_directory):
+        try:
+            path.chmod(0o700)
+            info = path.stat()
+        except OSError as exc:
+            raise LiveSessionStorageError(
+                "private destination permissions could not be enforced"
+            ) from exc
+        if info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o700:
+            raise LiveSessionStorageError(
+                "live session destinations must be owner-only"
+            )
     return config.state_directory, config.report_directory
 
 
 def _validate_storage_file(path: Path) -> None:
     _reject_symlink_path(path)
-    if path.exists() and not path.is_file():
-        raise LiveSessionStorageError("live session database path is not a regular file")
+    if path.exists():
+        info = path.lstat()
+        if not stat.S_ISREG(info.st_mode):
+            raise LiveSessionStorageError("live session database path is not a regular file")
+        if info.st_nlink != 1:
+            raise LiveSessionStorageError("live session database cannot use hard links")
 
 
 def _reject_storage_role_collision(first: Path, second: Path) -> None:
@@ -1235,7 +1345,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         print('{"execution_allowed":false,"ready":false,"status":"session_failed"}')
         return 2
     print(live_session_report_json(report))
-    return 0
+    if report.stop_reason == ShadowSoakStopReason.USER_TERMINATION.value:
+        return 130
+    return 2 if report.stop_reason in _FAILED_RUN_STOP_REASONS else 0
 
 
 if __name__ == "__main__":
