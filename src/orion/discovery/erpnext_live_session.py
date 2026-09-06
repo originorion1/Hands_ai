@@ -99,6 +99,7 @@ _LAYOUT_FIELD_TYPES = frozenset(
         "Tab Break",
     }
 )
+_SENSITIVE_FIELD_TYPES = frozenset({"Password"})
 _SAFE_FAILURE_CATEGORIES = frozenset(
     {
         "erp_contract_failure",
@@ -154,8 +155,16 @@ def _tokens(value: str) -> frozenset[str]:
 
 
 def _reject_sensitive_name(value: str, label: str) -> None:
-    if _tokens(value) & _SENSITIVE_TOKENS:
+    if is_sensitive_metadata_name(value):
         raise LiveSessionError(f"{label} is excluded by sensitive-scope policy")
+
+
+def is_sensitive_metadata_name(value: str) -> bool:
+    """Return whether a structural name is excluded by the live safety policy."""
+
+    if not isinstance(value, str):
+        raise TypeError("metadata name must be a string")
+    return bool(_tokens(value) & _SENSITIVE_TOKENS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -949,12 +958,7 @@ def _validate_reviewed_understanding(
             item = fields.get(name)
             if item is None:
                 raise LiveSessionError("reviewed field is missing from metadata")
-            if (
-                item.hidden
-                or item.read_only
-                or is_collection_relationship(item)
-                or item.fieldtype in _LAYOUT_FIELD_TYPES
-            ):
+            if not _is_safe_study_field(item):
                 raise LiveSessionError("reviewed field is incompatible with safe record study")
             selected.append(item)
         candidate = replace(entity, fields=(*selected, company_field))
@@ -972,21 +976,96 @@ def _validate_reviewed_understanding(
     return MetadataUnderstanding(config.tenant_id, tuple(filtered))
 
 
+def derive_metadata_scope_candidate(
+    tenant_id: str,
+    doctype: str,
+    observations: tuple[Observation, ...],
+) -> ReviewedMetadataScope | None:
+    """Derive an unreviewed structural candidate using live-session safety rules."""
+
+    _safe_text(tenant_id, "tenant_id")
+    _safe_text(doctype, "candidate entity")
+    try:
+        validate_discovery_target(doctype)
+        _reject_sensitive_name(doctype, "candidate entity")
+        understanding = build_metadata_understanding(
+            observations,
+            tenant_id=tenant_id,
+            allowed_doctypes=frozenset({doctype}),
+        )
+    except (LiveSessionError, ValueError, TypeError):
+        return None
+    if len(understanding.entities) != 1:
+        return None
+    entity = understanding.entities[0]
+    if entity.doctype != doctype or entity.is_child_table or entity.is_single:
+        return None
+    fields = {item.fieldname: item for item in entity.fields}
+    company_field = fields.get("company")
+    if (
+        company_field is None
+        or company_field.fieldtype != "Link"
+        or company_field.options != "Company"
+        or is_collection_relationship(company_field)
+    ):
+        return None
+    selected = []
+    for item in entity.fields:
+        if item.fieldname in _AUDIT_ONLY_FIELDS or not _is_safe_study_field(item):
+            continue
+        try:
+            validate_discovery_target(item.fieldname)
+            _reject_sensitive_name(item.fieldname, "candidate field")
+        except (LiveSessionError, ValueError):
+            continue
+        candidate = replace(entity, fields=(item, company_field))
+        capability = derive_study_capability(
+            _structural_study_intent(tenant_id, doctype, item.fieldname),
+            MetadataUnderstanding(tenant_id, (candidate,)),
+        )
+        if capability in {
+            StudyCapability.ORDINARY_RECORD,
+            StudyCapability.SUBMITTED_DOCUMENT,
+        }:
+            selected.append(item.fieldname)
+    if not selected:
+        return None
+    return ReviewedMetadataScope(doctype, tuple(selected))
+
+
+def _is_safe_study_field(item: Any) -> bool:
+    return not (
+        item.hidden
+        or item.read_only
+        or is_collection_relationship(item)
+        or item.fieldtype in _LAYOUT_FIELD_TYPES
+        or item.fieldtype in _SENSITIVE_FIELD_TYPES
+    )
+
+
+def _structural_study_intent(
+    tenant_id: str,
+    entity: str,
+    field_name: str,
+) -> StudyIntent:
+    return StudyIntent(
+        tenant_id,
+        entity,
+        (field_name,),
+        "record_evidence",
+        1,
+        "structural field can provide evidence",
+        "aggregate observations",
+        "metadata preflight compatibility",
+    )
+
+
 def _study_intent(
     config: ERPNextLiveSessionConfig,
     entity: str,
     field_name: str,
 ) -> StudyIntent:
-    return StudyIntent(
-        config.tenant_id,
-        entity,
-        (field_name,),
-        "record_evidence",
-        1,
-        "reviewed structural field can provide evidence",
-        "aggregate observations",
-        "metadata preflight compatibility",
-    )
+    return _structural_study_intent(config.tenant_id, entity, field_name)
 
 
 def _study_authorization(config: ERPNextLiveSessionConfig) -> AuthorizationEnvelope:
@@ -1436,7 +1515,9 @@ __all__ = [
     "LiveSessionRunReport",
     "LiveSessionStorageError",
     "ReviewedMetadataScope",
+    "derive_metadata_scope_candidate",
     "inspect_live_session_readiness",
+    "is_sensitive_metadata_name",
     "live_session_config_from_environment",
     "live_session_report_json",
     "main",
