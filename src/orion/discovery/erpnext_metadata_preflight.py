@@ -66,6 +66,24 @@ _SENSITIVE_VALUE_KEYS = frozenset(
         "token",
     }
 )
+_FAILURE_STAGES = frozenset(
+    {"none", "company_catalog", "doctype_catalog", "metadata_targets", "candidate_persistence"}
+)
+_FAILURE_CATEGORIES = frozenset(
+    {
+        "none",
+        "http_permission",
+        "endpoint_contract",
+        "http_status",
+        "transport_failure",
+        "redirect_rejected",
+        "response_validation",
+        "scope_validation",
+        "storage_failure",
+        "internal_failure",
+        "interrupted",
+    }
+)
 _LEDGER_SCHEMA = """
 CREATE TABLE preflight_run (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -145,6 +163,14 @@ class MetadataPreflightError(LiveSessionError):
 
 class MetadataPreflightBudgetError(MetadataPreflightError):
     """Raised before transport when the cumulative allowance is exhausted."""
+
+
+class _CategorizedPreflightError(MetadataPreflightError):
+    def __init__(self, category: str) -> None:
+        if category not in _FAILURE_CATEGORIES - {"none", "interrupted"}:
+            raise ValueError("invalid metadata preflight failure category")
+        super().__init__("metadata preflight operation failed")
+        self.category = category
 
 
 class _PreflightInterrupted(BaseException):
@@ -261,6 +287,8 @@ class MetadataPreflightReadinessReport:
 class MetadataPreflightRunReport:
     execution_allowed: bool
     status: str
+    failure_stage: str
+    failure_category: str
     started_at: datetime
     ended_at: datetime
     attempted_gets: int
@@ -282,6 +310,20 @@ class MetadataPreflightRunReport:
     def __post_init__(self) -> None:
         if self.status not in {"complete", "failed", "interrupted"}:
             raise MetadataPreflightError("metadata preflight status is invalid")
+        if self.failure_stage not in _FAILURE_STAGES:
+            raise MetadataPreflightError("metadata preflight failure stage is invalid")
+        if self.failure_category not in _FAILURE_CATEGORIES:
+            raise MetadataPreflightError("metadata preflight failure category is invalid")
+        if self.status == "complete" and (
+            self.failure_stage != "none" or self.failure_category != "none"
+        ):
+            raise MetadataPreflightError("completed metadata preflight cannot report failure")
+        if self.status == "failed" and (
+            self.failure_stage == "none" or self.failure_category in {"none", "interrupted"}
+        ):
+            raise MetadataPreflightError("failed metadata preflight requires a safe category")
+        if self.status == "interrupted" and self.failure_category != "interrupted":
+            raise MetadataPreflightError("interrupted metadata preflight category is invalid")
         for value in (self.started_at, self.ended_at):
             if not isinstance(value, datetime) or value.utcoffset() is None:
                 raise MetadataPreflightError("metadata preflight time must be timezone-aware")
@@ -505,30 +547,40 @@ def _read_name_catalog(
             final_url_getter = getattr(response, "geturl", None)
             final_url = final_url_getter() if callable(final_url_getter) else None
             if final_url and final_url != request.full_url:
-                raise MetadataPreflightError("metadata catalog redirects are not allowed")
+                raise _CategorizedPreflightError("redirect_rejected")
             body = response.read(DEFAULT_MAX_RESPONSE_BYTES + 1)
-    except MetadataPreflightError:
+    except _CategorizedPreflightError:
         raise
-    except (HTTPError, URLError, TimeoutError) as exc:
-        raise MetadataPreflightError("metadata catalog request failed") from exc
+    except HTTPError as exc:
+        if exc.code in {401, 403}:
+            category = "http_permission"
+        elif exc.code in {404, 405}:
+            category = "endpoint_contract"
+        elif 300 <= exc.code < 400:
+            category = "redirect_rejected"
+        else:
+            category = "http_status"
+        raise _CategorizedPreflightError(category) from None
+    except (URLError, TimeoutError):
+        raise _CategorizedPreflightError("transport_failure") from None
     if len(body) > DEFAULT_MAX_RESPONSE_BYTES:
-        raise MetadataPreflightError("metadata catalog response exceeds configured bound")
+        raise _CategorizedPreflightError("response_validation")
     try:
         payload = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_json_object)
-    except (UnicodeDecodeError, json.JSONDecodeError, MetadataPreflightError) as exc:
-        raise MetadataPreflightError("metadata catalog returned invalid JSON") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError, MetadataPreflightError):
+        raise _CategorizedPreflightError("response_validation") from None
     if (
         not isinstance(payload, Mapping)
         or set(payload) != {"data"}
         or not isinstance(payload.get("data"), list)
     ):
-        raise MetadataPreflightError("metadata catalog response is invalid")
+        raise _CategorizedPreflightError("response_validation")
     if len(payload["data"]) > requested:
-        raise MetadataPreflightError("metadata catalog exceeded its row bound")
+        raise _CategorizedPreflightError("response_validation")
     names: list[str] = []
     for row in payload["data"]:
         if not isinstance(row, Mapping) or set(row) != {"name"}:
-            raise MetadataPreflightError("metadata catalog returned fields beyond name")
+            raise _CategorizedPreflightError("response_validation")
         name = row.get("name")
         if (
             not isinstance(name, str)
@@ -536,11 +588,14 @@ def _read_name_catalog(
             or name != name.strip()
             or any(not character.isprintable() for character in name)
         ):
-            raise MetadataPreflightError("metadata catalog returned an invalid name")
-        _validate_resource(name)
+            raise _CategorizedPreflightError("response_validation")
+        try:
+            _validate_resource(name)
+        except ValueError:
+            raise _CategorizedPreflightError("response_validation") from None
         names.append(name)
     if names != sorted(names) or len(names) != len(set(names)):
-        raise MetadataPreflightError("metadata catalog names must be ordered and unique")
+        raise _CategorizedPreflightError("response_validation")
     complete = len(names) < requested
     return tuple(names), complete
 
@@ -799,11 +854,15 @@ def _run_report(
     ended_at: datetime,
     ledger: _RunLedger,
     sensitive_metadata_excluded: int,
+    failure_stage: str,
+    failure_category: str,
 ) -> MetadataPreflightRunReport:
     state = ledger.snapshot()
     return MetadataPreflightRunReport(
         execution_allowed=False,
         status=str(state["status"]),
+        failure_stage=failure_stage,
+        failure_category=failure_category,
         started_at=started_at,
         ended_at=ended_at,
         attempted_gets=int(state["attempted_gets"]),
@@ -873,6 +932,8 @@ def run_erpnext_metadata_preflight(
         credentials.api_secret,
     )
     sensitive_excluded = 0
+    failure_stage = "company_catalog"
+    failure_category = "none"
     try:
         if termination():
             raise _PreflightInterrupted
@@ -892,6 +953,7 @@ def run_erpnext_metadata_preflight(
         ERPNextCompanyAuthorization(config.tenant_id, companies)
         if termination():
             raise _PreflightInterrupted
+        failure_stage = "doctype_catalog"
         doctype_rows, doctypes_complete = _read_name_catalog(
             config,
             resource="DocType",
@@ -906,6 +968,7 @@ def run_erpnext_metadata_preflight(
         candidates: list[ReviewedMetadataScope] = []
         succeeded = 0
         failed = 0
+        failure_stage = "metadata_targets"
         for doctype in doctypes:
             if termination():
                 raise _PreflightInterrupted
@@ -939,6 +1002,7 @@ def run_erpnext_metadata_preflight(
                 failed += 1
             ledger.update(metadata_succeeded=succeeded, metadata_failed=failed)
         candidate_fields = sum(len(scope.fields) for scope in candidates)
+        failure_stage = "candidate_persistence"
         _write_private_json(
             _candidate_path(config),
             {
@@ -957,9 +1021,21 @@ def run_erpnext_metadata_preflight(
             candidate_field_count=candidate_fields,
             status="complete",
         )
+        failure_stage = "none"
     except (KeyboardInterrupt, SystemExit, _PreflightInterrupted):
+        failure_category = "interrupted"
         ledger.update(status="interrupted")
+    except _CategorizedPreflightError as exc:
+        failure_category = exc.category
+        ledger.update(status="failed")
+    except LiveSessionStorageError:
+        failure_category = "storage_failure"
+        ledger.update(status="failed")
+    except (LiveSessionError, TypeError, ValueError):
+        failure_category = "scope_validation"
+        ledger.update(status="failed")
     except Exception:  # noqa: BLE001 - aggregate-only failure boundary
+        failure_category = "internal_failure"
         ledger.update(status="failed")
     ended_at = clock()
     report = _run_report(
@@ -967,6 +1043,8 @@ def run_erpnext_metadata_preflight(
         ended_at=ended_at,
         ledger=ledger,
         sensitive_metadata_excluded=sensitive_excluded,
+        failure_stage=failure_stage,
+        failure_category=failure_category,
     )
     _write_run_report(config, report)
     return report

@@ -3,12 +3,14 @@ import stat
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlparse
 from urllib.request import Request
 
 import pytest
 
 import orion.discovery.erpnext_metadata_preflight as preflight_module
+from orion.discovery.erpnext_adapter import DEFAULT_MAX_RESPONSE_BYTES
 from orion.discovery.erpnext_live_session import (
     CredentialEnvironmentReferences,
     LiveSessionStorageError,
@@ -54,6 +56,12 @@ class FakeResponse:
 
     def read(self, size=-1):
         return self._body if size < 0 else self._body[:size]
+
+
+class RawResponse(FakeResponse):
+    def __init__(self, request: Request, body: bytes) -> None:
+        self._url = request.full_url
+        self._body = body
 
 
 def config(tmp_path: Path) -> ERPNextMetadataPreflightConfig:
@@ -181,13 +189,132 @@ def test_catalog_over_return_fails_closed(tmp_path):
     def opener(request, *, timeout):
         return FakeResponse(request, catalog_payload("A", "B", "C"))
 
-    with pytest.raises(MetadataPreflightError, match="row bound"):
+    with pytest.raises(MetadataPreflightError, match="operation failed") as caught:
         _read_name_catalog(
             plan,
             resource="Company",
             requested=2,
             opener=opener,
         )
+    assert getattr(caught.value, "category", None) == "response_validation"
+
+
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    (
+        (HTTPError("https://synthetic.invalid", 401, "private", None, None), "http_permission"),
+        (HTTPError("https://synthetic.invalid", 403, "private", None, None), "http_permission"),
+        (HTTPError("https://synthetic.invalid", 404, "private", None, None), "endpoint_contract"),
+        (HTTPError("https://synthetic.invalid", 429, "private", None, None), "http_status"),
+        (URLError("private transport detail"), "transport_failure"),
+        (TimeoutError("private timeout detail"), "transport_failure"),
+    ),
+)
+def test_doctype_catalog_transport_failures_emit_only_sanitized_categories(
+    tmp_path,
+    failure,
+    expected,
+):
+    plan = config(tmp_path)
+
+    def opener(request, *, timeout):
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        raise failure
+
+    report = run_erpnext_metadata_preflight(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: NOW,
+    )
+
+    assert report.status == "failed"
+    assert report.attempted_gets == 2
+    assert report.failure_stage == "doctype_catalog"
+    assert report.failure_category == expected
+    rendered, = plan.report_directory.glob("metadata-preflight-report-*.json")
+    report_text = rendered.read_text()
+    assert "private" not in report_text
+    assert "synthetic.invalid" not in report_text
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    (
+        ({"data": [], "unexpected": "private value"}, "response_validation"),
+        ({"data": [{"name": "Safe", "extra": "private value"}]}, "response_validation"),
+    ),
+)
+def test_doctype_catalog_response_failures_are_sanitized(tmp_path, response, expected):
+    plan = config(tmp_path)
+
+    def opener(request, *, timeout):
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        return FakeResponse(request, response)
+
+    report = run_erpnext_metadata_preflight(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: NOW,
+    )
+
+    assert report.status == "failed"
+    assert report.failure_stage == "doctype_catalog"
+    assert report.failure_category == expected
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        b"not-json private response",
+        b"x" * (DEFAULT_MAX_RESPONSE_BYTES + 1),
+    ),
+    ids=("invalid-json", "oversized"),
+)
+def test_doctype_catalog_invalid_or_oversized_response_is_sanitized(tmp_path, body):
+    plan = config(tmp_path)
+
+    def opener(request, *, timeout):
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        return RawResponse(request, body)
+
+    report = run_erpnext_metadata_preflight(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: NOW,
+    )
+
+    assert report.status == "failed"
+    assert report.failure_stage == "doctype_catalog"
+    assert report.failure_category == "response_validation"
+    report_path, = plan.report_directory.glob("metadata-preflight-report-*.json")
+    assert "private response" not in report_path.read_text()
+
+
+def test_doctype_catalog_redirect_is_sanitized(tmp_path):
+    plan = config(tmp_path)
+
+    def opener(request, *, timeout):
+        response = FakeResponse(request, catalog_payload("Company A"))
+        if urlparse(request.full_url).path == "/api/resource/DocType":
+            response._url = "https://redirect.invalid/private"
+        return response
+
+    report = run_erpnext_metadata_preflight(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: NOW,
+    )
+
+    assert report.status == "failed"
+    assert report.failure_stage == "doctype_catalog"
+    assert report.failure_category == "redirect_rejected"
 
 
 @pytest.mark.parametrize("company", ("Wildcard*", "X" * 257))
@@ -210,6 +337,8 @@ def test_catalog_names_that_are_not_exact_live_companies_fail_before_next_get(
     )
 
     assert report.status == "failed"
+    assert report.failure_stage == "company_catalog"
+    assert report.failure_category == "scope_validation"
     assert report.attempted_gets == 1
     assert len(requests) == 1
     assert urlparse(requests[0].full_url).path == "/api/resource/Company"
@@ -219,6 +348,32 @@ def test_catalog_names_that_are_not_exact_live_companies_fail_before_next_get(
     )
     assert readiness.offline_candidate_ready is False
     assert readiness.ready_for_metadata_preflight is False
+
+
+def test_candidate_storage_failure_emits_only_safe_category(tmp_path):
+    plan = config(tmp_path)
+
+    def opener(request, *, timeout):
+        path = urlparse(request.full_url).path
+        if path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        if path == "/api/resource/DocType":
+            _candidate_path(plan).write_text("preexisting private collision")
+            return FakeResponse(request, catalog_payload())
+        pytest.fail("metadata target request was not expected")
+
+    report = run_erpnext_metadata_preflight(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: NOW,
+    )
+
+    assert report.status == "failed"
+    assert report.failure_stage == "candidate_persistence"
+    assert report.failure_category == "storage_failure"
+    report_path, = plan.report_directory.glob("metadata-preflight-report-*.json")
+    assert "preexisting private collision" not in report_path.read_text()
 
 
 def test_shared_budget_charges_failures_and_blocks_attempt_101(tmp_path):
@@ -781,6 +936,9 @@ def test_nested_state_and_report_paths_fail_during_direct_and_environment_config
         {"candidate_entity_count": 2},
         {"company_count": 500},
         {"doctype_catalog_count": 99},
+        {"failure_stage": "private-stage"},
+        {"failure_category": "private exception text"},
+        {"status": "failed", "failure_stage": "none", "failure_category": "none"},
     ),
     ids=(
         "execution-authority",
@@ -791,12 +949,17 @@ def test_nested_state_and_report_paths_fail_during_direct_and_environment_config
         "candidate-over-successes",
         "company-over-bound",
         "doctype-over-bound",
+        "unallowlisted-stage",
+        "unallowlisted-category",
+        "failed-without-category",
     ),
 )
 def test_run_report_rejects_forged_authority_and_inconsistent_counts(forged):
     valid = MetadataPreflightRunReport(
         execution_allowed=False,
         status="complete",
+        failure_stage="none",
+        failure_category="none",
         started_at=NOW,
         ended_at=NOW,
         attempted_gets=3,
