@@ -1552,3 +1552,263 @@ def test_permission_retry_latched_interruption_spends_without_transport(tmp_path
     assert report.failure_category == "interrupted"
     assert ledger.snapshot()["attempted_gets"] == 4
     assert prior_path.read_bytes() == prior_bytes
+
+
+def reviewed_catalog(plan, doctypes=("Safe Invoice",)):
+    return preflight_module.ReviewedAdministratorCatalog(
+        base_url=plan.base_url,
+        tenant_id=plan.tenant_id,
+        authorization_reference=plan.authorization_reference,
+        doctypes=doctypes,
+        review_reference="synthetic-administrator-review",
+    )
+
+
+def failed_attempt_four(plan):
+    ledger, prior_path, prior_bytes = failed_permission_retry(plan)
+    result = run_erpnext_doctype_catalog_permission_retry_once(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=lambda request, **kwargs: FakeResponse(request, catalog_payload("Safe Invoice")),
+        clock=lambda: NOW,
+    )
+    assert result.status == "succeeded"
+    return ledger, {prior_path: prior_bytes, _permission_retry_report_path(plan): _permission_retry_report_path(plan).read_bytes()}
+
+
+def test_reviewed_catalog_continues_shared_pipeline_and_preserves_history(tmp_path):
+    plan = config(tmp_path)
+    ledger, prior = failed_attempt_four(plan)
+    requests = []
+
+    def opener(request, *, timeout):
+        requests.append(request)
+        assert ledger.snapshot()["attempted_gets"] == 4 + len(requests)
+        assert request.get_method() == "GET"
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        assert "/api/resource/DocType" not in request.full_url
+        return FakeResponse(request, metadata_payload("Safe Invoice"))
+
+    report = run_erpnext_metadata_preflight(
+        plan, reviewed_catalog=reviewed_catalog(plan), environment=SECRET_ENVIRONMENT,
+        opener=opener, clock=lambda: NOW,
+    )
+    assert report.status == "complete"
+    assert report.attempted_gets == 6
+    assert report.prior_attempted_gets == 4
+    assert report.catalog_source == "reviewed_selection"
+    assert report.doctype_catalog_complete is False
+    assert report.candidate_entity_count == 1
+    assert report.candidate_field_count == 1
+    assert report.record_samples == report.erp_writes == 0
+    assert report.soak_started is False
+    assert all(path.read_bytes() == body for path, body in prior.items())
+    candidate = json.loads(_candidate_path(plan).read_text())
+    assert candidate["candidate_scopes"] == {"Safe Invoice": ["metric"]}
+    assert candidate["companies"] == ["Company A"]
+    assert candidate["review_required"] is True
+    assert candidate["doctype_catalog_complete"] is False
+    readiness = inspect_metadata_preflight_readiness(plan, environment={})
+    assert readiness.offline_candidate_ready is True
+    assert readiness.execution_allowed is False
+    with pytest.raises(MetadataPreflightError):
+        run_erpnext_metadata_preflight(
+            plan, reviewed_catalog=reviewed_catalog(plan), environment=SECRET_ENVIRONMENT,
+            opener=opener,
+        )
+    assert len(requests) == 2
+
+
+@pytest.mark.parametrize("field,value", [
+    ("base_url", "https://other.invalid"),
+    ("tenant_id", "another-tenant"),
+    ("authorization_reference", "another-authorization"),
+])
+def test_reviewed_catalog_binding_rejected_before_transport(tmp_path, field, value):
+    plan = config(tmp_path)
+    ledger, _ = failed_attempt_four(plan)
+    catalog = replace(reviewed_catalog(plan), **{field: value})
+    with pytest.raises(MetadataPreflightError, match="authorization"):
+        run_erpnext_metadata_preflight(
+            plan, reviewed_catalog=catalog, environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("must not contact transport"),
+        )
+    assert ledger.snapshot()["attempted_gets"] == 4
+
+
+@pytest.mark.parametrize("names", [(), ["Invoice"], ("Invoice", "Invoice"), ("Z", "A"), (12,), tuple(f"Type {i:03}" for i in range(96))])
+def test_reviewed_catalog_invalid_selection_is_rejected(names):
+    with pytest.raises((MetadataPreflightError, ValueError, TypeError)):
+        preflight_module.ReviewedAdministratorCatalog(
+            "https://synthetic.invalid", "tenant", "authorization", names, "review"
+        )
+
+
+def test_reviewed_catalog_is_immutable_and_never_full_site():
+    from dataclasses import FrozenInstanceError
+
+    catalog = preflight_module.ReviewedAdministratorCatalog(
+        "https://synthetic.invalid", "tenant", "authorization", ("Invoice",), "review"
+    )
+    with pytest.raises(FrozenInstanceError):
+        catalog.doctypes = ("Other",)
+    with pytest.raises(MetadataPreflightError):
+        replace(catalog, scope_kind="full_site")
+
+
+def test_reviewed_catalog_failure_and_replay_share_original_allowance(tmp_path):
+    plan = config(tmp_path)
+    ledger, prior = failed_attempt_four(plan)
+
+    def denied(request, *, timeout):
+        raise HTTPError(request.full_url, 403, "private", {}, None)
+
+    report = run_erpnext_metadata_preflight(
+        plan, reviewed_catalog=reviewed_catalog(plan), environment=SECRET_ENVIRONMENT,
+        opener=denied, clock=lambda: NOW,
+    )
+    assert report.status == "failed"
+    assert report.attempted_gets == 5
+    assert report.failure_category == "http_permission"
+    assert ledger.snapshot()["status"] == "failed"
+    with pytest.raises(MetadataPreflightError):
+        run_erpnext_metadata_preflight(
+            plan, reviewed_catalog=reviewed_catalog(plan), environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("no replay"),
+        )
+    assert all(path.read_bytes() == body for path, body in prior.items())
+
+
+def test_reviewed_catalog_concurrent_claim_blocks_second_transport(tmp_path):
+    plan = config(tmp_path)
+    ledger, _ = failed_attempt_four(plan)
+    entered = threading.Event()
+    release = threading.Event()
+    outcomes = []
+
+    def opener(request, *, timeout):
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            entered.set()
+            assert release.wait(5)
+            return FakeResponse(request, catalog_payload("Company A"))
+        return FakeResponse(request, metadata_payload("Safe Invoice"))
+
+    def run():
+        outcomes.append(run_erpnext_metadata_preflight(
+            plan, reviewed_catalog=reviewed_catalog(plan), environment=SECRET_ENVIRONMENT,
+            opener=opener, clock=lambda: NOW,
+        ))
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    try:
+        assert entered.wait(5)
+        with pytest.raises(MetadataPreflightError):
+            run_erpnext_metadata_preflight(
+                plan, reviewed_catalog=reviewed_catalog(plan), environment=SECRET_ENVIRONMENT,
+                opener=lambda *args, **kwargs: pytest.fail("second transport forbidden"),
+            )
+    finally:
+        release.set()
+        thread.join(5)
+    assert not thread.is_alive()
+    assert outcomes[0].status == "complete"
+    assert ledger.snapshot()["attempted_gets"] == 6
+
+
+def test_reviewed_catalog_maximum_budget_and_sensitive_exclusion(tmp_path):
+    plan = config(tmp_path)
+    ledger, _ = failed_attempt_four(plan)
+    names = tuple(f"Safe Invoice {index:03}" for index in range(95))
+
+    def opener(request, *, timeout):
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        name = parse_qs(urlparse(request.full_url).query)["doctype"][0]
+        return FakeResponse(request, metadata_payload(name))
+
+    report = run_erpnext_metadata_preflight(
+        plan, reviewed_catalog=reviewed_catalog(plan, names), environment=SECRET_ENVIRONMENT,
+        opener=opener, clock=lambda: NOW,
+    )
+    assert report.status == "complete"
+    assert report.attempted_gets == ledger.snapshot()["attempted_gets"] == 100
+    assert report.metadata_succeeded == 95
+
+
+def test_reviewed_catalog_skips_sensitive_type_without_get(tmp_path):
+    plan = config(tmp_path)
+    failed_attempt_four(plan)
+    calls = []
+
+    def opener(request, *, timeout):
+        calls.append(request.full_url)
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        return FakeResponse(request, metadata_payload("Safe Invoice"))
+
+    report = run_erpnext_metadata_preflight(
+        plan, reviewed_catalog=reviewed_catalog(plan, ("API Secret", "Safe Invoice")),
+        environment=SECRET_ENVIRONMENT, opener=opener, clock=lambda: NOW,
+    )
+    assert report.status == "complete"
+    assert report.attempted_gets == 6
+    assert report.sensitive_metadata_excluded == 1
+    assert len(calls) == 2
+
+
+def test_reviewed_catalog_loader_pins_private_exact_bytes(tmp_path):
+    import hashlib
+    from dataclasses import asdict
+
+    plan = config(tmp_path)
+    catalog = reviewed_catalog(plan)
+    body = json.dumps(asdict(catalog)).encode()
+    path = tmp_path / "catalog.json"
+    path.write_bytes(body)
+    path.chmod(0o600)
+    digest = hashlib.sha256(body).hexdigest()
+    assert preflight_module.load_reviewed_administrator_catalog(path, digest) == catalog
+    path.write_bytes(body + b" ")
+    with pytest.raises(MetadataPreflightError, match="reviewed bytes"):
+        preflight_module.load_reviewed_administrator_catalog(path, digest)
+
+
+def test_reviewed_catalog_cli_without_execute_remains_offline(tmp_path, monkeypatch, capsys):
+    import hashlib
+    from dataclasses import asdict
+
+    plan = config(tmp_path)
+    ledger, _ = failed_attempt_four(plan)
+    catalog = reviewed_catalog(plan)
+    path = tmp_path / "catalog.json"
+    body = json.dumps(asdict(catalog)).encode()
+    path.write_bytes(body)
+    path.chmod(0o600)
+    monkeypatch.setattr(preflight_module, "metadata_preflight_config_from_environment", lambda env: plan)
+    monkeypatch.setattr(preflight_module, "_default_opener", lambda *args, **kwargs: pytest.fail("offline CLI must never contact ERP"))
+    args = ["--reviewed-admin-catalog", str(path), "--reviewed-admin-catalog-sha256", hashlib.sha256(body).hexdigest()]
+    assert main(args) == 2
+    assert json.loads(capsys.readouterr().out)["execution_allowed"] is False
+    assert ledger.snapshot()["attempted_gets"] == 4
+    assert ledger.snapshot()["status"] == "failed"
+
+
+def test_reviewed_catalog_candidate_cannot_move_to_another_origin(tmp_path):
+    plan = config(tmp_path)
+    failed_attempt_four(plan)
+
+    def opener(request, *, timeout):
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        return FakeResponse(request, metadata_payload("Safe Invoice"))
+
+    run_erpnext_metadata_preflight(
+        plan, reviewed_catalog=reviewed_catalog(plan), environment=SECRET_ENVIRONMENT,
+        opener=opener, clock=lambda: NOW,
+    )
+    changed = replace(plan, base_url="https://other.invalid")
+    readiness = inspect_metadata_preflight_readiness(changed, environment={})
+    assert readiness.offline_candidate_ready is False
+    assert readiness.prior_run_status == "uncertain"

@@ -105,7 +105,7 @@ CREATE TABLE preflight_run (
 """
 
 
-def _validate_ledger_snapshot(snapshot: Mapping[str, Any]) -> None:
+def _validate_ledger_snapshot(snapshot: Mapping[str, Any], *, accounting_base: int = 2) -> None:
     expected = {
         "status",
         "attempted_gets",
@@ -153,7 +153,7 @@ def _validate_ledger_snapshot(snapshot: Mapping[str, Any]) -> None:
     if snapshot["candidate_entity_count"] > snapshot["metadata_succeeded"]:
         raise MetadataPreflightError("metadata preflight candidate counts are invalid")
     if snapshot["status"] == "complete" and snapshot["attempted_gets"] != (
-        2 + snapshot["metadata_succeeded"] + snapshot["metadata_failed"]
+        accounting_base + snapshot["metadata_succeeded"] + snapshot["metadata_failed"]
     ):
         raise MetadataPreflightError("completed metadata preflight accounting is invalid")
     for name in ("company_catalog_complete", "doctype_catalog_complete"):
@@ -218,6 +218,70 @@ class ERPNextMetadataPreflightConfig:
         _reject_symlink_path(self.state_directory)
         _reject_symlink_path(self.report_directory)
         _validate_configured_paths(self)  # type: ignore[arg-type]
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewedAdministratorCatalog:
+    """Explicitly reviewed selection, never a claim to the site's entire catalog."""
+
+    base_url: str
+    tenant_id: str = field(repr=False)
+    authorization_reference: str = field(repr=False)
+    doctypes: tuple[str, ...]
+    review_reference: str = field(repr=False)
+    scope_kind: str = "reviewed_selection"
+    schema_version: int = 1
+
+    def __post_init__(self) -> None:
+        if self.base_url != _normalize_base_url(self.base_url):
+            raise MetadataPreflightError("reviewed catalog origin is invalid")
+        for value in (self.tenant_id, self.authorization_reference, self.review_reference):
+            if not isinstance(value, str) or not value or value != value.strip():
+                raise MetadataPreflightError("reviewed catalog binding is invalid")
+        if self.scope_kind != "reviewed_selection" or type(self.schema_version) is not int or self.schema_version != 1:
+            raise MetadataPreflightError("reviewed catalog scope is invalid")
+        if type(self.doctypes) is not tuple or not 1 <= len(self.doctypes) <= 95:
+            raise MetadataPreflightError("reviewed catalog selection exceeds remaining allowance")
+        for name in self.doctypes:
+            if not isinstance(name, str):
+                raise MetadataPreflightError("reviewed catalog name is invalid")
+            _validate_resource(name)
+            if name != name.strip() or not all(char.isprintable() for char in name):
+                raise MetadataPreflightError("reviewed catalog name is invalid")
+        if tuple(sorted(set(self.doctypes))) != self.doctypes:
+            raise MetadataPreflightError("reviewed catalog selection must be ordered and unique")
+
+    def validate_binding(self, config: ERPNextMetadataPreflightConfig) -> None:
+        if (self.base_url, self.tenant_id, self.authorization_reference) != (
+            config.base_url, config.tenant_id, config.authorization_reference
+        ):
+            raise MetadataPreflightError("reviewed catalog does not match authorization")
+
+    def digest(self) -> str:
+        return hashlib.sha256(json.dumps(asdict(self), sort_keys=True).encode()).hexdigest()
+
+
+def load_reviewed_administrator_catalog(path: Path, expected_sha256: str) -> ReviewedAdministratorCatalog:
+    """Load a private file once; caller pins the exact reviewed bytes independently."""
+    _validate_absolute_path(path, "reviewed catalog")
+    _reject_symlink_path(path)
+    if not isinstance(expected_sha256, str) or re.fullmatch(r"[0-9a-f]{64}", expected_sha256) is None:
+        raise MetadataPreflightError("reviewed catalog digest is required")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.geteuid() or stat.S_IMODE(info.st_mode) != 0o600:
+            raise MetadataPreflightError("reviewed catalog must be private")
+        body = stream.read(65537)
+    if len(body) > 65536 or hashlib.sha256(body).hexdigest() != expected_sha256:
+        raise MetadataPreflightError("reviewed catalog differs from reviewed bytes")
+    payload = json.loads(body, object_pairs_hook=_unique_json_object)
+    expected = {"base_url", "tenant_id", "authorization_reference", "doctypes", "review_reference", "scope_kind", "schema_version"}
+    if not isinstance(payload, dict) or set(payload) != expected or not isinstance(payload["doctypes"], list):
+        raise MetadataPreflightError("reviewed catalog schema is invalid")
+    payload["doctypes"] = tuple(payload["doctypes"])
+    return ReviewedAdministratorCatalog(**payload)
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,8 +378,16 @@ class MetadataPreflightRunReport:
     record_samples: int = 0
     erp_writes: int = 0
     soak_started: bool = False
+    catalog_source: str = "erp_catalog"
+    prior_attempted_gets: int = 0
 
     def __post_init__(self) -> None:
+        if type(self.prior_attempted_gets) is not int:
+            raise MetadataPreflightError("metadata prior accounting is invalid")
+        if (self.catalog_source, self.prior_attempted_gets) not in {("erp_catalog", 0), ("reviewed_selection", 4)}:
+            raise MetadataPreflightError("metadata catalog provenance is invalid")
+        if self.catalog_source == "reviewed_selection" and self.doctype_catalog_complete:
+            raise MetadataPreflightError("reviewed selection is not a full site catalog")
         if self.status not in {"complete", "failed", "interrupted"}:
             raise MetadataPreflightError("metadata preflight status is invalid")
         if self.failure_stage not in _FAILURE_STAGES:
@@ -366,7 +438,8 @@ class MetadataPreflightRunReport:
         if self.candidate_entity_count > self.metadata_succeeded:
             raise MetadataPreflightError("metadata preflight candidate counts are inconsistent")
         if self.status == "complete" and self.attempted_gets != (
-            2 + self.metadata_succeeded + self.metadata_failed
+            (5 if self.catalog_source == "reviewed_selection" else 2)
+            + self.metadata_succeeded + self.metadata_failed
         ):
             raise MetadataPreflightError("completed metadata preflight accounting is invalid")
         for value in (
@@ -480,6 +553,12 @@ def _scope_digest(config: ERPNextMetadataPreflightConfig) -> str:
     ).hexdigest()
 
 
+def _admin_binding_digest(config: ERPNextMetadataPreflightConfig) -> str:
+    return hashlib.sha256(json.dumps(
+        (config.base_url, config.tenant_id, config.authorization_reference)
+    ).encode()).hexdigest()
+
+
 def _ledger_path(config: ERPNextMetadataPreflightConfig) -> Path:
     return config.state_directory / f"metadata-preflight-{_scope_digest(config)}.sqlite3"
 
@@ -571,8 +650,55 @@ class _RunLedger:
             "doctype_catalog_complete",
         )
         snapshot = dict(zip(names, row, strict=True))
-        _validate_ledger_snapshot(snapshot)
+        _validate_ledger_snapshot(snapshot, accounting_base=self.accounting_base())
         return snapshot
+
+    def accounting_base(self) -> int:
+        with self._connect() as connection:
+            present = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='admin_catalog_claim'"
+            ).fetchone()
+            if not present:
+                return 2
+            rows = connection.execute("SELECT digest FROM admin_catalog_claim").fetchall()
+            if len(rows) != 1 or re.fullmatch(r"[0-9a-f]{64}", rows[0][0]) is None:
+                raise MetadataPreflightError("reviewed catalog claim is invalid")
+            return 5
+
+    def validate_catalog_binding(self, config: ERPNextMetadataPreflightConfig) -> None:
+        if self.accounting_base() == 5:
+            with self._connect() as connection:
+                row = connection.execute("SELECT binding FROM admin_catalog_claim").fetchone()
+            if row is None or row[0] != _admin_binding_digest(config):
+                raise MetadataPreflightError("reviewed catalog ledger binding does not match")
+
+    def claim_admin_catalog(self, catalog_digest: str, config: ERPNextMetadataPreflightConfig) -> None:
+        """Acquire the failed run once, atomically; a crash cannot grant replay."""
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status, attempted_gets, company_count, company_catalog_complete, "
+                "doctype_catalog_count, metadata_succeeded, metadata_failed, "
+                "candidate_entity_count, candidate_field_count, doctype_catalog_complete "
+                "FROM preflight_run WHERE singleton=1"
+            ).fetchone()
+            if row is None or not (
+                row[0:2] == ("failed", 4) and 0 < row[2] <= MAX_COMPANY_NAMES
+                and row[3] == 1 and row[4:] == (0, 0, 0, 0, 0, 0)
+            ):
+                raise MetadataPreflightError("reviewed catalog continuation requires failed attempt four")
+            connection.execute(
+                "CREATE TABLE admin_catalog_claim (digest TEXT NOT NULL, binding TEXT NOT NULL)"
+            )
+            connection.execute("INSERT INTO admin_catalog_claim VALUES (?, ?)", (catalog_digest, _admin_binding_digest(config)))
+            connection.execute("UPDATE preflight_run SET status='running' WHERE singleton=1")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def reserve_attempt(self) -> int:
         connection = self._connect()
@@ -1018,7 +1144,9 @@ def inspect_metadata_preflight_readiness(
                 or stat.S_IMODE(info.st_mode) != 0o600
             ):
                 raise MetadataPreflightError("metadata preflight state is not private")
-            snapshot = _RunLedger(ledger_path).snapshot()
+            ledger = _RunLedger(ledger_path)
+            ledger.validate_catalog_binding(config)
+            snapshot = ledger.snapshot()
             status = str(snapshot["status"])
             attempted = int(snapshot["attempted_gets"])
         except Exception:  # noqa: BLE001 - readiness reports fixed safe state only
@@ -1033,7 +1161,7 @@ def inspect_metadata_preflight_readiness(
                 candidate["companies"]
                 and candidate["candidate_scopes"]
                 and candidate["company_catalog_complete"]
-                and candidate["doctype_catalog_complete"]
+                and (candidate["doctype_catalog_complete"] or _RunLedger(ledger_path).accounting_base() == 5)
                 and snapshot["metadata_failed"] == 0
             )
         except Exception:  # noqa: BLE001 - readiness reports fixed safe state only
@@ -1091,6 +1219,8 @@ def _run_report(
         candidate_entity_count=int(state["candidate_entity_count"]),
         candidate_field_count=int(state["candidate_field_count"]),
         candidate_review_required=str(state["status"]) == "complete",
+        catalog_source="reviewed_selection" if ledger.accounting_base() == 5 else "erp_catalog",
+        prior_attempted_gets=4 if ledger.accounting_base() == 5 else 0,
     )
 
 
@@ -1133,6 +1263,7 @@ def _existing_private_retry_ledger(config: ERPNextMetadataPreflightConfig) -> _R
     ):
         raise MetadataPreflightError("metadata catalog retry state is not private")
     ledger = _RunLedger(path)
+    ledger.validate_catalog_binding(config)
     ledger.snapshot()
     return ledger
 
@@ -1352,6 +1483,7 @@ def run_erpnext_metadata_preflight(
     config: ERPNextMetadataPreflightConfig,
     *,
     environment: Mapping[str, str],
+    reviewed_catalog: ReviewedAdministratorCatalog | None = None,
     opener: Callable[..., Any] | None = None,
     clock: Callable[[], datetime] = utc_now,
     termination_requested: Callable[[], bool] | None = None,
@@ -1360,6 +1492,10 @@ def run_erpnext_metadata_preflight(
 
     if not isinstance(config, ERPNextMetadataPreflightConfig):
         raise TypeError("config must be ERPNextMetadataPreflightConfig")
+    if reviewed_catalog is not None:
+        if type(reviewed_catalog) is not ReviewedAdministratorCatalog:
+            raise TypeError("reviewed_catalog must be ReviewedAdministratorCatalog")
+        reviewed_catalog.validate_binding(config)
     termination = termination_requested or (lambda: False)
     if not callable(termination):
         raise TypeError("termination_requested must be callable")
@@ -1368,10 +1504,16 @@ def run_erpnext_metadata_preflight(
         raise MetadataPreflightError("clock must return a timezone-aware datetime")
     _validate_configured_paths(config)  # type: ignore[arg-type]
     _prepare_destinations(config)  # type: ignore[arg-type]
-    if _path_entry_exists(_ledger_path(config)) or _path_entry_exists(_candidate_path(config)):
-        raise MetadataPreflightError("metadata preflight has prior durable state")
+    if _path_entry_exists(_candidate_path(config)):
+        raise MetadataPreflightError("metadata preflight has prior durable state or candidate")
     credentials = config.credential_references.resolve(environment)
-    ledger = _RunLedger.create(_ledger_path(config))
+    if reviewed_catalog is None:
+        if _path_entry_exists(_ledger_path(config)):
+            raise MetadataPreflightError("metadata preflight has prior durable state")
+        ledger = _RunLedger.create(_ledger_path(config))
+    else:
+        ledger = _existing_private_retry_ledger(config)
+        ledger.claim_admin_catalog(reviewed_catalog.digest(), config)
     budgeted = _BudgetedOpener(ledger, opener or _default_opener)
     authenticated = _AuthenticatedOpener(
         budgeted,
@@ -1401,13 +1543,17 @@ def run_erpnext_metadata_preflight(
         if termination():
             raise _PreflightInterrupted
         failure_stage = "doctype_catalog"
-        doctype_rows, doctypes_complete = _read_name_catalog(
-            config,
-            resource="DocType",
-            requested=MAX_METADATA_DOCTYPES + 1,
-            opener=authenticated,
-        )
-        doctypes = doctype_rows[:MAX_METADATA_DOCTYPES]
+        if reviewed_catalog is None:
+            doctype_rows, doctypes_complete = _read_name_catalog(
+                config,
+                resource="DocType",
+                requested=MAX_METADATA_DOCTYPES + 1,
+                opener=authenticated,
+            )
+            doctypes = doctype_rows[:MAX_METADATA_DOCTYPES]
+        else:
+            doctypes = reviewed_catalog.doctypes
+            doctypes_complete = False
         ledger.update(
             doctype_catalog_count=len(doctypes),
             doctype_catalog_complete=int(doctypes_complete),
@@ -1558,10 +1704,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="explicitly spend attempt four after the recorded permission failure",
     )
+    execution.add_argument("--execute-reviewed-admin-catalog", action="store_true")
+    parser.add_argument("--reviewed-admin-catalog", type=Path)
+    parser.add_argument("--reviewed-admin-catalog-sha256")
     args = parser.parse_args(argv)
     try:
         config = metadata_preflight_config_from_environment(os.environ)
         readiness = inspect_metadata_preflight_readiness(config, environment=os.environ)
+        reviewed_catalog = None
+        if args.reviewed_admin_catalog is not None:
+            reviewed_catalog = load_reviewed_administrator_catalog(
+                args.reviewed_admin_catalog, args.reviewed_admin_catalog_sha256
+            )
+            reviewed_catalog.validate_binding(config)
+        if args.execute_reviewed_admin_catalog and reviewed_catalog is None:
+            raise MetadataPreflightError("reviewed administrator catalog required")
+        if reviewed_catalog is not None and (
+            args.execute_metadata_preflight or args.retry_doctype_catalog_once
+            or args.retry_doctype_catalog_after_permission_once
+        ):
+            raise MetadataPreflightError("reviewed catalog has a separate execution flag")
     except Exception:  # noqa: BLE001 - CLI emits fixed safe categories only
         print('{"execution_allowed":false,"ready":false,"status":"configuration_invalid"}')
         return 2
@@ -1585,16 +1747,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if report.status == "interrupted":
             return 130
         return 0 if report.status == "succeeded" else 2
-    if not args.execute_metadata_preflight:
+    if not args.execute_metadata_preflight and not args.execute_reviewed_admin_catalog:
         print(metadata_preflight_report_json(readiness))
         return 0 if readiness.ready_for_metadata_preflight or readiness.offline_candidate_ready else 2
-    if not readiness.ready_for_metadata_preflight:
+    if not readiness.ready_for_metadata_preflight and not args.execute_reviewed_admin_catalog:
         print(metadata_preflight_report_json(readiness))
         return 2
     try:
         with _termination_signals() as termination:
             report = run_erpnext_metadata_preflight(
                 config,
+                reviewed_catalog=reviewed_catalog,
                 environment=os.environ,
                 termination_requested=termination,
             )
@@ -1620,7 +1783,9 @@ __all__ = [
     "MetadataPreflightError",
     "MetadataPreflightReadinessReport",
     "MetadataPreflightRunReport",
+    "ReviewedAdministratorCatalog",
     "inspect_metadata_preflight_readiness",
+    "load_reviewed_administrator_catalog",
     "main",
     "metadata_preflight_config_from_environment",
     "metadata_preflight_report_json",
