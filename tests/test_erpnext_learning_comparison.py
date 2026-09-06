@@ -314,8 +314,12 @@ def test_local_metrics_work_rechecks_stop_before_transport(tmp_path, monkeypatch
 def test_changed_baseline_refuses_before_any_transport(tmp_path):
     inputs, manifest, digest, _, _ = baseline(tmp_path)
     evidence, _ = _paths(inputs)
-    with sqlite3.connect(evidence) as connection:
+    connection = sqlite3.connect(evidence)
+    try:
         connection.execute("DELETE FROM orion_historical_evidence WHERE sequence=2")
+        connection.commit()
+    finally:
+        connection.close()
     with pytest.raises((LearningComparisonError, HistoricalEvidenceError)):
         launch(
             inputs, manifest, digest,
