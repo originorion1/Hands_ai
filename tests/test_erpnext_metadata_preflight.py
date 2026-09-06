@@ -586,6 +586,45 @@ def test_sensitive_embedded_mapping_list_and_camel_case_values_are_excluded(meta
     assert _contains_sensitive_embedded_value(metadata) is True
 
 
+@pytest.mark.parametrize(
+    "metadata",
+    (
+        {"user_settings": {"list_view": True}},
+        {"api_version": "v1"},
+        {"access_level": 1},
+    ),
+)
+def test_benign_structural_metadata_keys_are_not_treated_as_secret_values(metadata):
+    assert _contains_sensitive_embedded_value(metadata) is False
+
+
+def test_benign_user_settings_do_not_exclude_structural_candidate(tmp_path):
+    plan = config(tmp_path)
+
+    def opener(request, *, timeout):
+        path = urlparse(request.full_url).path
+        if path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        if path == "/api/resource/DocType":
+            return FakeResponse(request, catalog_payload("Safe Invoice"))
+        payload = metadata_payload("Safe Invoice")
+        payload["user_settings"] = {"list_view": True}
+        return FakeResponse(request, payload)
+
+    report = run_erpnext_metadata_preflight(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: NOW,
+    )
+
+    assert report.status == "complete"
+    assert report.sensitive_metadata_excluded == 0
+    assert report.candidate_entity_count == 1
+    candidate = json.loads(_candidate_path(plan).read_text())
+    assert candidate["candidate_scopes"] == {"Safe Invoice": ["metric"]}
+
+
 def test_prior_durable_state_prevents_rerun_without_new_transport(tmp_path):
     plan = config(tmp_path)
     transport_calls = 0

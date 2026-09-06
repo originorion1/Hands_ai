@@ -67,10 +67,12 @@ _SENSITIVE_VALUE_KEYS = frozenset(
     {
         "api_key",
         "api_secret",
+        "auth_token",
         "authorization",
         "credential",
         "credentials",
         "password",
+        "private_key",
         "secret",
         "token",
     }
@@ -1106,7 +1108,7 @@ def _contains_sensitive_embedded_value(value: object) -> bool:
             key = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(raw_key))
             key = key.lower().replace("-", "_")
             nonempty = nested not in (None, "", False, 0, (), [], {})
-            if (key in _SENSITIVE_VALUE_KEYS or is_sensitive_metadata_name(str(raw_key))) and nonempty:
+            if key in _SENSITIVE_VALUE_KEYS and nonempty:
                 return True
             if _contains_sensitive_embedded_value(nested):
                 return True
