@@ -64,6 +64,119 @@ def test_required_unobserved_and_low_coverage_raise_priority():
     assert high[0].score > low[0].score
 
 
+def test_repeated_missing_evidence_cannot_dominate_equivalent_unobserved_field():
+    fields = tuple(
+        StructuralField(
+            "DocumentA", name, "Data", None, None,
+            True, False, False, False,
+        )
+        for name in ("repeated_missing", "unobserved")
+    )
+    understanding = MetadataUnderstanding(
+        "tenant-a",
+        (StructuralEntity(
+            "DocumentA", None, False, False, False, fields, (),
+        ),),
+    )
+    coverage = (
+        EvidenceCoverage(
+            "DocumentA",
+            "repeated_missing",
+            observations_seen=10_000,
+            missing_count=10_000,
+        ),
+    )
+
+    opportunities = discover_opportunities(objective(), understanding, coverage)
+    scores = {item.fields[0]: item.score for item in opportunities}
+
+    assert opportunities[0].fields == ("unobserved",)
+    assert scores["unobserved"] > scores["repeated_missing"]
+    assert dict(opportunities[1].score_components)["gap"] == 2.9
+
+
+def test_missing_evidence_score_depends_on_rate_not_accumulating_count():
+    low_count = EvidenceCoverage(
+        "DocumentA", "field_alpha",
+        observations_seen=10,
+        missing_count=10,
+    )
+    high_count = EvidenceCoverage(
+        "DocumentA", "field_alpha",
+        observations_seen=10_000,
+        missing_count=10_000,
+    )
+
+    low_score = next(
+        item.score for item in discover_opportunities(
+            objective(), model_a(), (low_count,),
+        )
+        if item.fields == ("field_alpha",)
+    )
+    high_score = next(
+        item.score for item in discover_opportunities(
+            objective(), model_a(), (high_count,),
+        )
+        if item.fields == ("field_alpha",)
+    )
+
+    assert high_score == low_score
+
+
+def test_all_missing_studies_cover_equivalent_fields_then_stop_when_not_useful():
+    fields = tuple(
+        StructuralField(
+            "DocumentA", name, "Data", None, None,
+            False, False, False, False,
+        )
+        for name in ("alpha", "beta", "gamma")
+    )
+    understanding = MetadataUnderstanding(
+        "tenant-a",
+        (StructuralEntity(
+            "DocumentA", None, False, False, False, fields, (),
+        ),),
+    )
+    authorization = AuthorizationEnvelope(
+        "tenant-a",
+        objective_id="objective-1",
+        allowed_record_entities=frozenset({"DocumentA"}),
+        allowed_record_fields=(("DocumentA", ("alpha", "beta", "gamma")),),
+        max_cycles=20,
+        max_records_per_proposal=100,
+        max_cumulative_records=2_000,
+    )
+
+    def all_missing(request):
+        return StudyOutcome(
+            request.intent.entity,
+            request.intent.fields,
+            100,
+            0,
+            0.0,
+            0.0,
+            "none",
+            "INCONCLUSIVE",
+            prediction_evaluated=False,
+        )
+
+    result = run_autonomous_loop(
+        objective(), understanding, (), authorization, all_missing,
+    )
+    selected = [intent.fields[0] for intent in result.intents]
+
+    assert selected[:3] == ["alpha", "beta", "gamma"]
+    assert set(selected) == {"alpha", "beta", "gamma"}
+    assert max(selected.count(field) for field in set(selected)) == 4
+    assert result.stop_reason is StudyStopReason.NO_INFORMATION_GAIN
+    assert not any(
+        outcome.recommendation_allowed
+        or outcome.promotion_allowed
+        or outcome.execution_allowed
+        for outcome in result.outcomes
+    )
+
+
 def test_evidence_bearing_entity_wins_before_lexical_tie_break():
     understanding = MetadataUnderstanding(
         "tenant-a",
