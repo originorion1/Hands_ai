@@ -55,6 +55,8 @@ MAX_COMPANY_NAMES = 499
 MAX_METADATA_DOCTYPES = MAX_TOTAL_ATTEMPTED_GETS - 2
 DOCTYPE_CATALOG_RETRY_PRIOR_ATTEMPTS = 2
 DOCTYPE_CATALOG_RETRY_ATTEMPT = 3
+DOCTYPE_CATALOG_PERMISSION_RETRY_PRIOR_ATTEMPTS = 3
+DOCTYPE_CATALOG_PERMISSION_RETRY_ATTEMPT = 4
 _CATALOG_FIELDS = ("name",)
 _SENSITIVE_VALUE_KEYS = frozenset(
     {
@@ -430,8 +432,12 @@ class MetadataCatalogRetryReport:
         if self.ended_at < self.started_at:
             raise MetadataPreflightError("metadata catalog retry time range is invalid")
         if (
-            self.attempted_gets != DOCTYPE_CATALOG_RETRY_ATTEMPT
+            type(self.attempted_gets) is not int
+            or self.attempted_gets
+            not in {DOCTYPE_CATALOG_RETRY_ATTEMPT, DOCTYPE_CATALOG_PERMISSION_RETRY_ATTEMPT}
+            or type(self.request_attempts) is not int
             or self.request_attempts != 1
+            or type(self.max_total_attempted_gets) is not int
             or self.max_total_attempted_gets != MAX_TOTAL_ATTEMPTED_GETS
         ):
             raise MetadataPreflightError("metadata catalog retry accounting is invalid")
@@ -485,6 +491,12 @@ def _candidate_path(config: ERPNextMetadataPreflightConfig) -> Path:
 def _retry_report_path(config: ERPNextMetadataPreflightConfig) -> Path:
     return config.report_directory / (
         f"metadata-preflight-doctype-retry-{_scope_digest(config)}.json"
+    )
+
+
+def _permission_retry_report_path(config: ERPNextMetadataPreflightConfig) -> Path:
+    return config.report_directory / (
+        f"metadata-preflight-doctype-permission-retry-{_scope_digest(config)}.json"
     )
 
 
@@ -587,8 +599,22 @@ class _RunLedger:
         finally:
             connection.close()
 
-    def reserve_failed_doctype_retry(self) -> int:
-        """Atomically spend attempt three without changing the failed run state."""
+    def reserve_failed_doctype_retry(
+        self,
+        *,
+        prior_attempts: int = DOCTYPE_CATALOG_RETRY_PRIOR_ATTEMPTS,
+        retry_attempt: int = DOCTYPE_CATALOG_RETRY_ATTEMPT,
+    ) -> int:
+        """Atomically spend one allowlisted retry without changing failed state."""
+
+        if (prior_attempts, retry_attempt) not in {
+            (DOCTYPE_CATALOG_RETRY_PRIOR_ATTEMPTS, DOCTYPE_CATALOG_RETRY_ATTEMPT),
+            (
+                DOCTYPE_CATALOG_PERMISSION_RETRY_PRIOR_ATTEMPTS,
+                DOCTYPE_CATALOG_PERMISSION_RETRY_ATTEMPT,
+            ),
+        }:
+            raise _MetadataCatalogRetryRefused("metadata catalog retry is not allowlisted")
 
         connection = self._connect()
         try:
@@ -617,7 +643,7 @@ class _RunLedger:
             _validate_ledger_snapshot(snapshot)
             if not (
                 snapshot["status"] == "failed"
-                and snapshot["attempted_gets"] == DOCTYPE_CATALOG_RETRY_PRIOR_ATTEMPTS
+                and snapshot["attempted_gets"] == prior_attempts
                 and 0 < snapshot["company_count"] <= MAX_COMPANY_NAMES
                 and snapshot["doctype_catalog_count"] == 0
                 and snapshot["metadata_succeeded"] == 0
@@ -633,14 +659,14 @@ class _RunLedger:
             cursor = connection.execute(
                 "UPDATE preflight_run SET attempted_gets = ? "
                 "WHERE singleton = 1 AND status = 'failed' AND attempted_gets = ?",
-                (DOCTYPE_CATALOG_RETRY_ATTEMPT, DOCTYPE_CATALOG_RETRY_PRIOR_ATTEMPTS),
+                (retry_attempt, prior_attempts),
             )
             if cursor.rowcount != 1:
                 raise _MetadataCatalogRetryRefused(
                     "metadata catalog retry reservation failed"
                 )
             connection.commit()
-            return DOCTYPE_CATALOG_RETRY_ATTEMPT
+            return retry_attempt
         except Exception:
             connection.rollback()
             raise
@@ -685,17 +711,25 @@ class _SingleRetryOpener:
         ledger: _RunLedger,
         opener: Callable[..., Any],
         termination_requested: Callable[[], bool],
+        *,
+        prior_attempts: int = DOCTYPE_CATALOG_RETRY_PRIOR_ATTEMPTS,
+        retry_attempt: int = DOCTYPE_CATALOG_RETRY_ATTEMPT,
     ) -> None:
         self._ledger = ledger
         self._opener = opener
         self._termination_requested = termination_requested
+        self._prior_attempts = prior_attempts
+        self._retry_attempt = retry_attempt
         self._used = False
 
     def __call__(self, request: Any, *, timeout: int) -> Any:
         if self._used:
             raise _MetadataCatalogRetryRefused("metadata catalog retry already attempted")
         self._used = True
-        self._ledger.reserve_failed_doctype_retry()
+        self._ledger.reserve_failed_doctype_retry(
+            prior_attempts=self._prior_attempts,
+            retry_attempt=self._retry_attempt,
+        )
         if self._termination_requested():
             raise _PreflightInterrupted
         return self._opener(request, timeout=timeout)
@@ -1103,26 +1137,87 @@ def _existing_private_retry_ledger(config: ERPNextMetadataPreflightConfig) -> _R
     return ledger
 
 
-def _write_retry_report(
-    config: ERPNextMetadataPreflightConfig,
-    report: MetadataCatalogRetryReport,
-) -> None:
+def _write_retry_report(path: Path, report: MetadataCatalogRetryReport) -> None:
     _write_private_json(
-        _retry_report_path(config),
+        path,
         json.loads(metadata_preflight_report_json(report)),
     )
 
 
-def run_erpnext_doctype_catalog_retry_once(
+def _validated_permission_failure_report(
+    config: ERPNextMetadataPreflightConfig,
+) -> MetadataCatalogRetryReport:
+    path = _retry_report_path(config)
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+        with os.fdopen(descriptor, "rb") as stream:
+            info = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_nlink != 1
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+            ):
+                raise MetadataPreflightError("prior metadata catalog retry is not private")
+            body = stream.read(DEFAULT_MAX_RESPONSE_BYTES + 1)
+        if len(body) > DEFAULT_MAX_RESPONSE_BYTES:
+            raise MetadataPreflightError("prior metadata catalog retry is too large")
+        payload = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_json_object)
+        expected = {
+            "execution_allowed",
+            "status",
+            "failure_stage",
+            "failure_category",
+            "started_at",
+            "ended_at",
+            "attempted_gets",
+            "request_attempts",
+            "max_total_attempted_gets",
+            "doctype_catalog_count",
+            "doctype_catalog_complete",
+            "candidate_review_required",
+            "metadata_target_requests",
+            "record_samples",
+            "erp_writes",
+            "soak_started",
+        }
+        if not isinstance(payload, Mapping) or set(payload) != expected:
+            raise MetadataPreflightError("prior metadata catalog retry schema is invalid")
+        values = dict(payload)
+        for name in ("started_at", "ended_at"):
+            if not isinstance(values[name], str):
+                raise MetadataPreflightError("prior metadata catalog retry time is invalid")
+            values[name] = datetime.fromisoformat(values[name])
+        report = MetadataCatalogRetryReport(**values)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise MetadataPreflightError("prior metadata catalog retry is invalid") from exc
+    if not (
+        report.status == "failed"
+        and report.failure_stage == "doctype_catalog"
+        and report.failure_category == "http_permission"
+        and report.attempted_gets == DOCTYPE_CATALOG_RETRY_ATTEMPT
+        and report.request_attempts == 1
+        and report.doctype_catalog_count == 0
+        and report.doctype_catalog_complete is False
+    ):
+        raise MetadataPreflightError("prior metadata catalog retry is not a permission failure")
+    return report
+
+
+def _run_erpnext_doctype_catalog_retry_once(
     config: ERPNextMetadataPreflightConfig,
     *,
     environment: Mapping[str, str],
+    prior_attempts: int,
+    retry_attempt: int,
+    report_path: Path,
     opener: Callable[..., Any] | None = None,
     clock: Callable[[], datetime] = utc_now,
     termination_requested: Callable[[], bool] | None = None,
 ) -> MetadataCatalogRetryReport:
-    """Spend only attempt three on the failed run's DocType name catalog."""
-
     if not isinstance(config, ERPNextMetadataPreflightConfig):
         raise TypeError("config must be ERPNextMetadataPreflightConfig")
     termination = termination_requested or (lambda: False)
@@ -1136,10 +1231,19 @@ def run_erpnext_doctype_catalog_retry_once(
     ledger = _existing_private_retry_ledger(config)
     if _path_entry_exists(_candidate_path(config)):
         raise MetadataPreflightError("metadata catalog retry conflicts with a candidate")
-    if _path_entry_exists(_retry_report_path(config)):
+    if _path_entry_exists(report_path):
         raise MetadataPreflightError("metadata catalog retry result already exists")
     credentials = config.credential_references.resolve(environment)
-    single_retry = _SingleRetryOpener(ledger, opener or _default_opener, termination)
+    transport = opener or _default_opener
+    if not callable(transport):
+        raise TypeError("opener must be callable")
+    single_retry = _SingleRetryOpener(
+        ledger,
+        transport,
+        termination,
+        prior_attempts=prior_attempts,
+        retry_attempt=retry_attempt,
+    )
     authenticated = _AuthenticatedOpener(
         single_retry,
         credentials.api_key,
@@ -1177,8 +1281,8 @@ def run_erpnext_doctype_catalog_retry_once(
         failure_stage = "doctype_catalog"
         failure_category = "internal_failure"
     state = ledger.snapshot()
-    if state["attempted_gets"] != DOCTYPE_CATALOG_RETRY_ATTEMPT:
-        raise MetadataPreflightError("metadata catalog retry did not reserve attempt three")
+    if state["attempted_gets"] != retry_attempt:
+        raise MetadataPreflightError("metadata catalog retry did not reserve its attempt")
     ended_at = clock()
     report = MetadataCatalogRetryReport(
         execution_allowed=False,
@@ -1187,14 +1291,61 @@ def run_erpnext_doctype_catalog_retry_once(
         failure_category=failure_category,
         started_at=started_at,
         ended_at=ended_at,
-        attempted_gets=DOCTYPE_CATALOG_RETRY_ATTEMPT,
+        attempted_gets=retry_attempt,
         request_attempts=1,
         max_total_attempted_gets=MAX_TOTAL_ATTEMPTED_GETS,
         doctype_catalog_count=doctype_count,
         doctype_catalog_complete=doctype_complete,
     )
-    _write_retry_report(config, report)
+    _write_retry_report(report_path, report)
     return report
+
+
+def run_erpnext_doctype_catalog_retry_once(
+    config: ERPNextMetadataPreflightConfig,
+    *,
+    environment: Mapping[str, str],
+    opener: Callable[..., Any] | None = None,
+    clock: Callable[[], datetime] = utc_now,
+    termination_requested: Callable[[], bool] | None = None,
+) -> MetadataCatalogRetryReport:
+    """Spend only attempt three on the failed run's DocType name catalog."""
+
+    return _run_erpnext_doctype_catalog_retry_once(
+        config,
+        environment=environment,
+        prior_attempts=DOCTYPE_CATALOG_RETRY_PRIOR_ATTEMPTS,
+        retry_attempt=DOCTYPE_CATALOG_RETRY_ATTEMPT,
+        report_path=_retry_report_path(config),
+        opener=opener,
+        clock=clock,
+        termination_requested=termination_requested,
+    )
+
+
+def run_erpnext_doctype_catalog_permission_retry_once(
+    config: ERPNextMetadataPreflightConfig,
+    *,
+    environment: Mapping[str, str],
+    opener: Callable[..., Any] | None = None,
+    clock: Callable[[], datetime] = utc_now,
+    termination_requested: Callable[[], bool] | None = None,
+) -> MetadataCatalogRetryReport:
+    """Spend only attempt four after the recorded DocType permission failure."""
+
+    if not isinstance(config, ERPNextMetadataPreflightConfig):
+        raise TypeError("config must be ERPNextMetadataPreflightConfig")
+    _validated_permission_failure_report(config)
+    return _run_erpnext_doctype_catalog_retry_once(
+        config,
+        environment=environment,
+        prior_attempts=DOCTYPE_CATALOG_PERMISSION_RETRY_PRIOR_ATTEMPTS,
+        retry_attempt=DOCTYPE_CATALOG_PERMISSION_RETRY_ATTEMPT,
+        report_path=_permission_retry_report_path(config),
+        opener=opener,
+        clock=clock,
+        termination_requested=termination_requested,
+    )
 
 
 def run_erpnext_metadata_preflight(
@@ -1402,6 +1553,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="explicitly spend attempt three on the failed DocType catalog only",
     )
+    execution.add_argument(
+        "--retry-doctype-catalog-after-permission-once",
+        action="store_true",
+        help="explicitly spend attempt four after the recorded permission failure",
+    )
     args = parser.parse_args(argv)
     try:
         config = metadata_preflight_config_from_environment(os.environ)
@@ -1409,10 +1565,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception:  # noqa: BLE001 - CLI emits fixed safe categories only
         print('{"execution_allowed":false,"ready":false,"status":"configuration_invalid"}')
         return 2
+    retry_runner = None
     if args.retry_doctype_catalog_once:
+        retry_runner = run_erpnext_doctype_catalog_retry_once
+    elif args.retry_doctype_catalog_after_permission_once:
+        retry_runner = run_erpnext_doctype_catalog_permission_retry_once
+    if retry_runner is not None:
         try:
             with _termination_signals() as termination:
-                report = run_erpnext_doctype_catalog_retry_once(
+                report = retry_runner(
                     config,
                     environment=os.environ,
                     termination_requested=termination,
@@ -1451,6 +1612,7 @@ if __name__ == "__main__":
 
 
 __all__ = [
+    "DOCTYPE_CATALOG_PERMISSION_RETRY_ATTEMPT",
     "DOCTYPE_CATALOG_RETRY_ATTEMPT",
     "MAX_TOTAL_ATTEMPTED_GETS",
     "ERPNextMetadataPreflightConfig",
@@ -1462,6 +1624,7 @@ __all__ = [
     "main",
     "metadata_preflight_config_from_environment",
     "metadata_preflight_report_json",
+    "run_erpnext_doctype_catalog_permission_retry_once",
     "run_erpnext_doctype_catalog_retry_once",
     "run_erpnext_metadata_preflight",
 ]

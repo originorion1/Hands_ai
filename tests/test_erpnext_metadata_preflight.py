@@ -27,12 +27,14 @@ from orion.discovery.erpnext_metadata_preflight import (
     _candidate_path,
     _contains_sensitive_embedded_value,
     _ledger_path,
+    _permission_retry_report_path,
     _read_name_catalog,
     _retry_report_path,
     _RunLedger,
     inspect_metadata_preflight_readiness,
     main,
     metadata_preflight_config_from_environment,
+    run_erpnext_doctype_catalog_permission_retry_once,
     run_erpnext_doctype_catalog_retry_once,
     run_erpnext_metadata_preflight,
 )
@@ -166,6 +168,25 @@ def failed_doctype_catalog_ledger(plan: ERPNextMetadataPreflightConfig) -> _RunL
         company_catalog_complete=1,
     )
     return ledger
+
+
+def failed_permission_retry(
+    plan: ERPNextMetadataPreflightConfig,
+) -> tuple[_RunLedger, Path, bytes]:
+    ledger = failed_doctype_catalog_ledger(plan)
+
+    def permission_denied(request, *, timeout):
+        raise HTTPError(request.full_url, 403, "synthetic denial", {}, None)
+
+    report = run_erpnext_doctype_catalog_retry_once(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=permission_denied,
+        clock=lambda: NOW,
+    )
+    assert report.failure_category == "http_permission"
+    path = _retry_report_path(plan)
+    return ledger, path, path.read_bytes()
 
 
 def test_company_catalog_request_is_exactly_name_only_and_single_page(tmp_path):
@@ -1309,3 +1330,225 @@ def test_doctype_catalog_retry_latched_interruption_spends_without_transport(tmp
     assert report.status == "interrupted"
     assert report.failure_category == "interrupted"
     assert ledger.snapshot()["attempted_gets"] == 3
+
+
+def test_permission_retry_uses_only_attempt_four_and_preserves_prior_report(tmp_path):
+    plan = config(tmp_path)
+    ledger, prior_path, prior_bytes = failed_permission_retry(plan)
+    requests = []
+
+    def opener(request, *, timeout):
+        requests.append(request)
+        assert ledger.snapshot()["attempted_gets"] == 4
+        assert ledger.snapshot()["status"] == "failed"
+        return FakeResponse(request, catalog_payload("Alpha Type", "Zulu Type"))
+
+    report = run_erpnext_doctype_catalog_permission_retry_once(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: NOW,
+    )
+
+    assert report == MetadataCatalogRetryReport(
+        execution_allowed=False,
+        status="succeeded",
+        failure_stage="none",
+        failure_category="none",
+        started_at=NOW,
+        ended_at=NOW,
+        attempted_gets=4,
+        request_attempts=1,
+        max_total_attempted_gets=100,
+        doctype_catalog_count=2,
+        doctype_catalog_complete=True,
+    )
+    assert prior_path.read_bytes() == prior_bytes
+    assert ledger.snapshot()["attempted_gets"] == 4
+    assert ledger.snapshot()["status"] == "failed"
+    assert len(requests) == 1
+    parsed = urlparse(requests[0].full_url)
+    assert requests[0].method == "GET"
+    assert parsed.path == "/api/resource/DocType"
+    assert parse_qs(parsed.query) == {
+        "fields": ['["name"]'],
+        "limit_start": ["0"],
+        "limit_page_length": ["99"],
+        "order_by": ["name asc"],
+    }
+    result_path = _permission_retry_report_path(plan)
+    rendered = result_path.read_text()
+    assert stat.S_IMODE(result_path.stat().st_mode) == 0o600
+    for forbidden in (SECRET_KEY, SECRET_VALUE, "Alpha Type", "Zulu Type", plan.base_url):
+        assert forbidden not in rendered
+
+
+def test_permission_retry_reports_sanitized_endpoint_contract_once(tmp_path):
+    plan = config(tmp_path)
+    ledger, prior_path, prior_bytes = failed_permission_retry(plan)
+    calls = 0
+
+    def opener(request, *, timeout):
+        nonlocal calls
+        calls += 1
+        raise HTTPError(request.full_url, 404, "RAW NOT FOUND", {}, None)
+
+    report = run_erpnext_doctype_catalog_permission_retry_once(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: NOW,
+    )
+
+    assert report.status == "failed"
+    assert report.failure_category == "endpoint_contract"
+    assert report.attempted_gets == 4
+    assert report.request_attempts == 1
+    assert calls == 1
+    assert ledger.snapshot()["attempted_gets"] == 4
+    assert prior_path.read_bytes() == prior_bytes
+    rendered = _permission_retry_report_path(plan).read_text()
+    for forbidden in ("RAW NOT FOUND", SECRET_KEY, SECRET_VALUE, plan.base_url, "404"):
+        assert forbidden not in rendered
+
+
+@pytest.mark.parametrize("mutation", ("missing", "wrong-category", "permissive"))
+def test_permission_retry_refuses_invalid_prior_report_before_transport(tmp_path, mutation):
+    plan = config(tmp_path)
+    ledger, prior_path, _ = failed_permission_retry(plan)
+    if mutation == "missing":
+        prior_path.unlink()
+    elif mutation == "wrong-category":
+        payload = json.loads(prior_path.read_text())
+        payload["failure_category"] = "response_validation"
+        prior_path.write_text(json.dumps(payload))
+        prior_path.chmod(0o600)
+    else:
+        prior_path.chmod(0o644)
+    calls = 0
+
+    def opener(request, *, timeout):
+        nonlocal calls
+        calls += 1
+        pytest.fail("invalid prior result must block transport")
+
+    with pytest.raises(MetadataPreflightError, match="prior"):
+        run_erpnext_doctype_catalog_permission_retry_once(
+            plan,
+            environment=SECRET_ENVIRONMENT,
+            opener=opener,
+            clock=lambda: NOW,
+        )
+    assert calls == 0
+    assert ledger.snapshot()["attempted_gets"] == 3
+    assert not _permission_retry_report_path(plan).exists()
+
+
+def test_permission_retry_reservation_blocks_concurrent_transport(tmp_path):
+    plan = config(tmp_path)
+    ledger, _, _ = failed_permission_retry(plan)
+    entered = threading.Event()
+    release = threading.Event()
+    reports = []
+    calls = 0
+
+    def first_opener(request, *, timeout):
+        nonlocal calls
+        calls += 1
+        entered.set()
+        assert release.wait(timeout=5)
+        return FakeResponse(request, catalog_payload("Safe Type"))
+
+    def first_run():
+        reports.append(
+            run_erpnext_doctype_catalog_permission_retry_once(
+                plan,
+                environment=SECRET_ENVIRONMENT,
+                opener=first_opener,
+                clock=lambda: NOW,
+            )
+        )
+
+    worker = threading.Thread(target=first_run)
+    worker.start()
+    assert entered.wait(timeout=5)
+    with pytest.raises(MetadataPreflightError, match="retry"):
+        run_erpnext_doctype_catalog_permission_retry_once(
+            plan,
+            environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("no second transport"),
+            clock=lambda: NOW,
+        )
+    release.set()
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert calls == 1
+    assert len(reports) == 1
+    assert reports[0].status == "succeeded"
+    assert ledger.snapshot()["attempted_gets"] == 4
+
+
+def test_permission_retry_requires_credentials_before_attempt_four(tmp_path):
+    plan = config(tmp_path)
+    ledger, prior_path, prior_bytes = failed_permission_retry(plan)
+    with pytest.raises(LiveSessionError, match="credential"):
+        run_erpnext_doctype_catalog_permission_retry_once(
+            plan,
+            environment={},
+            opener=lambda *args, **kwargs: pytest.fail("credentials must block transport"),
+            clock=lambda: NOW,
+        )
+    assert ledger.snapshot()["attempted_gets"] == 3
+    assert prior_path.read_bytes() == prior_bytes
+    assert not _permission_retry_report_path(plan).exists()
+
+
+def test_permission_retry_cli_exposes_only_aggregate_result(tmp_path, monkeypatch, capsys):
+    plan = config(tmp_path)
+    failed_permission_retry(plan)
+    environment = {
+        "ORION_LIVE_BASE_URL": plan.base_url,
+        "ORION_LIVE_TENANT_ID": TENANT,
+        "ORION_LIVE_AUTHORIZATION_REFERENCE": "synthetic-metadata-only-ledger",
+        "ORION_LIVE_API_KEY_REF": KEY_REF,
+        "ORION_LIVE_API_SECRET_REF": SECRET_REF,
+        "ORION_LIVE_STATE_DIR": str(plan.state_directory),
+        "ORION_LIVE_REPORT_DIR": str(plan.report_directory),
+        **SECRET_ENVIRONMENT,
+    }
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    requests = []
+
+    def opener(request, *, timeout):
+        requests.append(request)
+        return FakeResponse(request, catalog_payload("Do Not Print This Name"))
+
+    monkeypatch.setattr(preflight_module, "_default_opener", opener)
+    assert main(["--retry-doctype-catalog-after-permission-once"]) == 0
+    output = capsys.readouterr().out
+    payload = json.loads(output)
+    assert payload["status"] == "succeeded"
+    assert payload["attempted_gets"] == 4
+    assert payload["request_attempts"] == 1
+    assert payload["doctype_catalog_count"] == 1
+    assert "Do Not Print This Name" not in output
+    assert SECRET_KEY not in output
+    assert SECRET_VALUE not in output
+    assert len(requests) == 1
+
+
+def test_permission_retry_latched_interruption_spends_without_transport(tmp_path):
+    plan = config(tmp_path)
+    ledger, prior_path, prior_bytes = failed_permission_retry(plan)
+    report = run_erpnext_doctype_catalog_permission_retry_once(
+        plan,
+        environment=SECRET_ENVIRONMENT,
+        opener=lambda *args, **kwargs: pytest.fail("latched stop must block transport"),
+        clock=lambda: NOW,
+        termination_requested=lambda: True,
+    )
+    assert report.status == "interrupted"
+    assert report.failure_category == "interrupted"
+    assert ledger.snapshot()["attempted_gets"] == 4
+    assert prior_path.read_bytes() == prior_bytes
