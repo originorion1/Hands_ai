@@ -18,6 +18,8 @@ from orion.discovery.erpnext_live_session import (
     LiveSessionStorageError,
 )
 from orion.discovery.erpnext_metadata_preflight import (
+    CONSOLIDATED_MAX_NEW_GETS,
+    CONSOLIDATED_MAX_TOTAL_ATTEMPTED_GETS,
     ERPNextMetadataPreflightConfig,
     MetadataCatalogRetryReport,
     MetadataPreflightBudgetError,
@@ -34,12 +36,14 @@ from orion.discovery.erpnext_metadata_preflight import (
     inspect_metadata_preflight_readiness,
     main,
     metadata_preflight_config_from_environment,
+    run_consolidated_reviewed_metadata,
     run_erpnext_doctype_catalog_permission_retry_once,
     run_erpnext_doctype_catalog_retry_once,
     run_erpnext_metadata_preflight,
 )
 
 NOW = datetime(2026, 9, 6, 12, tzinfo=UTC)
+LATER = datetime(2026, 9, 6, 12, 1, tzinfo=UTC)
 TENANT = "synthetic-tenant"
 KEY_REF = "SYNTHETIC_PREFLIGHT_KEY"
 SECRET_REF = "SYNTHETIC_PREFLIGHT_SECRET"
@@ -241,7 +245,7 @@ def test_catalog_over_return_fails_closed(tmp_path):
 @pytest.mark.parametrize(
     ("failure", "expected"),
     (
-        (HTTPError("https://synthetic.invalid", 401, "private", None, None), "http_permission"),
+        (HTTPError("https://synthetic.invalid", 401, "private", None, None), "http_authentication"),
         (HTTPError("https://synthetic.invalid", 403, "private", None, None), "http_permission"),
         (HTTPError("https://synthetic.invalid", 404, "private", None, None), "endpoint_contract"),
         (HTTPError("https://synthetic.invalid", 429, "private", None, None), "http_status"),
@@ -1576,6 +1580,26 @@ def failed_attempt_four(plan):
     return ledger, {prior_path: prior_bytes, _permission_retry_report_path(plan): _permission_retry_report_path(plan).read_bytes()}
 
 
+def failed_attempt_five(plan, catalog):
+    ledger, prior = failed_attempt_four(plan)
+
+    def denied(request, *, timeout):
+        raise HTTPError(request.full_url, 403, "private", {}, None)
+
+    report = run_erpnext_metadata_preflight(
+        plan,
+        reviewed_catalog=catalog,
+        environment=SECRET_ENVIRONMENT,
+        opener=denied,
+        clock=lambda: NOW,
+    )
+    assert report.status == "failed"
+    assert report.attempted_gets == 5
+    run_report, = plan.report_directory.glob("metadata-preflight-report-*.json")
+    prior[run_report] = run_report.read_bytes()
+    return ledger, prior
+
+
 def test_reviewed_catalog_continues_shared_pipeline_and_preserves_history(tmp_path):
     plan = config(tmp_path)
     ledger, prior = failed_attempt_four(plan)
@@ -1812,3 +1836,259 @@ def test_reviewed_catalog_candidate_cannot_move_to_another_origin(tmp_path):
     readiness = inspect_metadata_preflight_readiness(changed, environment={})
     assert readiness.offline_candidate_ready is False
     assert readiness.prior_run_status == "uncertain"
+
+
+def test_consolidated_continuation_uses_exact_company_and_reviewed_requests(tmp_path):
+    plan = config(tmp_path)
+    names = tuple(f"Reviewed Type {index:02}" for index in range(18))
+    catalog = reviewed_catalog(plan, names)
+    ledger, prior = failed_attempt_five(plan, catalog)
+    requests = []
+
+    def opener(request, *, timeout):
+        requests.append(request)
+        assert ledger.snapshot()["attempted_gets"] == 5 + len(requests)
+        path = urlparse(request.full_url).path
+        if path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        assert path == "/api/method/frappe.desk.form.load.getdoctype"
+        name = parse_qs(urlparse(request.full_url).query)["doctype"][0]
+        assert name == names[len(requests) - 2]
+        return FakeResponse(request, metadata_payload(name))
+
+    report = run_consolidated_reviewed_metadata(
+        plan,
+        reviewed_catalog=catalog,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: LATER,
+    )
+
+    assert report.status == "complete"
+    assert report.attempted_gets == CONSOLIDATED_MAX_TOTAL_ATTEMPTED_GETS
+    assert report.prior_attempted_gets == 5
+    assert report.metadata_succeeded == 18
+    assert report.metadata_failed == 0
+    assert report.metadata_authentication_failures == 0
+    assert report.metadata_permission_failures == 0
+    assert report.metadata_other_failures == 0
+    assert report.doctype_catalog_count == 18
+    assert report.doctype_catalog_complete is False
+    assert len(requests) == CONSOLIDATED_MAX_NEW_GETS
+    assert all(request.get_method() == "GET" for request in requests)
+    assert not any("/api/resource/DocType" in request.full_url for request in requests)
+    assert all(path.read_bytes() == body for path, body in prior.items())
+    assert report.record_samples == report.erp_writes == 0
+    assert report.soak_started is False
+    readiness = inspect_metadata_preflight_readiness(plan, environment={})
+    assert readiness.offline_candidate_ready is True
+    assert readiness.candidate_review_required is True
+    assert readiness.execution_allowed is False
+
+
+@pytest.mark.parametrize(
+    ("status_code", "category"),
+    ((401, "http_authentication"), (403, "http_permission")),
+)
+def test_consolidated_company_failure_is_distinct_and_not_replayable(
+    tmp_path, status_code, category
+):
+    plan = config(tmp_path)
+    catalog = reviewed_catalog(plan)
+    ledger, prior = failed_attempt_five(plan, catalog)
+    calls = 0
+
+    def denied(request, *, timeout):
+        nonlocal calls
+        calls += 1
+        raise HTTPError(request.full_url, status_code, "private detail", {}, None)
+
+    report = run_consolidated_reviewed_metadata(
+        plan,
+        reviewed_catalog=catalog,
+        environment=SECRET_ENVIRONMENT,
+        opener=denied,
+        clock=lambda: LATER,
+    )
+
+    assert report.status == "failed"
+    assert report.failure_stage == "company_catalog"
+    assert report.failure_category == category
+    assert report.attempted_gets == 6
+    assert calls == 1
+    assert all(path.read_bytes() == body for path, body in prior.items())
+    with pytest.raises(MetadataPreflightError):
+        run_consolidated_reviewed_metadata(
+            plan,
+            reviewed_catalog=catalog,
+            environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("continuation cannot replay"),
+        )
+    rendered = max(
+        plan.report_directory.glob("metadata-preflight-report-*.json"),
+        key=lambda path: path.stat().st_mtime_ns,
+    ).read_text()
+    for forbidden in ("private detail", SECRET_KEY, SECRET_VALUE, plan.base_url, str(status_code)):
+        assert forbidden not in rendered
+    assert ledger.snapshot()["attempted_gets"] == 6
+
+
+def test_consolidated_target_failures_are_aggregated_without_raw_details(tmp_path):
+    plan = config(tmp_path)
+    names = tuple(f"Reviewed Type {index:02}" for index in range(18))
+    catalog = reviewed_catalog(plan, names)
+    ledger, prior = failed_attempt_five(plan, catalog)
+    calls = []
+
+    def opener(request, *, timeout):
+        calls.append(request)
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        name = parse_qs(urlparse(request.full_url).query)["doctype"][0]
+        index = names.index(name)
+        if index == 0:
+            raise HTTPError(request.full_url, 401, "authentication detail", {}, None)
+        if index == 1:
+            raise HTTPError(request.full_url, 403, "permission detail", {}, None)
+        if index == 2:
+            return RawResponse(request, b"not-json-private-detail")
+        return FakeResponse(request, metadata_payload(name))
+
+    report = run_consolidated_reviewed_metadata(
+        plan,
+        reviewed_catalog=catalog,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: LATER,
+    )
+
+    assert report.status == "complete"
+    assert report.attempted_gets == ledger.snapshot()["attempted_gets"] == 24
+    assert report.metadata_succeeded == 15
+    assert report.metadata_failed == 3
+    assert report.metadata_authentication_failures == 1
+    assert report.metadata_permission_failures == 1
+    assert report.metadata_other_failures == 1
+    assert len(calls) == 19
+    assert all(path.read_bytes() == body for path, body in prior.items())
+    rendered = max(
+        plan.report_directory.glob("metadata-preflight-report-*.json"),
+        key=lambda path: path.stat().st_mtime_ns,
+    ).read_text()
+    for forbidden in (
+        "authentication detail",
+        "permission detail",
+        "not-json-private-detail",
+        SECRET_KEY,
+        SECRET_VALUE,
+        plan.base_url,
+    ):
+        assert forbidden not in rendered
+
+
+def test_consolidated_missing_credentials_preserves_attempt_five(tmp_path):
+    plan = config(tmp_path)
+    catalog = reviewed_catalog(plan)
+    ledger, prior = failed_attempt_five(plan, catalog)
+
+    with pytest.raises(LiveSessionError, match="credential"):
+        run_consolidated_reviewed_metadata(
+            plan,
+            reviewed_catalog=catalog,
+            environment={},
+            opener=lambda *args, **kwargs: pytest.fail("missing credentials block transport"),
+        )
+
+    assert ledger.snapshot()["attempted_gets"] == 5
+    assert ledger.snapshot()["status"] == "failed"
+    assert all(path.read_bytes() == body for path, body in prior.items())
+
+
+def test_consolidated_catalog_digest_mismatch_blocks_before_transport(tmp_path):
+    plan = config(tmp_path)
+    original = reviewed_catalog(plan, ("Original Type",))
+    ledger, _ = failed_attempt_five(plan, original)
+
+    with pytest.raises(MetadataPreflightError, match="failed attempt five"):
+        run_consolidated_reviewed_metadata(
+            plan,
+            reviewed_catalog=reviewed_catalog(plan, ("Different Type",)),
+            environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("catalog mismatch blocks transport"),
+        )
+
+    assert ledger.snapshot()["attempted_gets"] == 5
+    assert ledger.snapshot()["status"] == "failed"
+
+
+def test_consolidated_refuses_tampered_attempt_five_report_before_transport(tmp_path):
+    plan = config(tmp_path)
+    catalog = reviewed_catalog(plan)
+    ledger, prior = failed_attempt_five(plan, catalog)
+    report_path = next(
+        path for path in prior if path.name.startswith("metadata-preflight-report-")
+    )
+    payload = json.loads(report_path.read_text())
+    payload["failure_category"] = "internal_failure"
+    report_path.write_text(json.dumps(payload))
+    report_path.chmod(0o600)
+
+    with pytest.raises(MetadataPreflightError, match="failed Company"):
+        run_consolidated_reviewed_metadata(
+            plan,
+            reviewed_catalog=catalog,
+            environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("invalid evidence blocks transport"),
+        )
+
+    assert ledger.snapshot()["attempted_gets"] == 5
+    assert ledger.snapshot()["status"] == "failed"
+
+
+def test_consolidated_cli_flag_runs_only_bounded_reviewed_sequence(
+    tmp_path, monkeypatch, capsys
+):
+    import hashlib
+    from dataclasses import asdict
+
+    plan = config(tmp_path)
+    names = tuple(f"Reviewed Type {index:02}" for index in range(18))
+    catalog = reviewed_catalog(plan, names)
+    ledger, _ = failed_attempt_five(plan, catalog)
+    catalog_path = tmp_path / "catalog.json"
+    catalog_body = json.dumps(asdict(catalog)).encode()
+    catalog_path.write_bytes(catalog_body)
+    catalog_path.chmod(0o600)
+    requests = []
+
+    def opener(request, *, timeout):
+        requests.append(request)
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        name = parse_qs(urlparse(request.full_url).query)["doctype"][0]
+        return FakeResponse(request, metadata_payload(name))
+
+    monkeypatch.setattr(
+        preflight_module, "metadata_preflight_config_from_environment", lambda env: plan
+    )
+    monkeypatch.setattr(preflight_module, "_default_opener", opener)
+    monkeypatch.setenv(KEY_REF, SECRET_KEY)
+    monkeypatch.setenv(SECRET_REF, SECRET_VALUE)
+    result = main(
+        [
+            "--execute-consolidated-reviewed-catalog",
+            "--reviewed-admin-catalog",
+            str(catalog_path),
+            "--reviewed-admin-catalog-sha256",
+            hashlib.sha256(catalog_body).hexdigest(),
+        ]
+    )
+
+    assert result == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["attempted_gets"] == 24
+    assert output["metadata_succeeded"] == 18
+    assert output["record_samples"] == output["erp_writes"] == 0
+    assert output["soak_started"] is False
+    assert ledger.snapshot()["attempted_gets"] == 24
+    assert len(requests) == 19
