@@ -38,6 +38,7 @@ STUDY_KINDS = frozenset({"record_evidence", "metadata_gap"})
 INFORMATION_GAINS = frozenset({"high", "medium", "low", "none"})
 HYPOTHESIS_STATES = frozenset({"SUPPORTED", "NOT_SUPPORTED", "INCONCLUSIVE"})
 USEFUL_GAIN_THRESHOLD = 1.0
+MAX_MISSING_EVIDENCE_GAP = 0.9
 
 
 def _target(value: object, label: str) -> None:
@@ -60,6 +61,17 @@ def is_missing_evidence(value: object) -> bool:
     """Return whether a single observed field value is missing."""
 
     return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _missing_evidence_gap(state: EvidenceCoverage) -> float:
+    """Return a bounded signal for the proportion of missing observations."""
+
+    if state.observations_seen == 0:
+        return 0.0
+    return min(
+        MAX_MISSING_EVIDENCE_GAP,
+        state.missing_count / state.observations_seen,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -391,7 +403,12 @@ def discover_opportunities(
             relevance = relevance_by_entity.get(entity.doctype, 0.0)
             if not is_collection_relationship(field):
                 state = current.get((entity.doctype, field.fieldname), EvidenceCoverage(entity.doctype, field.fieldname))
-                gap = 3.0 if state.observations_seen == 0 else max(0.0, 2.0 - state.prior_prediction_coverage) + state.missing_count * 0.1
+                gap = (
+                    3.0
+                    if state.observations_seen == 0
+                    else max(0.0, 2.0 - state.prior_prediction_coverage)
+                    + _missing_evidence_gap(state)
+                )
                 importance = 2.0 if field.required else 0.5
                 penalty = min(2.0, state.study_count * 0.5)
                 if (entity.doctype, field.fieldname) in memory.attempted:
