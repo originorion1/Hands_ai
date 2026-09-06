@@ -364,8 +364,6 @@ class LiveSessionReadinessReport:
         ):
             if type(getattr(self, name)) is not bool:
                 raise LiveSessionError("readiness status values must be booleans")
-        if self.max_live_gets != self.metadata_get_budget + self.study_get_budget:
-            raise LiveSessionError("readiness GET maximum is inconsistent")
         _validate_report_authority(
             erp_writes=self.erp_writes,
             recommendation_allowed=self.recommendation_allowed,
@@ -373,6 +371,27 @@ class LiveSessionReadinessReport:
             execution_allowed=self.execution_allowed,
             label="readiness report",
         )
+        _validate_exact_integer_fields(
+            self,
+            positive=(
+                "company_scope_count",
+                "reviewed_entity_count",
+                "reviewed_field_count",
+                "metadata_get_budget",
+                "study_get_budget",
+                "max_live_gets",
+            ),
+            nonnegative=("live_gets_performed", "erp_writes"),
+        )
+        expected_ready = (
+            self.credentials_available
+            and self.state_destination_ready
+            and self.report_destination_ready
+        )
+        if self.ready is not expected_ready:
+            raise LiveSessionError("readiness status is inconsistent")
+        if self.max_live_gets != self.metadata_get_budget + self.study_get_budget:
+            raise LiveSessionError("readiness GET maximum is inconsistent")
         if type(self.live_gets_performed) is not int or self.live_gets_performed != 0:
             raise LiveSessionError("readiness report cannot claim live GETs")
 
@@ -411,6 +430,42 @@ class LiveSessionRunReport:
     def __post_init__(self) -> None:
         if type(self.metadata_preflight_completed) is not bool:
             raise LiveSessionError("metadata preflight status must be boolean")
+        _validate_report_authority(
+            erp_writes=self.erp_writes,
+            recommendation_allowed=self.recommendation_allowed,
+            promotion_allowed=self.promotion_allowed,
+            execution_allowed=self.execution_allowed,
+            label="live study report",
+        )
+        _validate_exact_integer_fields(
+            self,
+            positive=(
+                "metadata_get_budget",
+                "study_get_budget",
+                "max_live_gets",
+                "company_scope_count",
+                "reviewed_entity_count",
+                "reviewed_field_count",
+            ),
+            nonnegative=(
+                "metadata_gets",
+                "study_gets",
+                "total_live_gets",
+                "cycles_attempted",
+                "cycles_completed",
+                "observations_persisted",
+                "evidence_batches_appended",
+                "supported_proposal_count",
+                "unsupported_proposal_count",
+                "distinct_entities_studied",
+                "distinct_companies_attempted",
+                "erp_writes",
+            ),
+        )
+        if self.cycles_completed > self.cycles_attempted:
+            raise LiveSessionError("completed cycle count is inconsistent")
+        if self.distinct_entities_studied > self.reviewed_entity_count:
+            raise LiveSessionError("studied entity count is inconsistent")
         if (
             type(self.distinct_companies_attempted) is not int
             or not 0
@@ -420,6 +475,14 @@ class LiveSessionRunReport:
             raise LiveSessionError("attempted company count is inconsistent")
         if self.stop_reason not in _SAFE_STOP_REASONS:
             raise LiveSessionError("live study stop reason is not allowlisted")
+        if type(self.failure_category_counts) is not tuple or any(
+            type(item) is not tuple or len(item) != 2
+            for item in self.failure_category_counts
+        ):
+            raise LiveSessionError("live study failure categories must be immutable")
+        categories = tuple(item[0] for item in self.failure_category_counts)
+        if len(categories) != len(set(categories)):
+            raise LiveSessionError("live study failure categories must be unique")
         if any(
             category not in _SAFE_FAILURE_CATEGORIES
             or type(count) is not int
@@ -437,13 +500,6 @@ class LiveSessionRunReport:
             raise LiveSessionError("study GET total exceeds configured maximum")
         if self.total_live_gets > self.max_live_gets:
             raise LiveSessionError("live GET total exceeds configured maximum")
-        _validate_report_authority(
-            erp_writes=self.erp_writes,
-            recommendation_allowed=self.recommendation_allowed,
-            promotion_allowed=self.promotion_allowed,
-            execution_allowed=self.execution_allowed,
-            label="live study report",
-        )
 
 
 def _validate_report_authority(
@@ -465,6 +521,22 @@ def _validate_report_authority(
         )
     ):
         raise LiveSessionError(f"{label} cannot grant downstream authority")
+
+
+def _validate_exact_integer_fields(
+    instance: object,
+    *,
+    positive: tuple[str, ...],
+    nonnegative: tuple[str, ...],
+) -> None:
+    for name in positive:
+        value = getattr(instance, name)
+        if type(value) is not int or value < 1:
+            raise LiveSessionError("report positive integer field is invalid")
+    for name in nonnegative:
+        value = getattr(instance, name)
+        if type(value) is not int or value < 0:
+            raise LiveSessionError("report nonnegative integer field is invalid")
 
 
 class _AuthorizedCompanyEvidenceStore:

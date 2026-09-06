@@ -252,6 +252,17 @@ def test_readiness_report_cannot_be_replaced_with_authority(tmp_path, change):
         replace(report, **change)
 
 
+def test_readiness_report_rejects_impossible_counts(tmp_path):
+    report = inspect_live_session_readiness(
+        config(tmp_path),
+        environment=SECRET_ENVIRONMENT,
+    )
+    with pytest.raises(LiveSessionError, match="positive integer"):
+        replace(report, company_scope_count=-1)
+    with pytest.raises(LiveSessionError, match="inconsistent"):
+        replace(report, ready=False)
+
+
 def test_report_destination_must_be_owner_only(tmp_path):
     plan = config(tmp_path)
     plan.report_directory.chmod(0o770)
@@ -698,10 +709,23 @@ def test_aggregate_report_rejects_unallowlisted_text(tmp_path):
         replace(report, stop_reason="synthetic-private-error-text")
     with pytest.raises(LiveSessionError, match="failure categories"):
         replace(report, failure_category_counts=(("synthetic-private-error-text", 1),))
+    with pytest.raises(LiveSessionError, match="immutable"):
+        replace(report, failure_category_counts=[("no_progress", 1)])
+    with pytest.raises(LiveSessionError, match="immutable"):
+        replace(report, failure_category_counts=(["no_progress", 1],))
+    with pytest.raises(LiveSessionError, match="unique"):
+        replace(
+            report,
+            failure_category_counts=(("no_progress", 1), ("no_progress", 1)),
+        )
     with pytest.raises(LiveSessionError, match="downstream authority"):
         replace(report, execution_allowed=0)
     with pytest.raises(LiveSessionError, match="ERP writes"):
         replace(report, erp_writes=False)
+    with pytest.raises(LiveSessionError, match="nonnegative integer"):
+        replace(report, cycles_attempted=-1)
+    with pytest.raises(LiveSessionError, match="positive integer"):
+        replace(report, metadata_get_budget=-1)
 
 
 def test_metadata_elapsed_time_reduces_one_shared_soak_duration(
