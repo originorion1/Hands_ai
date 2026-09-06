@@ -24,6 +24,7 @@ from ..history.evidence import (
     historical_evidence_checksum,
     historical_evidence_from_json,
 )
+from ..learning.shadow_soak import _PersistenceFailure
 from .erpnext_adapter import _default_opener
 from .erpnext_bounded_trial import (
     TRIAL_METADATA_CUMULATIVE_MAX,
@@ -736,7 +737,11 @@ def run_six_hour_continuation(
         return metadata_transport(request, timeout=timeout)
 
     def charged_record(request: Any, *, timeout: int) -> Any:
-        ledger.reserve_study()
+        try:
+            ledger.reserve_study()
+        except Exception as exc:
+            # Accounting failures must stop before another study can be attempted.
+            raise _PersistenceFailure("continuation accounting reservation failed") from exc
         return record_transport(request, timeout=timeout)
 
     kwargs: dict[str, Any] = {

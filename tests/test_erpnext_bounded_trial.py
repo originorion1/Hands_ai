@@ -45,6 +45,7 @@ from orion.discovery.erpnext_six_hour_continuation import (
     EFFECTIVE_ADDITIONAL_OBSERVATIONS,
     METADATA_CUMULATIVE_MAX,
     STUDY_CUMULATIVE_MAX,
+    SixHourContinuationError,
     _continuation_inputs,
     _ContinuationLedger,
     inspect_six_hour_continuation_readiness,
@@ -617,6 +618,91 @@ def test_continuation_metadata_failure_is_charged_and_consumes_claim(tmp_path):
     assert inspect_six_hour_continuation_readiness(
         environment, candidate, digest, report, report_digest
     ).status == "already_claimed"
+
+
+@pytest.mark.parametrize("reservation_committed", [False, True])
+def test_continuation_reservation_failure_stops_before_any_transport(
+    tmp_path, monkeypatch, reservation_committed
+):
+    environment, candidate, digest, ledger, scopes, report, report_digest = (
+        completed_trial(tmp_path)
+    )
+    metadata, record, _, record_requests = openers(
+        scopes, empty_record=True, expected_limit=5
+    )
+    original = _ContinuationLedger.reserve_study
+    reservation_attempts = []
+
+    def fail_once(self):
+        reservation_attempts.append(1)
+        if len(reservation_attempts) == 1:
+            if reservation_committed:
+                original(self)
+            raise sqlite3.OperationalError("synthetic accounting storage failure")
+        return original(self)
+
+    monkeypatch.setattr(_ContinuationLedger, "reserve_study", fail_once)
+
+    def run():
+        return run_six_hour_continuation(
+            environment,
+            candidate,
+            digest,
+            report,
+            report_digest,
+            metadata_opener=metadata,
+            record_opener=record,
+            clock=lambda: NOW + timedelta(seconds=1),
+            monotonic=lambda: 0.0,
+        )
+
+    if reservation_committed:
+        result = run()
+        assert result.status == "failed"
+        assert result.stop_reason == "persistence_failure"
+        assert result.additional_study_gets == 1
+        assert result.cycles_attempted == 1
+        assert result.cycles_completed == result.observations_persisted == 0
+        stop_reason = "persistence_failure"
+    else:
+        with pytest.raises(SixHourContinuationError, match="accounting mismatch"):
+            run()
+        stop_reason = "accounting_mismatch"
+
+    assert len(reservation_attempts) == 1
+    assert record_requests == []
+    with sqlite3.connect(ledger) as connection:
+        assert connection.execute(
+            "SELECT status, metadata_requests, study_requests, stop_reason "
+            "FROM six_hour_continuation"
+        ).fetchone() == ("failed", 7, int(reservation_committed), stop_reason)
+
+
+def test_continuation_allows_five_genuine_transport_failures(tmp_path):
+    environment, candidate, digest, _, scopes, report, report_digest = (
+        completed_trial(tmp_path)
+    )
+    metadata, record, _, record_requests = openers(
+        scopes, record_failure=True, expected_limit=5
+    )
+
+    result = run_six_hour_continuation(
+        environment,
+        candidate,
+        digest,
+        report,
+        report_digest,
+        metadata_opener=metadata,
+        record_opener=record,
+        clock=lambda: NOW + timedelta(seconds=1),
+        monotonic=lambda: 0.0,
+    )
+
+    assert result.status == "failed"
+    assert result.stop_reason == "erp_contract_failure"
+    assert result.additional_study_gets == len(record_requests) == 5
+    assert result.cycles_attempted == 5
+    assert result.cycles_completed == result.observations_persisted == 0
 
 
 def test_continuation_stops_after_five_non_progress_reads_and_preserves_evidence(

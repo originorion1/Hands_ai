@@ -380,6 +380,67 @@ def test_refresh_claim_is_one_use_even_after_interruption(tmp_path):
         )
 
 
+@pytest.mark.parametrize("interruption_stage", ("opener", "read"))
+@pytest.mark.parametrize("completed_targets", (0, 1))
+def test_refresh_charged_interruption_reports_and_cannot_replay(
+    tmp_path, interruption_stage, completed_targets
+):
+    plan = config(tmp_path)
+    reviewed = catalog(plan)
+    ledger, artifacts = completed_attempt_twenty_four(plan, reviewed)
+    requests = []
+
+    class InterruptedResponse(FakeResponse):
+        def read(self, size=-1):
+            raise KeyboardInterrupt("RAW INTERRUPT DETAIL")
+
+    def opener(request, *, timeout):
+        requests.append(request)
+        doctype = parse_qs(urlparse(request.full_url).query)["doctype"][0]
+        if len(requests) <= completed_targets:
+            return FakeResponse(request, metadata_payload(doctype))
+        if interruption_stage == "opener":
+            raise KeyboardInterrupt("RAW INTERRUPT DETAIL")
+        return InterruptedResponse(request, metadata_payload(doctype))
+
+    report = run_metadata_refresh(
+        plan,
+        reviewed,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: LATER,
+    )
+
+    charged = completed_targets + 1
+    assert report.status == report.failure_category == "interrupted"
+    assert report.additional_attempted_gets == len(requests) == charged
+    assert report.cumulative_attempted_gets == 24 + charged
+    assert report.metadata_succeeded == completed_targets
+    assert report.metadata_failed == 1
+    assert report.target_results[-1].target_index == charged
+    assert report.target_results[-1].status == "failed"
+    assert report.target_results[-1].category == "interrupted"
+    assert report.candidate_review_required is False
+    assert not _refresh_candidate_path(plan).exists()
+    assert ledger.snapshot()["attempted_gets"] == 24
+    assert all(path.read_bytes() == body for path, body in artifacts.items())
+    report_path, = plan.report_directory.glob("metadata-filter-refresh-report-*.json")
+    rendered = report_path.read_text()
+    persisted = json.loads(rendered)
+    assert persisted["status"] == "interrupted"
+    assert persisted["additional_attempted_gets"] == charged
+    for forbidden in ("RAW INTERRUPT DETAIL", SECRET_KEY, SECRET_VALUE, plan.base_url):
+        assert forbidden not in rendered
+    with pytest.raises(MetadataPreflightError, match="already claimed"):
+        run_metadata_refresh(
+            plan,
+            reviewed,
+            environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("interrupted refresh cannot replay"),
+        )
+    assert len(requests) == charged
+
+
 def test_refresh_concurrent_claim_blocks_second_transport(tmp_path):
     plan = config(tmp_path)
     reviewed = catalog(plan)

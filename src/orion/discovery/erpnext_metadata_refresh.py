@@ -96,7 +96,7 @@ class MetadataRefreshTargetResult:
             "candidate": {"none"},
             "excluded": {"sensitive_value"},
             "no_candidate": {"scope_incompatible"},
-            "failed": {"http_authentication", "http_permission", "other"},
+            "failed": {"http_authentication", "http_permission", "other", "interrupted"},
         }
         if self.category not in allowed[self.status]:
             raise MetadataPreflightError("metadata refresh target category is invalid")
@@ -667,6 +667,12 @@ def run_metadata_refresh(
     except (KeyboardInterrupt, SystemExit, _RefreshInterrupted):
         status = "interrupted"
         failure_category = "interrupted"
+        state, target_results = ledger.snapshot()
+        if state["attempted_gets"] == len(target_results) + 1:
+            # A charged GET can be interrupted before its outcome is recorded.
+            ledger.record(
+                MetadataRefreshTargetResult(state["attempted_gets"], "failed", "interrupted")
+            )
         ledger.finish(status)
     except LiveSessionStorageError:
         status = "failed"
