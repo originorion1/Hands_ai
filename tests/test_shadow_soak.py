@@ -235,6 +235,106 @@ def test_successful_cycles_reload_reselect_append_and_verify_once(tmp_path):
     ] == [1]
 
 
+def test_restart_retains_attempts_and_rotates_equally_covered_targets(tmp_path):
+    model = understanding("Alpha", "Beta")
+    store = SQLiteHistoricalEvidenceStore(tmp_path / "evidence.sqlite3")
+
+    run(
+        model,
+        session("Alpha", "Beta", cycles=2, cumulative=2),
+        store,
+        lambda resource, *_: (observation(resource, f"initial-{resource}"),),
+    )
+    calls = []
+    report = run(
+        model,
+        session("Alpha", "Beta", cycles=2, cumulative=2),
+        store,
+        lambda resource, *_: calls.append(resource)
+        or (observation(resource, f"initial-{resource}"),),
+    )
+
+    assert calls == ["Alpha", "Beta"]
+    assert report.stop_reason is ShadowSoakStopReason.CYCLE_LIMIT
+    assert report.failure_category_counts == (("no_progress", 2),)
+
+
+def test_retained_history_does_not_hide_unstudied_authorized_alternative(tmp_path):
+    model = understanding("Alpha", "Beta")
+    store = SQLiteHistoricalEvidenceStore(tmp_path / "evidence.sqlite3")
+    run(
+        model,
+        session("Alpha", cycles=1, cumulative=1),
+        store,
+        lambda resource, *_: (observation(resource, "initial"),),
+    )
+    calls = []
+
+    report = run(
+        model,
+        session("Alpha", "Beta", cycles=1, cumulative=1),
+        store,
+        lambda resource, *_: calls.append(resource) or (observation(resource, "new"),),
+    )
+
+    assert calls == ["Beta"]
+    assert report.stop_reason is ShadowSoakStopReason.CYCLE_LIMIT
+    assert report.failure_category_counts == ()
+
+
+def test_restart_stops_after_five_unchanged_batches_without_sixth_read(tmp_path):
+    model = understanding("Alpha")
+    store = SQLiteHistoricalEvidenceStore(tmp_path / "evidence.sqlite3")
+    run(
+        model,
+        session("Alpha", cycles=1, cumulative=1),
+        store,
+        lambda resource, *_: (observation(resource, "stable"),),
+    )
+    calls = []
+
+    report = run(
+        model,
+        session("Alpha", cycles=10, reads=10, cumulative=10, failures=5),
+        store,
+        lambda resource, *_: calls.append(resource)
+        or (observation(resource, "stable"),),
+    )
+
+    assert calls == ["Alpha"] * 5
+    assert report.stop_reason is ShadowSoakStopReason.NON_PROGRESS_LIMIT
+    assert report.cycles_attempted == report.cycles_completed == 5
+    assert report.erp_reads == report.evidence_batches_appended == 5
+    assert report.observations_persisted == 5
+    assert report.failure_category_counts == (("no_progress", 5),)
+
+
+def test_changed_authorized_value_resets_consecutive_non_progress(tmp_path):
+    model = understanding("Alpha")
+    store = SQLiteHistoricalEvidenceStore(tmp_path / "evidence.sqlite3")
+    run(
+        model,
+        session("Alpha", cycles=1, cumulative=1),
+        store,
+        lambda resource, *_: (observation(resource, "before"),),
+    )
+    values = iter(("before", "after", "after", "after"))
+    calls = []
+
+    report = run(
+        model,
+        session("Alpha", cycles=10, reads=10, cumulative=10, failures=2),
+        store,
+        lambda resource, *_: calls.append(resource)
+        or (observation(resource, next(values)),),
+    )
+
+    assert calls == ["Alpha"] * 4
+    assert report.stop_reason is ShadowSoakStopReason.NON_PROGRESS_LIMIT
+    assert report.cycles_attempted == report.cycles_completed == 4
+    assert report.failure_category_counts == (("no_progress", 3),)
+
+
 def test_persistence_failure_stops_before_another_read(tmp_path):
     model = understanding("Alpha")
 

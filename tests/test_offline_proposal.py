@@ -20,6 +20,7 @@ from orion.learning.autonomous_loop import (
 from orion.learning.offline_proposal import (
     main,
     project_historical_coverage,
+    project_historical_learning_memory,
     run_offline_proposal,
     select_study_proposal,
 )
@@ -119,6 +120,48 @@ def test_absent_field_is_unobserved_not_missing():
 
     assert coverage["beta"].observations_seen == 0
     assert coverage["beta"].missing_count == 0
+
+
+def test_projection_reconstructs_one_attempt_per_batch_without_audit_fields():
+    model = understanding(fields=("alpha", "company", "docstatus"))
+    memory = project_historical_learning_memory(
+        model,
+        (
+            batch(
+                (
+                    {
+                        "name": "one",
+                        "alpha": None,
+                        "company": "scope-a",
+                        "docstatus": 0,
+                    },
+                    {
+                        "name": "two",
+                        "alpha": None,
+                        "company": "scope-a",
+                        "docstatus": 0,
+                    },
+                ),
+            ),
+            batch(
+                (
+                    {
+                        "name": "one",
+                        "alpha": None,
+                        "company": "scope-a",
+                        "docstatus": 0,
+                    },
+                ),
+                sequence=2,
+            ),
+        ),
+    )
+    coverage = coverage_by_field(memory.coverage)
+
+    assert coverage["alpha"].study_count == 2
+    assert coverage["company"].study_count == 0
+    assert coverage["docstatus"].study_count == 0
+    assert memory.attempted == (("EntityA", "alpha"),)
 
 
 def test_none_and_blank_are_missing_but_zero_and_false_are_valid():
