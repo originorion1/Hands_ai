@@ -15,21 +15,24 @@ from ..stores.sqlite_historical_evidence import SQLiteHistoricalEvidenceStore
 from ..understanding.metadata import MetadataUnderstanding
 from .autonomous_loop import (
     EvidenceCoverage,
+    LearningMemory,
     LearningObjective,
     StudyOpportunity,
     discover_opportunities,
     is_missing_evidence,
 )
 
+_NON_STUDY_RECORD_FIELDS = frozenset({"name", "company", "docstatus"})
 
-def project_historical_coverage(
+
+def project_historical_learning_memory(
     understanding: MetadataUnderstanding,
     batches: Sequence[HistoricalEvidenceBatch],
-) -> tuple[EvidenceCoverage, ...]:
-    """Project captured keys into aggregate coverage without exposing values.
+) -> LearningMemory:
+    """Reconstruct aggregate coverage and attempted fields from durable batches.
 
-    A captured value is missing only when it is ``None`` or a blank string.
-    Absent keys are unobserved; numeric zero and ``False`` are valid values.
+    Each append is one study attempt. The record identity and adapter-provided
+    company/status context are transport and scope evidence, not studied fields.
     """
 
     if not isinstance(understanding, MetadataUnderstanding):
@@ -45,7 +48,7 @@ def project_historical_coverage(
             raise HistoricalEvidenceError("duplicate structural field")
         fields_by_entity[entity.doctype] = frozenset(names)
         for name in names:
-            scopes[(entity.doctype, name)] = [0, 0, 0, set()]
+            scopes[(entity.doctype, name)] = [0, 0, 0, set(), 0]
 
     for batch in batches:
         if not isinstance(batch, HistoricalEvidenceBatch):
@@ -59,6 +62,7 @@ def project_historical_coverage(
             raise HistoricalEvidenceError(
                 "historical resource is absent from structural understanding"
             )
+        attempted_fields: set[str] = set()
         for observation in batch.observations:
             payload = observation.evidence.payload
             if (
@@ -69,7 +73,9 @@ def project_historical_coverage(
             ):
                 raise HistoricalEvidenceError("malformed historical record payload")
             record = payload["record"]
-            for field in fields.intersection(record):
+            captured_fields = fields.intersection(record)
+            attempted_fields.update(captured_fields - _NON_STUDY_RECORD_FIELDS)
+            for field in captured_fields:
                 state = scopes[(batch.resource, field)]
                 value = record[field]
                 state[0] += 1
@@ -77,9 +83,11 @@ def project_historical_coverage(
                     state[2] += 1
                 else:
                     state[1] += 1
-                    state[3].add(_canonical_value(value))
+                    state[3].add(canonical_historical_value(value))
+        for field in attempted_fields:
+            scopes[(batch.resource, field)][4] += 1
 
-    return tuple(
+    coverage = tuple(
         EvidenceCoverage(
             entity=entity,
             field=field,
@@ -87,9 +95,27 @@ def project_historical_coverage(
             valid_observations=state[1],
             distinct_value_count=len(state[3]),
             missing_count=state[2],
+            study_count=state[4],
         )
         for (entity, field), state in sorted(scopes.items())
     )
+    attempted = tuple(
+        (item.entity, item.field) for item in coverage if item.study_count > 0
+    )
+    return LearningMemory(attempted=attempted, coverage=coverage)
+
+
+def project_historical_coverage(
+    understanding: MetadataUnderstanding,
+    batches: Sequence[HistoricalEvidenceBatch],
+) -> tuple[EvidenceCoverage, ...]:
+    """Project captured keys into aggregate coverage without exposing values.
+
+    A captured value is missing only when it is ``None`` or a blank string.
+    Absent keys are unobserved; numeric zero and ``False`` are valid values.
+    """
+
+    return project_historical_learning_memory(understanding, batches).coverage
 
 
 def select_study_proposal(
@@ -193,7 +219,7 @@ def run_offline_proposal(
     )
 
 
-def _canonical_value(value: object) -> str:
+def canonical_historical_value(value: object) -> str:
     try:
         return json.dumps(
             value,
