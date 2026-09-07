@@ -500,6 +500,58 @@ def test_source_scan_rejects_network_or_dynamic_import_resolution(tmp_path, sour
 
 
 @pytest.mark.parametrize(
+    "arguments",
+    [
+        '"urllib", fromlist=["request"]',
+        '"http", None, None, ("client",)',
+        'name="urllib", fromlist=("request",)',
+        '"json", fromlist=["urllib.request"]',
+        '"json", fromlist=names',
+        '"json", fromlist=[name]',
+        '"json", fromlist=[*names]',
+        '"json", fromlist=["*"]',
+        '"json", fromlist="decoder"',
+        '"json", fromlist=None',
+        '"json", fromlist=[1]',
+        '"json", fromlist=[""]',
+        '"json", fromlist=[".decoder"]',
+        '"json", None, None, (), fromlist=["decoder"]',
+        '"json", name="urllib", fromlist=["request"]',
+        '"json", *extras',
+        '"json", **options',
+        '"json", fromlist=[], level=1',
+        '"json", fromlist=[], level=level',
+        '"json", None, None, [], 0, "extra"',
+        '"json", unexpected=[]',
+    ],
+)
+@pytest.mark.parametrize(
+    ("prefix", "loader"),
+    [
+        ("", "__import__"),
+        ("import builtins\n", "builtins.__import__"),
+        ("from builtins import __import__ as load\n", "load"),
+    ],
+)
+def test_source_scan_rejects_unsafe_import_fromlist(tmp_path, arguments, prefix, loader):
+    assert scan_source(tmp_path, f"{prefix}module = {loader}({arguments})\n") is False
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        '"json"',
+        '"json", fromlist=["decoder"]',
+        '"json", None, None, ("decoder",), 0',
+        'name="json", fromlist=()',
+        '"urllib", fromlist=["parse"]',
+    ],
+)
+def test_source_scan_preserves_literal_safe_import_fromlist(tmp_path, arguments):
+    assert scan_source(tmp_path, f"module = __import__({arguments})\n") is True
+
+
+@pytest.mark.parametrize(
     "source",
     [
         'from urllib.request import Request\nfactory = globals()["Request"]\n',
