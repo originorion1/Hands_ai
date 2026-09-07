@@ -288,7 +288,7 @@ def _identities(batches) -> list[tuple[str, str]]:
     ]
 
 
-def _baseline(inputs: ComparisonInputs) -> dict[str, Any]:
+def _baseline(inputs: ComparisonInputs, *, retained_state=None) -> dict[str, Any]:
     live = inputs.live()
     trial = inputs.trial()
     ledger = _existing_private_retry_ledger(trial.preflight)
@@ -324,7 +324,7 @@ def _baseline(inputs: ComparisonInputs) -> dict[str, Any]:
         and trial_report.session_ended_at < continuation.session_started_at
     ):
         raise LearningComparisonError("completed continuation report facts differ")
-    rows, checkpoints, batches, understanding = _state(inputs)
+    rows, checkpoints, batches, understanding = retained_state or _state(inputs)
     captured, valid = _coverage(inputs, understanding, batches)
     trial_batches = [
         batch for batch in batches
@@ -378,17 +378,38 @@ def _baseline(inputs: ComparisonInputs) -> dict[str, Any]:
     }
 
 
-def prepare_comparison_manifest(inputs: ComparisonInputs, path: Path) -> str:
+@dataclass(frozen=True)
+class ComparisonPolicy:
+    """Explicit bounded allowance extension; original behavior is the default."""
+
+    table: str = _TABLE
+    prior_metadata: int = 56
+    prior_study: int = 100
+    baseline: Callable[..., dict[str, Any]] = _baseline
+    historical_rows: Callable[..., dict[str, Any]] = _historical_rows
+    report_prefix: str = "learning-comparison-report"
+    metrics_factory: Callable[..., Any] | None = None
+
+    def __post_init__(self):
+        if re.fullmatch(r"[a-z_]+", self.table) is None:
+            raise LearningComparisonError("invalid comparison table")
+
+
+DEFAULT_COMPARISON_POLICY = ComparisonPolicy()
+
+
+def prepare_comparison_manifest(inputs: ComparisonInputs, path: Path, *, policy: ComparisonPolicy = DEFAULT_COMPARISON_POLICY
+) -> str:
     """Write a private, exclusive offline baseline; this grants no live authority."""
     live = inputs.live()
     if not path.is_absolute() or path.parent != live.report_directory:
         raise LearningComparisonError("comparison manifest must be in the private report directory")
-    manifest = _baseline(inputs)
+    manifest = policy.baseline(inputs)
     _write_private_json(path, manifest)
     return _digest(_read_private_bytes(path, "comparison manifest"))
 
 
-def _validate_manifest(inputs: ComparisonInputs, path: Path, digest: str) -> dict[str, Any]:
+def _validate_manifest(inputs: ComparisonInputs, path: Path, digest: str, policy=DEFAULT_COMPARISON_POLICY) -> dict[str, Any]:
     if (
         not path.is_absolute() or path.parent != inputs.live().report_directory
         or re.fullmatch(r"[0-9a-f]{64}", digest) is None
@@ -396,13 +417,14 @@ def _validate_manifest(inputs: ComparisonInputs, path: Path, digest: str) -> dic
     ):
         raise LearningComparisonError("comparison manifest binding differs")
     manifest = _private_json(path)
-    if manifest != _baseline(inputs):
+    if manifest != policy.baseline(inputs):
         raise LearningComparisonError("comparison baseline changed after review")
     return manifest
 
 
 class _ComparisonLedger:
-    def __init__(self, inputs: ComparisonInputs, manifest_path: Path, manifest_digest: str):
+    def __init__(self, inputs: ComparisonInputs, manifest_path: Path, manifest_digest: str, *, policy=DEFAULT_COMPARISON_POLICY):
+        self.policy = policy
         self.inputs = inputs
         self.path = manifest_path
         self.digest = manifest_digest
@@ -410,26 +432,31 @@ class _ComparisonLedger:
 
     def exists(self, connection) -> bool:
         return connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (_TABLE,)
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (self.policy.table,)
         ).fetchone() is not None
 
     def claim(self) -> dict[str, Any]:
-        manifest = _validate_manifest(self.inputs, self.path, self.digest)
+        manifest = _validate_manifest(self.inputs, self.path, self.digest, self.policy)
         connection = self.ledger._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
             _lineage(self.inputs, connection)
             if self.exists(connection):
                 raise LearningComparisonError("comparison was already claimed")
-            if _json_digest(_historical_rows(connection)) != manifest["historical_ledger_digest"]:
+            if _json_digest(self.policy.historical_rows(connection)) != manifest["historical_ledger_digest"]:
                 raise LearningComparisonError("historical accounting changed before claim")
             # Re-read immutable state while the competing claim writer is excluded.
-            if manifest != _baseline(self.inputs):
+            if manifest != self.policy.baseline(self.inputs):
                 raise LearningComparisonError("comparison baseline changed before claim")
-            connection.execute(_SCHEMA)
             connection.execute(
-                f"INSERT INTO {_TABLE} VALUES (1,'running',?,?,?,56,100,0,0,'none')",
-                (manifest["authorization_digest"], self.inputs.source_commit, self.digest),
+                _SCHEMA.replace(_TABLE, self.policy.table)
+                .replace("prior_metadata_gets=56", f"prior_metadata_gets={self.policy.prior_metadata}")
+                .replace("prior_study_gets=100", f"prior_study_gets={self.policy.prior_study}")
+            )
+            connection.execute(
+                f"INSERT INTO {self.policy.table} VALUES (1,'running',?,?,?,?,?,0,0,'none')",
+                (manifest["authorization_digest"], self.inputs.source_commit, self.digest,
+                 self.policy.prior_metadata, self.policy.prior_study),
             )
             connection.commit()
             return manifest
@@ -444,7 +471,7 @@ class _ComparisonLedger:
         try:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                f"SELECT status,metadata_gets,study_gets FROM {_TABLE} WHERE singleton=1"
+                f"SELECT status,metadata_gets,study_gets FROM {self.policy.table} WHERE singleton=1"
             ).fetchone()
             if row is None or row[0] != "running":
                 raise LearningComparisonError("comparison is not running")
@@ -456,7 +483,7 @@ class _ComparisonLedger:
             else:
                 raise LearningComparisonError("comparison request allowance exhausted")
             connection.execute(
-                f"UPDATE {_TABLE} SET metadata_gets=?,study_gets=? WHERE singleton=1",
+                f"UPDATE {self.policy.table} SET metadata_gets=?,study_gets=? WHERE singleton=1",
                 (metadata, study),
             )
             connection.commit()
@@ -469,7 +496,7 @@ class _ComparisonLedger:
     def snapshot(self):
         with self.ledger._connect() as connection:
             return connection.execute(
-                f"SELECT status,metadata_gets,study_gets,stop_reason FROM {_TABLE} WHERE singleton=1"
+                f"SELECT status,metadata_gets,study_gets,stop_reason FROM {self.policy.table} WHERE singleton=1"
             ).fetchone()
 
     def finish(self, status: str, reason: str):
@@ -477,7 +504,7 @@ class _ComparisonLedger:
             raise LearningComparisonError("invalid comparison final status")
         with self.ledger._connect() as connection:
             cursor = connection.execute(
-                f"UPDATE {_TABLE} SET status=?,stop_reason=? WHERE singleton=1 AND status='running'",
+                f"UPDATE {self.policy.table} SET status=?,stop_reason=? WHERE singleton=1 AND status='running'",
                 (status, reason),
             )
             if cursor.rowcount != 1:
@@ -485,19 +512,20 @@ class _ComparisonLedger:
 
 
 def inspect_learning_comparison_readiness(
-    inputs: ComparisonInputs, manifest_path: Path, manifest_sha256: str
+    inputs: ComparisonInputs, manifest_path: Path, manifest_sha256: str, *,
+    policy: ComparisonPolicy = DEFAULT_COMPARISON_POLICY
 ) -> dict[str, Any]:
     status = "invalid"
     credentials = False
     try:
         live = inputs.live()
-        ledger = _ComparisonLedger(inputs, manifest_path, manifest_sha256)
+        ledger = _ComparisonLedger(inputs, manifest_path, manifest_sha256, policy=policy)
         with ledger.ledger._connect() as connection:
             claimed = ledger.exists(connection)
         if claimed:
             status = "already_claimed"
         else:
-            _validate_manifest(inputs, manifest_path, manifest_sha256)
+            _validate_manifest(inputs, manifest_path, manifest_sha256, policy)
             if all(_destination_ready(path, private=True) for path in (
                 live.state_directory, live.report_directory
             )):
@@ -514,8 +542,11 @@ def inspect_learning_comparison_readiness(
         "credentials_available": credentials,
         "ready_for_authorized_launch": status == "ready" and credentials,
         "new_metadata_get_budget": 7, "new_study_get_budget": 20, "new_combined_get_max": 27,
-        "prior_metadata_gets": 56, "prior_study_gets": 100, "prior_combined_gets": 156,
-        "metadata_cumulative_max": 63, "study_cumulative_max": 120, "combined_cumulative_max": 183,
+        "prior_metadata_gets": policy.prior_metadata, "prior_study_gets": policy.prior_study,
+        "prior_combined_gets": policy.prior_metadata + policy.prior_study,
+        "metadata_cumulative_max": policy.prior_metadata + 7,
+        "study_cumulative_max": policy.prior_study + 20,
+        "combined_cumulative_max": policy.prior_metadata + policy.prior_study + 27,
         "max_cycles": 20, "max_observations": 100, "max_wall_clock_seconds": 900,
         "max_consecutive_non_progress": 5, "live_requests_performed": 0, "erp_writes": 0,
         "recommendation_allowed": False, "promotion_allowed": False,
@@ -615,6 +646,7 @@ def run_learning_comparison(
     clock: Callable[..., Any] | None = None,
     monotonic: Callable[[], float] | None = None,
     termination_requested: Callable[[], bool] | None = None,
+    policy: ComparisonPolicy = DEFAULT_COMPARISON_POLICY,
 ) -> dict[str, Any]:
     monotonic = monotonic or time.monotonic
     started_tick = _read_monotonic(monotonic)
@@ -641,19 +673,21 @@ def run_learning_comparison(
 
     live = inputs.live()
     live.credential_references.resolve(inputs.environment)
-    ledger = _ComparisonLedger(inputs, manifest_path, manifest_sha256)
+    ledger = _ComparisonLedger(inputs, manifest_path, manifest_sha256, policy=policy)
     manifest = ledger.claim()
     metadata_transport = metadata_opener or _default_opener
     record_transport = record_opener or _default_opener
     accounting_failed = False
     try:
-        metrics = _ComparisonMetrics(inputs, manifest)
+        metrics = (policy.metrics_factory or _ComparisonMetrics)(inputs, manifest)
 
         def verify_retained():
             with ledger.ledger._connect() as connection:
-                if _json_digest(_historical_rows(connection)) != manifest["historical_ledger_digest"]:
+                if _json_digest(policy.historical_rows(connection)) != manifest["historical_ledger_digest"]:
                     raise LearningComparisonError("comparison changed historical accounting")
-            for role in ("candidate", "trial_report", "continuation_report"):
+            for role in manifest["files"]:
+                if role in {"evidence", "checkpoint"}:
+                    continue
                 artifact = manifest["files"][role]
                 body = _read_private_bytes(Path(artifact["path"]), "retained artifact")
                 if _digest(body) != artifact["sha256"]:
@@ -713,18 +747,19 @@ def run_learning_comparison(
             "promotion_allowed": False, "erp_writes": 0, "status": status,
             "stop_reason": report.stop_reason, "source_commit": inputs.source_commit,
             "baseline_manifest_sha256": manifest_sha256,
-            "prior_metadata_gets": 56, "prior_study_gets": 100, "prior_combined_gets": 156,
+            "prior_metadata_gets": policy.prior_metadata, "prior_study_gets": policy.prior_study,
+        "prior_combined_gets": policy.prior_metadata + policy.prior_study,
             "new_metadata_gets": metadata, "new_study_gets": study,
             "new_combined_gets": metadata + study,
-            "metadata_cumulative_gets": 56 + metadata, "study_cumulative_gets": 100 + study,
-            "combined_cumulative_gets": 156 + metadata + study,
+            "metadata_cumulative_gets": policy.prior_metadata + metadata, "study_cumulative_gets": policy.prior_study + study,
+            "combined_cumulative_gets": policy.prior_metadata + policy.prior_study + metadata + study,
             "cycles_attempted": report.cycles_attempted, "cycles_completed": report.cycles_completed,
             "baseline": manifest["baseline"], "comparison": aggregates,
             "new_fields_per_study_get": aggregates["newly_covered_fields"] / study if study else 0.0,
             "observations_per_study_get": aggregates["observations"] / study if study else 0.0,
             "descriptive_only": True,
         }
-        path = live.report_directory / f"learning-comparison-report-{manifest_sha256}.json"
+        path = live.report_directory / f"{policy.report_prefix}-{manifest_sha256}.json"
         _write_private_json(path, result)
         ledger.finish(status, report.stop_reason)
         return result
