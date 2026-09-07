@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import time
 from collections import Counter
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -21,6 +21,7 @@ from ..understanding.metadata import MetadataUnderstanding
 from .autonomous_loop import (
     AuthorizationEnvelope,
     AuthorizedStudyRequest,
+    LearningMemory,
     LearningObjective,
     StudyOpportunity,
     StudyOutcome,
@@ -32,7 +33,10 @@ from .governed_record_evidence import (
     GovernedEvidenceScopeError,
     validate_governed_record_observations,
 )
-from .offline_proposal import project_historical_coverage
+from .offline_proposal import (
+    canonical_historical_value,
+    project_historical_learning_memory,
+)
 from .study_capability import (
     StudyCapability,
     derive_study_capability,
@@ -228,6 +232,7 @@ class _VerifiedEvidenceSink:
         self.reconciled_observation_count = 0
         self.valid_count = 0
         self.validated_observation_count = 0
+        self.learning_progress = False
 
     def __call__(
         self,
@@ -257,6 +262,11 @@ class _VerifiedEvidenceSink:
             baseline = self._store.load_all(
                 tenant_id=self._request.tenant_id,
                 resource=self._request.intent.entity,
+            )
+            self.learning_progress = _has_meaningful_evidence_change(
+                baseline,
+                validated_observations,
+                fields=self._request.intent.fields,
             )
             acknowledgement = persist_historical_sample(
                 _ValidatedObservationSource(validated_observations),
@@ -383,7 +393,7 @@ def run_autonomous_shadow_soak(
                 return finish(ShadowSoakStopReason.OBSERVATION_LIMIT)
 
             try:
-                coverage = _load_current_coverage(store, understanding)
+                memory = _load_current_memory(store, understanding)
             except Exception:  # noqa: BLE001 - durable-state boundary fails closed
                 failures["persistence_integrity_failure"] += 1
                 return finish(ShadowSoakStopReason.PERSISTENCE_FAILURE)
@@ -391,7 +401,8 @@ def run_autonomous_shadow_soak(
             opportunities = discover_opportunities(
                 objective,
                 understanding,
-                coverage,
+                memory.coverage,
+                memory,
             )
             if not opportunities:
                 return finish(ShadowSoakStopReason.NO_CANDIDATE)
@@ -510,7 +521,13 @@ def run_autonomous_shadow_soak(
             batches_appended += 1
             observations_persisted += outcome.observations_acquired
             studied_entities.add(opportunity.entity)
-            consecutive_non_progress = 0
+            if evidence_sink.learning_progress:
+                consecutive_non_progress = 0
+            else:
+                failures["no_progress"] += 1
+                consecutive_non_progress += 1
+                if consecutive_non_progress >= session.max_consecutive_non_progress:
+                    return finish(ShadowSoakStopReason.NON_PROGRESS_LIMIT)
         except (KeyboardInterrupt, SystemExit):
             return finish(ShadowSoakStopReason.USER_TERMINATION)
 
@@ -557,10 +574,10 @@ def _select_authorized_opportunity(
     return None
 
 
-def _load_current_coverage(
+def _load_current_memory(
     store: ShadowSoakEvidenceStore,
     understanding: MetadataUnderstanding,
-):
+) -> LearningMemory:
     resources = store.list_resources(tenant_id=understanding.tenant_id)
     if not isinstance(resources, tuple) or len(resources) != len(set(resources)):
         raise HistoricalEvidenceError("stored resources must be a unique tuple")
@@ -580,7 +597,56 @@ def _load_current_coverage(
             ):
                 raise HistoricalEvidenceError("historical evidence crosses durable scope")
         batches.extend(history)
-    return project_historical_coverage(understanding, tuple(batches))
+    return project_historical_learning_memory(understanding, tuple(batches))
+
+
+def _load_current_coverage(
+    store: ShadowSoakEvidenceStore,
+    understanding: MetadataUnderstanding,
+):
+    """Compatibility projection for offline diagnostics."""
+
+    return _load_current_memory(store, understanding).coverage
+
+
+def _has_meaningful_evidence_change(
+    baseline: Sequence[HistoricalEvidenceBatch],
+    observations: Sequence[Observation],
+    *,
+    fields: tuple[str, ...],
+) -> bool:
+    """Return whether authorized values add an identity, field, or changed value."""
+
+    previous: dict[tuple[str, str], str] = {}
+    known_identities: set[str] = set()
+    for batch in baseline:
+        for observation in batch.observations:
+            record = observation.evidence.payload["record"]
+            if not isinstance(record, Mapping):
+                raise HistoricalEvidenceError("malformed historical record payload")
+            identity = record.get("name")
+            if not isinstance(identity, str) or not identity.strip():
+                raise HistoricalEvidenceError("historical record identity is required")
+            known_identities.add(identity)
+            for field in fields:
+                if field in record:
+                    previous[(identity, field)] = canonical_historical_value(record[field])
+
+    for observation in observations:
+        record = observation.evidence.payload["record"]
+        if not isinstance(record, Mapping):
+            raise HistoricalEvidenceError("malformed current record payload")
+        identity = record.get("name")
+        if not isinstance(identity, str) or not identity.strip():
+            raise HistoricalEvidenceError("current record identity is required")
+        if identity not in known_identities:
+            return True
+        for field in fields:
+            if field in record and previous.get(
+                (identity, field)
+            ) != canonical_historical_value(record[field]):
+                return True
+    return False
 
 
 def _validate_runtime_inputs(
