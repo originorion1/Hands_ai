@@ -428,6 +428,36 @@ class _PythonNetworkPolicy:
             module = self._string(argument)
             if module is None or self._is_network(module):
                 return False
+            if "builtins.__import__" in functions:
+                parameters = ("name", "globals", "locals", "fromlist", "level")
+                if len(node.args) > len(parameters) or any(
+                    isinstance(value, ast.Starred) for value in node.args
+                ):
+                    return False
+                arguments = dict(zip(parameters, node.args, strict=False))
+                for keyword in node.keywords:
+                    if keyword.arg not in parameters or keyword.arg in arguments:
+                        return False
+                    arguments[keyword.arg] = keyword.value
+                if not all(part.isidentifier() for part in module.split(".")):
+                    return False
+                level = arguments.get("level")
+                if level is not None and not (
+                    isinstance(level, ast.Constant) and type(level.value) is int
+                    and level.value == 0
+                ):
+                    return False
+                fromlist = arguments.get("fromlist")
+                if fromlist is not None:
+                    if not isinstance(fromlist, (ast.Tuple, ast.List)):
+                        return False
+                    for member in fromlist.elts:
+                        name = self._string(member)
+                        if (
+                            name is None or not all(part.isidentifier() for part in name.split("."))
+                            or self._is_network(name) or self._is_network(f"{module}.{name}")
+                        ):
+                            return False
         for function in functions:
             if not function.endswith(".get"):
                 continue
