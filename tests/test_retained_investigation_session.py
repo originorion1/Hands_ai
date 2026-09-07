@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -120,6 +121,33 @@ def test_interrupted_publication_leaves_no_partial_memory(tmp_path, monkeypatch)
         session.run_retained_investigation(inputs)
     assert artifacts(inputs) == []
     assert list(inputs.live().report_directory.glob(".investigation-*.tmp")) == []
+
+
+def test_process_death_after_link_is_recovered_without_replacing_memory(tmp_path):
+    inputs, _, _, _ = missing_baseline(tmp_path)
+    expected = session.run_retained_investigation(inputs)
+    path, = artifacts(inputs)
+    body = path.read_bytes()
+    temporary = path.parent / (".investigation-" + "a" * 32 + ".tmp")
+    # Exact filesystem state after link succeeds but before temporary unlink.
+    os.link(path, temporary)
+    assert path.stat().st_nlink == 2
+    assert session.run_retained_investigation(inputs) == expected
+    assert path.read_bytes() == body
+    assert path.stat().st_nlink == 1
+    assert not temporary.exists()
+
+
+def test_unrecognized_hardlink_is_not_removed_or_accepted(tmp_path):
+    inputs, _, _, _ = missing_baseline(tmp_path)
+    session.run_retained_investigation(inputs)
+    path, = artifacts(inputs)
+    other = path.parent / "unrelated.json"
+    os.link(path, other)
+    with pytest.raises(ValueError, match="not recognized"):
+        session.run_retained_investigation(inputs)
+    assert other.exists()
+    assert path.stat().st_nlink == 2
 
 
 def test_source_mutation_before_publication_is_rejected(tmp_path, monkeypatch):

@@ -9,6 +9,8 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import re
+import stat
 from dataclasses import asdict
 from uuid import uuid4
 
@@ -18,6 +20,34 @@ from .erpnext_adapter import DEFAULT_MAX_RESPONSE_BYTES
 from .erpnext_live_session import _destination_ready, _study_authorization
 from .erpnext_metadata_preflight import _write_private_json
 from .erpnext_metadata_refresh import _read_private_bytes
+
+
+def _recover_published_temporary(path, body):
+    """Complete only our verified link/unlink publication after process death."""
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(descriptor)
+        if info.st_nlink != 2:
+            return
+        if (
+            not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+            or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size != len(body)
+        ):
+            raise comparison.LearningComparisonError("interrupted investigation memory is invalid")
+        with os.fdopen(os.dup(descriptor), "rb") as stream:
+            if stream.read(len(body) + 1) != body:
+                raise comparison.LearningComparisonError("interrupted investigation memory differs")
+        candidates = []
+        for temporary in path.parent.glob(".investigation-*.tmp"):
+            if re.fullmatch(r"\.investigation-[0-9a-f]{32}\.tmp", temporary.name):
+                candidate = temporary.lstat()
+                if (candidate.st_dev, candidate.st_ino) == (info.st_dev, info.st_ino):
+                    candidates.append(temporary)
+        if len(candidates) != 1:
+            raise comparison.LearningComparisonError("interrupted publication link is not recognized")
+        candidates[0].unlink()
+    finally:
+        os.close(descriptor)
 
 
 def _artifact(inputs):
@@ -72,6 +102,8 @@ def run_retained_investigation(inputs: comparison.ComparisonInputs) -> dict:
         payload, body = _artifact(inputs)
         path = directory / ("retained-investigation-" + comparison._digest(body) + ".json")
         if path.exists() or path.is_symlink():
+            _recover_published_temporary(path, body)
+            os.fsync(descriptor)
             if _read_private_bytes(path, "investigation memory") != body:
                 raise comparison.LearningComparisonError("investigation memory differs")
             return payload["aggregate"]
