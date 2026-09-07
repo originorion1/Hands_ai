@@ -10,20 +10,23 @@ from test_erpnext_learning_comparison import _state, baseline, launch
 def test_comparison_stops_after_five_reads_without_new_authorized_evidence(tmp_path):
     inputs, manifest, digest, _, scopes = baseline(tmp_path)
     _, _, batches, _ = _state(inputs)
-    identities = {
-        batch.resource: batch.observations[0].evidence.payload["record"]["name"]
-        for batch in batches
-    }
+    retained = {}
+    for batch in batches:
+        retained.setdefault(batch.resource, []).extend(
+            observation.evidence.payload["record"] for observation in batch.observations
+        )
     metadata, _, _, _ = openers(scopes, expected_limit=5)
     reads = []
 
     def reader(request, *, timeout):
         entity = unquote(urlparse(request.full_url).path.rsplit("/", 1)[-1])
         reads.append(entity)
-        # Audit-only repeats do not invent values for unobserved study fields.
-        records = [] if entity not in identities else [{
-            "name": identities[entity], "company": "Synthetic Exact Company",
-        }]
+        fields = json.loads(parse_qs(urlparse(request.full_url).query)["fields"][0])
+        # Return an exact old projection or no rows, never omit a requested key
+        # and never invent values for unobserved study fields.
+        previous = next((row for row in retained.get(entity, ())
+                         if set(fields).issubset(row)), None)
+        records = [] if previous is None else [{field: previous[field] for field in fields}]
         return FakeResponse(request, {"data": records})
 
     result = launch(inputs, manifest, digest, metadata_opener=metadata, record_opener=reader)
