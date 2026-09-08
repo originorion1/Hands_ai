@@ -255,3 +255,16 @@ def test_planner_rejects_tampered_disposition(tmp_path):
     path.write_bytes(original.replace(b'"inconclusive"', b'"validated"'))
     with pytest.raises(ValueError, match="digest"):
         session.run_retained_investigation_planner(inputs)
+
+
+def test_concurrent_planners_do_not_investigate_same_unchanged_target(tmp_path):
+    inputs, sources, _, _ = missing_baseline(tmp_path)
+    before = {path: path.read_bytes() for path in sources}
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(session.run_retained_investigation_planner, [inputs, inputs]))
+    assert sorted(result["status"] for result in results) == ["no_candidate", "review_candidate"]
+    payloads = [json.loads(path.read_bytes()) for path in inputs.live().report_directory.glob(
+        session._disposition_prefix(inputs) + "*.json",
+    )]
+    assert sum(payload["disposition"] is not None for payload in payloads) == 1
+    assert {path: path.read_bytes() for path in sources} == before
