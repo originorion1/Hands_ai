@@ -7,7 +7,9 @@ A required flag alone cannot establish applicability or a business defect.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import hashlib
+import json
+from dataclasses import asdict, dataclass
 from uuid import UUID
 
 from ..history.evidence import (
@@ -17,6 +19,7 @@ from ..history.evidence import (
 )
 from ..understanding.metadata import MetadataUnderstanding, StructuralField
 from .autonomous_loop import AuthorizationEnvelope, is_missing_evidence
+from .investigation_disposition import InvestigationDisposition
 from .offline_proposal import (
     _NON_STUDY_RECORD_FIELDS,
     canonical_historical_value,
@@ -47,6 +50,9 @@ class MissingValueFinding:
     absent_identity_count: int
     evidence: tuple[RetainedFieldEvidence, ...]
     metadata_provenance_ids: tuple[UUID, ...]
+    relevant_evidence_sha256: str = ""
+    source_provenance_sha256: str = ""
+    repeated_observation_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +119,7 @@ def investigate_retained_missing_values(
     *,
     authorization: AuthorizationEnvelope,
     company: str,
+    dispositions: tuple[InvestigationDisposition, ...] = (),
 ) -> RetainedInvestigation:
     """Select one missing-value question, deduplicated by entity/identity/field.
 
@@ -130,9 +137,22 @@ def investigate_retained_missing_values(
     if not isinstance(company, str) or not company.strip() or company != company.strip():
         raise ValueError("exact company required")
     entities, scopes, fields = _scoped_fields(understanding, authorization)
+    if type(dispositions) is not tuple:
+        raise TypeError("dispositions must be an immutable tuple")
+    for disposition in dispositions:
+        if not isinstance(disposition, InvestigationDisposition):
+            raise TypeError("explicit disposition required")
+        disposition.__post_init__()
+        if (
+            disposition.tenant_id != authorization.tenant_id or disposition.company != company
+            or (disposition.entity, disposition.field) not in fields
+        ):
+            raise ValueError("disposition crosses investigation scope")
     validated = tuple(historical_evidence_from_json(historical_evidence_to_json(b)) for b in batches)
     latest = {}
     seen_values = {}
+    current_values = {}
+    field_observations = {}
     identities = {entity: set() for entity in scopes}
     sequences = {}
     for batch in sorted(validated, key=lambda item: (item.resource, item.sequence)):
@@ -156,7 +176,10 @@ def investigate_retained_missing_values(
                 if isinstance(value, (dict, list)):
                     raise TypeError("investigation requires scalar evidence")
                 key = (batch.resource, name, identity)
+                target = (batch.resource, name)
+                field_observations[target] = field_observations.get(target, 0) + 1
                 canonical = canonical_historical_value(value)
+                current_values[key] = canonical
                 previous = seen_values.setdefault(key, set())
                 previous.add(canonical)
                 latest[key] = RetainedFieldEvidence(
@@ -169,9 +192,31 @@ def investigate_retained_missing_values(
                          if (entity, name, identity) in latest)
         missing = sum(item.missing for item in evidence)
         if missing:
+            digest = hashlib.sha256(json.dumps({
+                "tenant": authorization.tenant_id, "company": company,
+                "field": asdict(field),
+                "latest": [[identity, current_values[(entity, name, identity)]]
+                           for identity in sorted(identities[entity])
+                           if (entity, name, identity) in current_values],
+                "absent": sorted(identity for identity in identities[entity]
+                                 if (entity, name, identity) not in current_values),
+            }, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            matching = [item for item in dispositions if item.entity == entity and item.field == name
+                        and item.relevant_evidence_sha256 == digest]
+            if any((item.missing_identities, item.valid_identities, item.absent_identities) != (
+                missing, len(evidence) - missing, len(identities[entity]) - len(evidence),
+            ) for item in matching):
+                raise ValueError("disposition support differs from relevant evidence")
+            if matching:
+                continue
             finding = MissingValueFinding(
                 authorization.tenant_id, company, entity, name, field.required,
                 len(identities[entity]) - len(evidence), evidence, entities[entity].provenance_ids,
+                digest, hashlib.sha256(json.dumps({
+                    "metadata": sorted(str(value) for value in entities[entity].provenance_ids),
+                    "evidence": sorted(str(item.evidence_id) for item in evidence),
+                }, sort_keys=True).encode()).hexdigest(),
+                field_observations[(entity, name)] - len(evidence),
             )
             candidates.append(((-int(field.required), -missing, entity, name), finding))
     selected = min(candidates, key=lambda item: item[0])[1] if candidates else None

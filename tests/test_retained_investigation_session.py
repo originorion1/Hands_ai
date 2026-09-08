@@ -210,3 +210,48 @@ def test_nonprivate_destination_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="destination"):
         session.run_retained_investigation(inputs)
     assert artifacts(inputs) == []
+
+
+def test_planner_remembers_inconclusive_then_moves_to_next_target(tmp_path):
+    inputs, sources, store, batch = missing_baseline(tmp_path)
+    scope = next(item for item in inputs.live().reviewed_scopes if item.entity == batch.resource)
+    record = dict(batch.observations[0].evidence.payload["record"])
+    record[scope.fields[1]] = None
+    observation = replace(batch.observations[0], evidence=replace(
+        batch.observations[0].evidence, payload={"resource": batch.resource, "record": record},
+    ))
+    store.append(replace(batch, sequence=batch.sequence + 1, observations=(observation,)))
+    before = {path: path.read_bytes() for path in sources}
+    assert session.run_retained_investigation_planner(inputs)["status"] == "review_candidate"
+    prefix = session._disposition_prefix(inputs)
+    first_path, = inputs.live().report_directory.glob(prefix + "*.json")
+    first = json.loads(first_path.read_bytes())["disposition"]
+    assert session.run_retained_investigation_planner(replace(inputs))["status"] == "review_candidate"
+    records = [json.loads(path.read_bytes())["disposition"]
+               for path in inputs.live().report_directory.glob(prefix + "*.json")]
+    assert len({item["field"] for item in records}) == 2
+    assert session.run_retained_investigation_planner(inputs)["status"] == "no_candidate"
+    assert first["status"] == "inconclusive"
+    assert {path: path.read_bytes() for path in sources} == before
+    assert artifacts(inputs) == []
+
+
+def test_planner_recovers_interrupted_disposition_publication(tmp_path):
+    inputs, _, _, _ = missing_baseline(tmp_path)
+    session.run_retained_investigation_planner(inputs)
+    path, = inputs.live().report_directory.glob(session._disposition_prefix(inputs) + "*.json")
+    temporary = path.parent / (".investigation-" + "b" * 32 + ".tmp")
+    os.link(path, temporary)
+    assert session.run_retained_investigation_planner(inputs)["status"] == "no_candidate"
+    assert not temporary.exists()
+    assert path.stat().st_nlink == 1
+
+
+def test_planner_rejects_tampered_disposition(tmp_path):
+    inputs, _, _, _ = missing_baseline(tmp_path)
+    session.run_retained_investigation_planner(inputs)
+    path, = inputs.live().report_directory.glob(session._disposition_prefix(inputs) + "*.json")
+    original = path.read_bytes()
+    path.write_bytes(original.replace(b'"inconclusive"', b'"validated"'))
+    with pytest.raises(ValueError, match="digest"):
+        session.run_retained_investigation_planner(inputs)
