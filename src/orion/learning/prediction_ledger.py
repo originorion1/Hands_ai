@@ -191,3 +191,43 @@ class PredictionLedger:
                                   for p, _, t in scored),
             'economic_value': None, 'execution_allowed': False,
         }
+
+
+def synthetic_demo() -> dict[str, object]:
+    """Exercise durable measurement with invented labels, never a live forecast.
+
+    The fixed clock deliberately simulates a day passing. Each invocation uses
+    a temporary database, reopens it before resolving, then removes it. Evidence
+    UUIDs are fixture references, not authenticated restaurant evidence.
+    """
+    from datetime import timedelta
+    from tempfile import TemporaryDirectory
+
+    issued = datetime(2026, 1, 1, tzinfo=UTC)
+    horizon = issued + timedelta(days=1)
+    evidence = (UUID('00000000-0000-4000-8000-000000000001'),)
+    outcome_evidence = (UUID('00000000-0000-4000-8000-000000000002'),)
+    tenant = 'synthetic-restaurant'
+    cases = (('p1', 0.8, True), ('p2', 0.8, False),
+             ('p3', 0.2, False), ('p4', 0.2, True), ('p5', 0.5, None))
+    with TemporaryDirectory(prefix='orion-prediction-demo-') as directory:
+        path = Path(directory) / 'predictions.db'
+        ledger = PredictionLedger(path, clock=lambda: issued)
+        for identity, probability, _ in cases:
+            ledger.record(Prediction(
+                tenant, identity, 'synthetic-stockout-within-24h-v1', 'fixture-v1',
+                issued, issued, horizon, probability, evidence,
+            ))
+        reopened = PredictionLedger(path, clock=lambda: horizon)
+        for identity, _, actual in cases:
+            if actual is not None:
+                reopened.resolve(Outcome(tenant, identity, horizon, actual, outcome_evidence))
+        return {
+            'data_source': 'synthetic-fixture',
+            'persistence_reopened': True,
+            **reopened.score(tenant),
+        }
+
+
+if __name__ == '__main__':
+    print(json.dumps(synthetic_demo(), indent=2, sort_keys=True))
