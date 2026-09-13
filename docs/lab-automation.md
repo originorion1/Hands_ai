@@ -5,6 +5,12 @@ verified feature-branch change. GitHub remains the task queue, Codex edits only
 the isolated worktree, and the local runner owns verification, commit, push, and
 the sanitized review packet. It never merges or authorizes live/customer access.
 
+After a successful verification, commit, and feature-branch push, the runner
+creates exactly one draft pull request or refreshes the existing open draft for
+that head. Its base is always `laboratory/orion-v0.1`; conflicting or duplicate
+open pull requests fail closed. The sanitized issue report includes the pull
+request number and URL so the review handoff needs no prompt copying.
+
 ## Prerequisites and commands
 
 Use Python 3.12 or newer in the clean canonical `laboratory/orion-v0.1`
@@ -52,6 +58,21 @@ file set. Any drift produces only the existing sanitized local failure report.
 lowest-numbered pending issue under the same exclusive local lock, and skips
 issues carrying the completion marker. `--once` performs one poll. A minimum
 ten-second interval is enforced.
+
+## One-time Claude reviewer setup
+
+Install the official Claude GitHub integration for this repository and add the
+Anthropic credential as the GitHub Actions secret `ANTHROPIC_API_KEY`. Keep the
+local watcher running with `python tools/orion_lab.py watch --interval 60`.
+Never paste the credential into an issue, pull request, command argument, or
+chat.
+
+`.github/workflows/claude-read-only-review.yml` then reviews pull requests only
+when they target `laboratory/orion-v0.1`, originate from a same-repository
+`codex/` branch, and carry no code-write token permission. Claude can inspect
+the checked-out repository and post one structured review comment; it cannot
+modify files, approve, or merge. A missing Anthropic secret fails with a clear
+configuration error.
 
 ## Automation-ready issue format
 
