@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
+from uuid import UUID, uuid4
 
 from ..contracts import Observation, utc_now
 from ..history.evidence import (
@@ -17,6 +18,7 @@ from ..history.evidence import (
     HistoricalEvidenceError,
 )
 from ..history.sampling import persist_historical_sample
+from ..observability.activity import ActivityEvent, ActivityEventType, ActivitySink
 from ..understanding.metadata import MetadataUnderstanding
 from .autonomous_loop import (
     AuthorizationEnvelope,
@@ -49,6 +51,7 @@ GovernedStudyRunner = Callable[
     StudyOutcome,
 ]
 RecordLimitSelector = Callable[[StudyOpportunity, int], int]
+ActivityEmitter = Callable[..., None]
 
 
 class ShadowSoakStopReason(StrEnum):
@@ -199,8 +202,10 @@ class _SingleReadPermit:
     def __init__(
         self,
         stop_reason: Callable[[], ShadowSoakStopReason | None],
+        read_started: Callable[[], None],
     ) -> None:
         self._stop_reason = stop_reason
+        self._read_started = read_started
         self.reads = 0
 
     def __call__(self) -> None:
@@ -212,6 +217,7 @@ class _SingleReadPermit:
                 "study runner attempted more than one ERP read"
             )
         self.reads = 1
+        self._read_started()
 
 
 class _VerifiedEvidenceSink:
@@ -222,11 +228,13 @@ class _VerifiedEvidenceSink:
         store: ShadowSoakEvidenceStore,
         clock: Callable[[], datetime],
         read_permit: _SingleReadPermit,
+        emit_activity: ActivityEmitter,
     ) -> None:
         self._request = request
         self._store = store
         self._clock = clock
         self._read_permit = read_permit
+        self._emit_activity = emit_activity
         self.acknowledgements = []
         self.invocations = 0
         self.reconciled_observation_count = 0
@@ -248,6 +256,10 @@ class _VerifiedEvidenceSink:
             raise _ReaderContractFailure(
                 "study runner produced evidence without an ERP read permit"
             )
+        self._emit_activity(
+            ActivityEventType.READ_COMPLETED,
+            observations_acquired=len(observations),
+        )
         validated_observations, self.valid_count = (
             validate_governed_record_observations(
                 governed_request,
@@ -255,8 +267,14 @@ class _VerifiedEvidenceSink:
             )
         )
         self.validated_observation_count = len(validated_observations)
+        self._emit_activity(
+            ActivityEventType.VALIDATION_COMPLETED,
+            observations_acquired=self.validated_observation_count,
+            valid_count=self.valid_count,
+        )
         if not validated_observations:
             return
+        self._emit_activity(ActivityEventType.EVIDENCE_SINK_STARTED)
         baseline: tuple[HistoricalEvidenceBatch, ...] | None = None
         try:
             baseline = self._store.load_all(
@@ -285,6 +303,12 @@ class _VerifiedEvidenceSink:
                 )
             raise _PersistenceFailure from exc
         self.acknowledgements.append(acknowledgement)
+        self._emit_activity(
+            ActivityEventType.EVIDENCE_PERSISTED,
+            observations_acquired=acknowledgement.observation_count,
+            valid_count=self.valid_count,
+            persistence_verified=True,
+        )
 
 
 def run_autonomous_shadow_soak(
@@ -298,6 +322,9 @@ def run_autonomous_shadow_soak(
     clock: Callable[[], datetime] = utc_now,
     monotonic: Callable[[], float] = time.monotonic,
     termination_requested: Callable[[], bool] | None = None,
+    activity_sink: ActivitySink | None = None,
+    activity_run_id: UUID | None = None,
+    activity_clock: Callable[[], datetime] = utc_now,
 ) -> ShadowSoakReport:
     """Repeatedly select, authorize, read, validate, append, and reassess.
 
@@ -318,6 +345,9 @@ def run_autonomous_shadow_soak(
         clock,
         monotonic,
         termination_requested,
+        activity_sink,
+        activity_run_id,
+        activity_clock,
     )
     authorization = session.authorization
     started_at = _read_clock(clock)
@@ -337,6 +367,76 @@ def run_autonomous_shadow_soak(
     studied_entities: set[str] = set()
     first_target_type: str | None = None
     final_target_type: str | None = None
+    resolved_run_id = activity_run_id
+    if activity_sink is not None and resolved_run_id is None:
+        try:
+            resolved_run_id = uuid4()
+        except BaseException:  # noqa: BLE001 - observability cannot alter runtime behavior
+            resolved_run_id = None
+
+    def emit(
+        event_type: ActivityEventType,
+        *,
+        cycle: int | None = None,
+        opportunity: StudyOpportunity | None = None,
+        request: AuthorizedStudyRequest | None = None,
+        reason: str | None = None,
+        observations_acquired: int | None = None,
+        valid_count: int | None = None,
+        persistence_verified: bool | None = None,
+        prediction_evaluated: bool | None = None,
+        erp_reads_override: int | None = None,
+        batches_appended_override: int | None = None,
+    ) -> None:
+        if activity_sink is None or resolved_run_id is None:
+            return
+        intent = request.intent if request is not None else None
+        try:
+            event = ActivityEvent(
+                event_type=event_type,
+                occurred_at=activity_clock(),
+                run_id=resolved_run_id,
+                cycle=cycle,
+                study_kind=(
+                    intent.study_kind
+                    if intent is not None
+                    else opportunity.study_kind if opportunity is not None else None
+                ),
+                entity=(
+                    intent.entity
+                    if intent is not None
+                    else opportunity.entity if opportunity is not None else None
+                ),
+                fields=(
+                    intent.fields
+                    if intent is not None
+                    else opportunity.fields if opportunity is not None else ()
+                ),
+                requested_records=(
+                    request.intent.requested_records if request is not None else None
+                ),
+                observations_acquired=observations_acquired,
+                valid_count=valid_count,
+                score=(opportunity.score if opportunity is not None else None),
+                score_components=(
+                    opportunity.score_components if opportunity is not None else ()
+                ),
+                reason=reason,
+                erp_reads=(erp_reads if erp_reads_override is None else erp_reads_override),
+                evidence_batches_appended=(
+                    batches_appended
+                    if batches_appended_override is None
+                    else batches_appended_override
+                ),
+                persistence_verified=persistence_verified,
+                prediction_evaluated=prediction_evaluated,
+            )
+            activity_sink(event)
+        except BaseException:  # noqa: BLE001 - watcher failure is always isolated
+            return
+
+    emit(ActivityEventType.RUN_STARTED)
+    emit(ActivityEventType.OBJECTIVE_LOADED)
 
     def elapsed() -> float:
         nonlocal last_tick
@@ -356,6 +456,11 @@ def run_autonomous_shadow_soak(
         return None
 
     def finish(reason: ShadowSoakStopReason) -> ShadowSoakReport:
+        emit(
+            ActivityEventType.RUN_STOPPED,
+            cycle=cycles_attempted or None,
+            reason=reason.value,
+        )
         ended_at = _read_clock(clock)
         elapsed_seconds = elapsed()
         return ShadowSoakReport(
@@ -392,10 +497,21 @@ def run_autonomous_shadow_soak(
             if observations_persisted >= session.max_cumulative_observations:
                 return finish(ShadowSoakStopReason.OBSERVATION_LIMIT)
 
+            if cycles_completed:
+                emit(
+                    ActivityEventType.REASSESSMENT_STARTED,
+                    cycle=cycles_attempted,
+                )
+
             try:
                 memory = _load_current_memory(store, understanding)
             except Exception:  # noqa: BLE001 - durable-state boundary fails closed
                 failures["persistence_integrity_failure"] += 1
+                emit(
+                    ActivityEventType.SAFE_FAILURE,
+                    cycle=cycles_attempted or None,
+                    reason="persistence_integrity_failure",
+                )
                 return finish(ShadowSoakStopReason.PERSISTENCE_FAILURE)
 
             opportunities = discover_opportunities(
@@ -405,6 +521,7 @@ def run_autonomous_shadow_soak(
                 memory,
             )
             if not opportunities:
+                emit(ActivityEventType.PROPOSAL_REJECTED, reason="no_candidate")
                 return finish(ShadowSoakStopReason.NO_CANDIDATE)
             selected = _select_authorized_opportunity(
                 opportunities,
@@ -414,8 +531,21 @@ def run_autonomous_shadow_soak(
                 record_limit_selector=record_limit_selector,
             )
             if selected is None:
+                emit(
+                    ActivityEventType.AUTHORIZATION_DENIED,
+                    cycle=cycles_attempted + 1,
+                    reason="no_authorized_candidate",
+                )
                 return finish(ShadowSoakStopReason.NO_AUTHORIZED_CANDIDATE)
             opportunity, request = selected
+            emit(
+                ActivityEventType.NEXT_PROPOSAL_SELECTED
+                if cycles_attempted
+                else ActivityEventType.PROPOSAL_SELECTED,
+                cycle=cycles_attempted + 1,
+                opportunity=opportunity,
+                request=request,
+            )
             capability = derive_study_capability(request.intent, understanding)
             target_type = capability.value
             first_target_type = first_target_type or target_type
@@ -428,18 +558,64 @@ def run_autonomous_shadow_soak(
             }:
                 unsupported += 1
                 failures["unsupported_capability"] += 1
+                emit(
+                    ActivityEventType.PROPOSAL_REJECTED,
+                    cycle=cycles_attempted,
+                    opportunity=opportunity,
+                    request=request,
+                    reason="unsupported_capability",
+                )
                 consecutive_non_progress += 1
                 if consecutive_non_progress >= session.max_consecutive_non_progress:
                     return finish(ShadowSoakStopReason.NON_PROGRESS_LIMIT)
                 continue
 
             supported += 1
-            read_permit = _SingleReadPermit(stop_before_read)
+
+            def bound_emitter(
+                event_type,
+                *,
+                _cycle=cycles_attempted,
+                _opportunity=opportunity,
+                _request=request,
+                _erp_reads_before=erp_reads,
+                _batches_before=batches_appended,
+                **details,
+            ):
+                if event_type in {
+                    ActivityEventType.READ_STARTED,
+                    ActivityEventType.READ_COMPLETED,
+                    ActivityEventType.VALIDATION_COMPLETED,
+                    ActivityEventType.EVIDENCE_SINK_STARTED,
+                    ActivityEventType.EVIDENCE_PERSISTED,
+                }:
+                    details.setdefault("erp_reads_override", _erp_reads_before + 1)
+                if event_type is ActivityEventType.EVIDENCE_PERSISTED:
+                    details.setdefault(
+                        "batches_appended_override",
+                        _batches_before + 1,
+                    )
+                emit(
+                    event_type,
+                    cycle=_cycle,
+                    opportunity=_opportunity,
+                    request=_request,
+                    **details,
+                )
+
+            def read_started(*, _emit=bound_emitter):
+                _emit(ActivityEventType.READ_STARTED)
+
+            read_permit = _SingleReadPermit(
+                stop_before_read,
+                read_started,
+            )
             evidence_sink = _VerifiedEvidenceSink(
                 request=request,
                 store=store,
                 clock=clock,
                 read_permit=read_permit,
+                emit_activity=bound_emitter,
             )
 
             try:
@@ -453,6 +629,7 @@ def run_autonomous_shadow_soak(
                         raise _ReaderContractFailure(
                             "request changed before governed study"
                         )
+                    bound_emitter(ActivityEventType.AUTHORIZATION_CHECKED)
                     outcome = study_runner(
                         request,
                         evidence_sink,
@@ -470,11 +647,30 @@ def run_autonomous_shadow_soak(
                     observations_persisted += verified_count
                     studied_entities.add(opportunity.entity)
                     failures["persistence_failure_after_verified_append"] += 1
+                    bound_emitter(
+                        ActivityEventType.EVIDENCE_PERSISTED,
+                        observations_acquired=verified_count,
+                        persistence_verified=True,
+                        reason="reconciled_after_failure",
+                        batches_appended_override=batches_appended,
+                    )
                 else:
                     failures["persistence_failure"] += 1
+                bound_emitter(
+                    ActivityEventType.SAFE_FAILURE,
+                    reason=(
+                        "persistence_failure_after_verified_append"
+                        if verified_count
+                        else "persistence_failure"
+                    ),
+                )
                 return finish(ShadowSoakStopReason.PERSISTENCE_FAILURE)
             except GovernedEvidenceScopeError:
                 failures["tenant_scope_mismatch"] += 1
+                bound_emitter(
+                    ActivityEventType.SAFE_FAILURE,
+                    reason="tenant_scope_mismatch",
+                )
                 return finish(ShadowSoakStopReason.TENANT_SCOPE_MISMATCH)
             except (KeyboardInterrupt, SystemExit):
                 return finish(ShadowSoakStopReason.USER_TERMINATION)
@@ -485,8 +681,16 @@ def run_autonomous_shadow_soak(
                     observations_persisted += verified_count
                     studied_entities.add(opportunity.entity)
                     failures["runner_failure_after_verified_append"] += 1
+                    bound_emitter(
+                        ActivityEventType.SAFE_FAILURE,
+                        reason="runner_failure_after_verified_append",
+                    )
                     return finish(ShadowSoakStopReason.PERSISTENCE_FAILURE)
                 failures["erp_contract_failure"] += 1
+                bound_emitter(
+                    ActivityEventType.SAFE_FAILURE,
+                    reason="erp_contract_failure",
+                )
                 consecutive_non_progress += 1
                 if consecutive_non_progress >= session.max_consecutive_non_progress:
                     return finish(ShadowSoakStopReason.ERP_CONTRACT_FAILURE)
@@ -659,6 +863,9 @@ def _validate_runtime_inputs(
     clock: object,
     monotonic: object,
     termination_requested: object,
+    activity_sink: object,
+    activity_run_id: object,
+    activity_clock: object,
 ) -> None:
     if not isinstance(objective, LearningObjective):
         raise TypeError("objective must be LearningObjective")
@@ -683,6 +890,12 @@ def _validate_runtime_inputs(
         raise TypeError("record_limit_selector must be callable")
     if termination_requested is not None and not callable(termination_requested):
         raise TypeError("termination_requested must be callable")
+    if activity_sink is not None and not callable(activity_sink):
+        raise TypeError("activity_sink must be callable")
+    if activity_run_id is not None and not isinstance(activity_run_id, UUID):
+        raise TypeError("activity_run_id must be UUID or None")
+    if not callable(activity_clock):
+        raise TypeError("activity_clock must be callable")
 
 
 def _read_clock(clock: Callable[[], datetime]) -> datetime:
