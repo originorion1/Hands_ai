@@ -350,3 +350,32 @@ def test_offline_demo_completes_without_external_authority(tmp_path):
     assert result["external_reads"] == result["external_writes"] == 0
     assert result["authorization_granted"] is result["execution_allowed"] is False
     assert result["queue"]["completed"] == 2
+
+
+@pytest.mark.parametrize('budget, expected_calls', [(1, 0), (2, 1)])
+def test_recovered_lease_respects_remaining_handler_budget(tmp_path, budget, expected_calls):
+    target = queue(tmp_path)
+    enqueue(target, event())
+    enqueue(target, event(tenant='tenant-b'))
+    target.claim_next(now=NOW, lease_seconds=1, tenant_id='tenant-a')
+    target.claim_next(now=NOW, lease_seconds=1, tenant_id='tenant-b')
+    # Simulate a crashed process by reopening the queue after lease expiry.
+    reopened = queue(tmp_path)
+    calls = []
+
+    def handler(item, trigger):
+        calls.append(item.event_id)
+        return EventWorkResult(item.event_id, item.tenant_id, EventWorkDisposition.IGNORED)
+
+    report = run_event_worker(
+        reopened, handler, EventWorkerBounds(max_claims=1, max_attempts_per_event=budget),
+        clock=lambda: NOW + timedelta(seconds=2), tenant_id='tenant-a',
+    )
+    assert len(calls) == expected_calls
+    assert report.claims == 1
+    assert report.completed == expected_calls
+    assert report.dead_lettered == 1 - expected_calls
+    assert report.failed_attempts == 0
+    assert reopened.state_counts(tenant_id='tenant-a')['leased'] == 0
+    assert reopened.state_counts(tenant_id='tenant-b')['leased'] == 1
+    assert report.execution_allowed is False

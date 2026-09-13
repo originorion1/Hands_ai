@@ -114,6 +114,12 @@ def run_event_worker(
             exhausted = True
             break
         claims += 1
+        # A crashed worker may consume the last attempt without releasing its
+        # lease. Recovery must not invoke the handler beyond the current budget.
+        if claim.attempt > bounds.max_attempts_per_event:
+            queue.release(claim, available_at=now, dead=True)
+            dead += 1
+            continue
         try:
             result = handler(claim.event, claim.trigger)
             if not isinstance(result, EventWorkResult):

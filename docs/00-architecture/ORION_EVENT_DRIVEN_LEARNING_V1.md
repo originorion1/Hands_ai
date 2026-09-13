@@ -35,7 +35,7 @@ the existing authorization boundary. It cannot invoke a capability by itself.
 stable deduplication, content-integrity hashes, deterministic priority order,
 per-tenant and global active-work capacities, time-bounded leases, stale-lease
 recovery, acknowledgement, retry release, and dead-letter state. Completed
-identity keys remain durable so replay does not learn twice.
+identity keys remain durable so acknowledged events are not dispatched again.
 
 Capacity rejection is explicit (`tenant_backpressure` or
 `global_backpressure`). An upstream webhook or bounded-polling adapter can
@@ -80,3 +80,19 @@ This increment deliberately does not add webhooks, CDC, vendor event schemas,
 pollers, Kafka, Kubernetes, microservices, schedulers, live ERP access, or
 customer writes. Those belong at governed adapters after measured throughput,
 reliability, retention, and tenancy requirements justify them.
+
+## Crash recovery and measurement limits
+
+Attempt budgets are enforced before handler dispatch, including after an expired
+lease is recovered on restart. A recovered claim beyond the current worker's
+budget is dead-lettered without invoking the handler. This cleanup consumes a
+claim slot but is not reported as a failed handler attempt. Attempts count leases
+conservatively: a process crash before dispatch can consume an attempt. Workers
+must use a consistent configured budget; the queue does not persist that policy.
+
+Completed-key deduplication prevents redispatch after acknowledgement, not
+exactly-once effects across crashes. Handlers still need transactional effect
+idempotency. The report's external-read/write counters describe the worker's own
+operations; they do not measure or sandbox an arbitrary injected handler. Use
+only trusted offline handlers here and enforce live access at the existing
+separate authorization boundary.
