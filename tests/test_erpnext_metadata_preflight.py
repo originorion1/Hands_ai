@@ -1,3 +1,4 @@
+import hashlib
 import json
 import stat
 import threading
@@ -1487,6 +1488,28 @@ def test_permission_retry_refuses_invalid_prior_report_before_transport(tmp_path
     assert not _permission_retry_report_path(plan).exists()
 
 
+def test_permission_retry_refuses_same_shape_replacement_before_transport(tmp_path):
+    plan = config(tmp_path)
+    ledger, prior_path, _ = failed_permission_retry(plan)
+    payload = json.loads(prior_path.read_text())
+    payload["started_at"] = "2026-01-02T00:00:00+00:00"
+    payload["ended_at"] = "2026-01-02T00:00:00+00:00"
+    prior_path.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+    prior_path.chmod(0o600)
+    before = ledger.snapshot()
+
+    with pytest.raises(MetadataPreflightError, match="digest"):
+        run_erpnext_doctype_catalog_permission_retry_once(
+            plan,
+            environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("replacement must block transport"),
+            clock=lambda: NOW,
+        )
+
+    assert ledger.snapshot() == before
+    assert not _permission_retry_report_path(plan).exists()
+
+
 def test_permission_retry_reservation_blocks_concurrent_transport(tmp_path):
     plan = config(tmp_path)
     ledger, _, _ = failed_permission_retry(plan)
@@ -1604,6 +1627,13 @@ def reviewed_catalog(plan, doctypes=("Safe Invoice",)):
         authorization_reference=plan.authorization_reference,
         doctypes=doctypes,
         review_reference="synthetic-administrator-review",
+    )
+
+
+def consolidated_catalog(plan, prefix="Reviewed Type"):
+    return reviewed_catalog(
+        plan,
+        tuple(f"{prefix} {index:02}" for index in range(18)),
     )
 
 
@@ -1925,6 +1955,71 @@ def test_consolidated_continuation_uses_exact_company_and_reviewed_requests(tmp_
     assert readiness.execution_allowed is False
 
 
+def test_consolidated_completion_anchors_empty_candidate_and_report(tmp_path):
+    plan = config(tmp_path)
+    catalog = consolidated_catalog(plan)
+    ledger, _ = failed_attempt_five(plan, catalog)
+
+    def opener(request, *, timeout):
+        if urlparse(request.full_url).path == "/api/resource/Company":
+            return FakeResponse(request, catalog_payload("Company A"))
+        name = parse_qs(urlparse(request.full_url).query)["doctype"][0]
+        return FakeResponse(request, metadata_payload(name, default="synthetic-secret"))
+
+    report = run_consolidated_reviewed_metadata(
+        plan,
+        reviewed_catalog=catalog,
+        environment=SECRET_ENVIRONMENT,
+        opener=opener,
+        clock=lambda: LATER,
+    )
+
+    candidate_body = _candidate_path(plan).read_bytes()
+    report_path = max(
+        plan.report_directory.glob("metadata-preflight-report-*.json"),
+        key=lambda path: path.stat().st_mtime_ns,
+    )
+    assert report.status == "complete"
+    assert report.sensitive_metadata_excluded == 18
+    assert report.candidate_entity_count == report.candidate_field_count == 0
+    with ledger._connect() as connection:
+        assert connection.execute(
+            "SELECT report_digest, candidate_digest, binding "
+            "FROM metadata_completion_artifact_anchor"
+        ).fetchall() == [(
+            hashlib.sha256(report_path.read_bytes()).hexdigest(),
+            hashlib.sha256(candidate_body).hexdigest(),
+            preflight_module._admin_binding_digest(plan),
+        )]
+
+
+@pytest.mark.parametrize("count", (17, 19))
+def test_consolidated_refuses_nonexact_catalog_before_claim_or_transport(tmp_path, count):
+    plan = config(tmp_path)
+    catalog = reviewed_catalog(
+        plan,
+        tuple(f"Reviewed Type {index:02}" for index in range(count)),
+    )
+    ledger, _ = failed_attempt_five(plan, catalog)
+    before = ledger.snapshot()
+
+    with pytest.raises(MetadataPreflightError, match="exact reviewed selection"):
+        run_consolidated_reviewed_metadata(
+            plan,
+            reviewed_catalog=catalog,
+            environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("invalid cardinality blocks transport"),
+            clock=lambda: LATER,
+        )
+
+    assert ledger.snapshot() == before
+    with ledger._connect() as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='admin_catalog_resume_claim'"
+        ).fetchone() is None
+
+
 @pytest.mark.parametrize(
     ("status_code", "category"),
     ((401, "http_authentication"), (403, "http_permission")),
@@ -1933,7 +2028,7 @@ def test_consolidated_company_failure_is_distinct_and_not_replayable(
     tmp_path, status_code, category
 ):
     plan = config(tmp_path)
-    catalog = reviewed_catalog(plan)
+    catalog = consolidated_catalog(plan)
     ledger, prior = failed_attempt_five(plan, catalog)
     calls = 0
 
@@ -2027,7 +2122,7 @@ def test_consolidated_target_failures_are_aggregated_without_raw_details(tmp_pat
 
 def test_consolidated_missing_credentials_preserves_attempt_five(tmp_path):
     plan = config(tmp_path)
-    catalog = reviewed_catalog(plan)
+    catalog = consolidated_catalog(plan)
     ledger, prior = failed_attempt_five(plan, catalog)
 
     with pytest.raises(LiveSessionError, match="credential"):
@@ -2045,13 +2140,13 @@ def test_consolidated_missing_credentials_preserves_attempt_five(tmp_path):
 
 def test_consolidated_catalog_digest_mismatch_blocks_before_transport(tmp_path):
     plan = config(tmp_path)
-    original = reviewed_catalog(plan, ("Original Type",))
+    original = consolidated_catalog(plan, "Original Type")
     ledger, _ = failed_attempt_five(plan, original)
 
     with pytest.raises(MetadataPreflightError, match="failed attempt five"):
         run_consolidated_reviewed_metadata(
             plan,
-            reviewed_catalog=reviewed_catalog(plan, ("Different Type",)),
+            reviewed_catalog=consolidated_catalog(plan, "Different Type"),
             environment=SECRET_ENVIRONMENT,
             opener=lambda *args, **kwargs: pytest.fail("catalog mismatch blocks transport"),
         )
@@ -2062,7 +2157,7 @@ def test_consolidated_catalog_digest_mismatch_blocks_before_transport(tmp_path):
 
 def test_consolidated_refuses_tampered_attempt_five_report_before_transport(tmp_path):
     plan = config(tmp_path)
-    catalog = reviewed_catalog(plan)
+    catalog = consolidated_catalog(plan)
     ledger, prior = failed_attempt_five(plan, catalog)
     report_path = next(
         path for path in prior if path.name.startswith("metadata-preflight-report-")

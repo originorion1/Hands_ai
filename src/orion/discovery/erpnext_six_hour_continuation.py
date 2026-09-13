@@ -502,6 +502,19 @@ class _ContinuationLedger:
             "cycle_limit",
         ):
             raise SixHourContinuationError("exact completed trial claim is required")
+        anchor_present = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='bounded_readonly_trial_report_anchor'"
+        ).fetchone()
+        anchor = None if anchor_present is None else connection.execute(
+            "SELECT report_digest, binding "
+            "FROM bounded_readonly_trial_report_anchor WHERE singleton=1"
+        ).fetchone()
+        if anchor != (
+            self._inputs.trial_report_digest,
+            _admin_binding_digest(self._inputs.preflight),
+        ):
+            raise SixHourContinuationError("completed trial report binding differs")
         present = connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "
             "AND name='six_hour_continuation'"
@@ -515,11 +528,11 @@ class _ContinuationLedger:
             return "already_claimed" if self._validate_prior(connection) else "ready"
 
     def claim(self) -> None:
-        _validate_trial_report(self._inputs)
-        _validate_prior_evidence(self._inputs)
         connection = self._ledger._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            _validate_trial_report(self._inputs)
+            _validate_prior_evidence(self._inputs)
             if self._validate_prior(connection):
                 raise SixHourContinuationError("six-hour continuation was already claimed")
             connection.execute(_CONTINUATION_SCHEMA)

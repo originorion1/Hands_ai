@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import pytest
 
 from orion.discovery.erpnext_bounded_trial import (
+    BoundedTrialError,
     _trial_inputs,
     _TrialLedger,
     bounded_trial_report_json,
@@ -30,6 +31,7 @@ from orion.discovery.erpnext_metadata_preflight import (
     metadata_preflight_config_from_environment,
 )
 from orion.discovery.erpnext_metadata_refresh import (
+    _REFRESH_CANDIDATE_ANCHOR_SCHEMA,
     _REFRESH_STATE_SCHEMA,
     _REFRESH_TARGET_SCHEMA,
     _refresh_candidate_path,
@@ -166,6 +168,12 @@ def prepared(tmp_path: Path):
             "schema_version": 1,
         },
     )
+    with sqlite3.connect(ledger_path) as connection:
+        connection.execute(_REFRESH_CANDIDATE_ANCHOR_SCHEMA)
+        connection.execute(
+            "INSERT INTO metadata_filter_refresh_candidate_anchor VALUES (1, ?, ?)",
+            (candidate_digest, binding),
+        )
     return environment, candidate_path, candidate_digest, ledger_path, scopes
 
 
@@ -422,6 +430,35 @@ def test_wrong_candidate_digest_refuses_without_ledger_change(tmp_path):
     assert report.status == "invalid"
     assert not report.offline_inputs_ready
     assert ledger.read_bytes() == before
+
+
+def test_trial_refuses_same_shape_candidate_replacement_with_matching_new_digest(tmp_path):
+    environment, candidate, _, ledger, _ = prepared(tmp_path)
+    payload = json.loads(candidate.read_text())
+    payload["companies"] = ["Synthetic Replacement Company"]
+    replacement_digest = _private_json(candidate, payload)
+    environment |= {KEY_REF: "synthetic-key", SECRET_REF: "synthetic-secret"}
+
+    with pytest.raises(BoundedTrialError, match="candidate binding"):
+        run_bounded_trial(
+            environment,
+            candidate,
+            replacement_digest,
+            metadata_opener=lambda *args, **kwargs: pytest.fail(
+                "replacement must block metadata transport"
+            ),
+            record_opener=lambda *args, **kwargs: pytest.fail(
+                "replacement must block record transport"
+            ),
+            clock=lambda: NOW,
+            monotonic=lambda: 0.0,
+        )
+
+    with sqlite3.connect(ledger) as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='bounded_readonly_trial'"
+        ).fetchone() is None
 
 
 def test_concurrent_claim_has_exactly_one_winner(tmp_path):
@@ -808,6 +845,37 @@ def test_six_hour_readiness_rejects_changed_report_and_candidate(tmp_path):
 
     assert wrong_report.status == wrong_candidate.status == "invalid"
     assert ledger.read_bytes() == before
+
+
+def test_continuation_refuses_same_shape_report_replacement_with_matching_new_digest(tmp_path):
+    environment, candidate, digest, ledger, _, report, _ = completed_trial(tmp_path)
+    payload = json.loads(report.read_text())
+    payload["session_started_at"] = "2026-09-06T14:00:01+00:00"
+    payload["session_ended_at"] = "2026-09-06T14:00:01+00:00"
+    replacement_digest = _private_json(report, payload)
+
+    with pytest.raises(SixHourContinuationError, match="report binding"):
+        run_six_hour_continuation(
+            environment,
+            candidate,
+            digest,
+            report,
+            replacement_digest,
+            metadata_opener=lambda *args, **kwargs: pytest.fail(
+                "replacement must block metadata transport"
+            ),
+            record_opener=lambda *args, **kwargs: pytest.fail(
+                "replacement must block record transport"
+            ),
+            clock=lambda: NOW,
+            monotonic=lambda: 0.0,
+        )
+
+    with sqlite3.connect(ledger) as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='six_hour_continuation'"
+        ).fetchone() is None
 
 
 def test_six_hour_cli_defaults_to_offline_readiness(tmp_path, monkeypatch, capsys):

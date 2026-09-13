@@ -157,7 +157,7 @@ def completed_attempt_twenty_four(
             "INSERT INTO admin_catalog_resume_claim VALUES (?, ?, ?)",
             (reviewed.digest(), binding, "a" * 64),
         )
-    _write_private_json(
+    candidate_body = _write_private_json(
         _candidate_path(plan),
         {
             "candidate_scopes": {},
@@ -168,7 +168,7 @@ def completed_attempt_twenty_four(
             "schema_version": 1,
         },
     )
-    _write_run_report(
+    report_digest = _write_run_report(
         plan,
         MetadataPreflightRunReport(
             execution_allowed=False,
@@ -192,6 +192,11 @@ def completed_attempt_twenty_four(
             catalog_source="reviewed_selection",
             prior_attempted_gets=5,
         ),
+    )
+    ledger.bind_metadata_completion_artifacts(
+        report_digest,
+        hashlib.sha256(candidate_body).hexdigest(),
+        plan,
     )
     artifacts = {_candidate_path(plan): _candidate_path(plan).read_bytes()}
     for path in plan.report_directory.glob("metadata-preflight-report-*.json"):
@@ -268,7 +273,15 @@ def test_refresh_uses_exact_eighteen_metadata_gets_and_preserves_prior_artifacts
         state = connection.execute(
             "SELECT status, attempted_gets FROM metadata_filter_refresh"
         ).fetchone()
+        anchor = connection.execute(
+            "SELECT candidate_digest, binding "
+            "FROM metadata_filter_refresh_candidate_anchor"
+        ).fetchone()
     assert state == ("complete", 18)
+    assert anchor == (
+        hashlib.sha256(refreshed.read_bytes()).hexdigest(),
+        _admin_binding_digest(plan),
+    )
 
 
 def test_refresh_reports_sanitized_target_outcomes(tmp_path):
@@ -350,6 +363,39 @@ def test_refresh_missing_credentials_does_not_claim_or_contact_transport(tmp_pat
             "SELECT name FROM sqlite_master WHERE name='metadata_filter_refresh'"
         ).fetchone()
     assert present is None
+
+
+@pytest.mark.parametrize("artifact", ("candidate", "report"))
+def test_refresh_refuses_same_shape_prior_artifact_replacement(tmp_path, artifact):
+    plan = config(tmp_path)
+    reviewed = catalog(plan)
+    ledger, _ = completed_attempt_twenty_four(plan, reviewed)
+    if artifact == "candidate":
+        path = _candidate_path(plan)
+        payload = json.loads(path.read_text())
+        payload["companies"] = ["Company B"]
+    else:
+        path, = plan.report_directory.glob("metadata-preflight-report-*.json")
+        payload = json.loads(path.read_text())
+        payload["started_at"] = "2026-01-02T00:00:00+00:00"
+        payload["ended_at"] = "2026-01-02T00:00:00+00:00"
+    path.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+    path.chmod(0o600)
+    before = ledger.snapshot()
+
+    with pytest.raises(MetadataPreflightError, match="artifact binding"):
+        run_metadata_refresh(
+            plan,
+            reviewed,
+            environment=SECRET_ENVIRONMENT,
+            opener=lambda *args, **kwargs: pytest.fail("replacement must block transport"),
+        )
+
+    assert ledger.snapshot() == before
+    with ledger._connect() as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE name='metadata_filter_refresh'"
+        ).fetchone() is None
 
 
 def test_refresh_claim_is_one_use_even_after_interruption(tmp_path):
