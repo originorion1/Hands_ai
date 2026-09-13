@@ -241,3 +241,27 @@ same catalog. Native web research and local coding already work.
 The immediate critical path is authorized evidence -> reconcile -> discover ->
 commit prospective predictions -> independent outcomes -> measure and revise.
 Adding integrations or agents without shortening that path is out of scope.
+
+## Offline prediction measurement demonstration
+
+Run from an installed checkout of this branch:
+
+```bash
+python -m orion.learning.prediction_ledger
+```
+
+No API key, external service, customer data or new dependency is required.
+The command creates a temporary SQLite database, records five synthetic binary
+predictions, reopens the database with a clock advanced by one day, and resolves
+four outcomes. It reports Brier loss `0.34`, one of each confusion-matrix outcome,
+one pending label, and `execution_allowed=false`. The pending label does not
+contribute to the score. Economic value remains `null`.
+
+The database is removed when the demonstration ends. Persistence is exercised
+across ledger instances, not by leaving a customer store behind. The fixed clock,
+invented probabilities and fixture evidence references make this a repeatable
+measurement demonstration: it proves neither forecasting skill nor learning
+improvement nor a live restaurant connection. Existing tests separately verify
+rejection of late predictions, future outcomes, replay conflicts and wrong-tenant
+outcomes. This command is added on the draft branch; it is not yet on the canonical
+laboratory branch until the governed review and merge are complete.

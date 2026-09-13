@@ -90,3 +90,21 @@ def test_same_prediction_identity_in_two_tenants_is_independent(tmp_path):
     later.resolve(Outcome('tenant-b', 'p1', NOW + timedelta(days=1), True, (REF,)))
     assert later.score('tenant-a')['pending'] == 1
     assert later.score('tenant-b')['false_negative'] == 1
+
+
+def test_offline_demonstration_is_repeatable_and_reports_all_outcomes():
+    from orion.learning.prediction_ledger import synthetic_demo
+
+    report = synthetic_demo()
+    assert report == synthetic_demo()
+    assert report['data_source'] == 'synthetic-fixture'
+    assert report['persistence_reopened'] is True
+    assert report['predictions'] == 5
+    assert report['resolved'] == 4
+    assert report['pending'] == 1
+    assert report['brier'] == pytest.approx(0.34)
+    for name in ('true_positive', 'false_positive', 'true_negative', 'false_negative'):
+        assert report[name] == 1
+    assert report['lead_seconds'] == (86400.0,) * 4
+    assert report['economic_value'] is None
+    assert report['execution_allowed'] is False
