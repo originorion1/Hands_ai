@@ -52,7 +52,8 @@ from .erpnext_metadata_adapter import ERPNextMetadataAdapter
 
 MAX_TOTAL_ATTEMPTED_GETS = 100
 CONSOLIDATED_PRIOR_ATTEMPTED_GETS = 5
-CONSOLIDATED_MAX_NEW_GETS = 19
+CONSOLIDATED_REVIEWED_DOCTYPES = 18
+CONSOLIDATED_MAX_NEW_GETS = 1 + CONSOLIDATED_REVIEWED_DOCTYPES
 CONSOLIDATED_MAX_TOTAL_ATTEMPTED_GETS = (
     CONSOLIDATED_PRIOR_ATTEMPTED_GETS + CONSOLIDATED_MAX_NEW_GETS
 )
@@ -109,6 +110,22 @@ CREATE TABLE preflight_run (
     candidate_field_count INTEGER NOT NULL DEFAULT 0,
     company_catalog_complete INTEGER NOT NULL DEFAULT 0,
     doctype_catalog_complete INTEGER NOT NULL DEFAULT 0
+)
+"""
+_DOCTYPE_RETRY_REPORT_ANCHOR_SCHEMA = """
+CREATE TABLE doctype_catalog_retry_report_anchor (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    retry_attempt INTEGER NOT NULL CHECK (retry_attempt = 3),
+    report_digest TEXT NOT NULL,
+    binding TEXT NOT NULL
+)
+"""
+_METADATA_COMPLETION_ARTIFACT_ANCHOR_SCHEMA = """
+CREATE TABLE metadata_completion_artifact_anchor (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    report_digest TEXT NOT NULL,
+    candidate_digest TEXT NOT NULL,
+    binding TEXT NOT NULL
 )
 """
 
@@ -727,6 +744,96 @@ class _RunLedger:
             if row is None or row[0] != _admin_binding_digest(config):
                 raise MetadataPreflightError("reviewed catalog resume binding does not match")
 
+    def bind_doctype_retry_report(
+        self,
+        report_digest: str,
+        config: ERPNextMetadataPreflightConfig,
+    ) -> None:
+        """Anchor attempt three after durable publication; absence stays fail closed."""
+
+        if re.fullmatch(r"[0-9a-f]{64}", report_digest) is None:
+            raise MetadataPreflightError("metadata catalog retry report digest is invalid")
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status, attempted_gets FROM preflight_run WHERE singleton=1"
+            ).fetchone()
+            present = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='doctype_catalog_retry_report_anchor'"
+            ).fetchone()
+            if row != ("failed", DOCTYPE_CATALOG_RETRY_ATTEMPT) or present:
+                raise MetadataPreflightError(
+                    "metadata catalog retry report cannot be anchored"
+                )
+            connection.execute(_DOCTYPE_RETRY_REPORT_ANCHOR_SCHEMA)
+            connection.execute(
+                "INSERT INTO doctype_catalog_retry_report_anchor VALUES (1, 3, ?, ?)",
+                (report_digest, _admin_binding_digest(config)),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def bind_metadata_completion_artifacts(
+        self,
+        report_digest: str,
+        candidate_digest: str,
+        config: ERPNextMetadataPreflightConfig,
+    ) -> None:
+        """Anchor the exact attempt-24 outputs after both are durably published."""
+
+        if any(
+            re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            for digest in (report_digest, candidate_digest)
+        ):
+            raise MetadataPreflightError("metadata completion artifact digest is invalid")
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT status, attempted_gets, company_count, doctype_catalog_count, "
+                "metadata_succeeded, metadata_failed, candidate_entity_count, "
+                "candidate_field_count, company_catalog_complete, doctype_catalog_complete "
+                "FROM preflight_run WHERE singleton=1"
+            ).fetchone()
+            admin = connection.execute(
+                "SELECT digest, binding FROM admin_catalog_claim"
+            ).fetchall()
+            resume = connection.execute(
+                "SELECT catalog_digest, binding FROM admin_catalog_resume_claim"
+            ).fetchall()
+            present = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name='metadata_completion_artifact_anchor'"
+            ).fetchone()
+            binding = _admin_binding_digest(config)
+            if not (
+                row == ("complete", 24, 1, 18, 18, 0, 0, 0, 1, 0)
+                and len(admin) == len(resume) == 1
+                and admin[0] == resume[0]
+                and admin[0][1] == binding
+                and present is None
+            ):
+                raise MetadataPreflightError(
+                    "metadata completion artifacts cannot be anchored"
+                )
+            connection.execute(_METADATA_COMPLETION_ARTIFACT_ANCHOR_SCHEMA)
+            connection.execute(
+                "INSERT INTO metadata_completion_artifact_anchor VALUES (1, ?, ?, ?)",
+                (report_digest, candidate_digest, binding),
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
     def claim_admin_catalog(self, catalog_digest: str, config: ERPNextMetadataPreflightConfig) -> None:
         """Acquire the failed run once, atomically; a crash cannot grant replay."""
         connection = self._connect()
@@ -1122,7 +1229,7 @@ def _name_contains_sensitive_token(value: str) -> bool:
     return is_sensitive_metadata_name(value)
 
 
-def _write_private_json(path: Path, payload: Mapping[str, Any]) -> None:
+def _write_private_json(path: Path, payload: Mapping[str, Any]) -> bytes:
     _reject_symlink_path(path)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -1144,6 +1251,7 @@ def _write_private_json(path: Path, payload: Mapping[str, Any]) -> None:
         except OSError:
             pass
         raise LiveSessionStorageError("private metadata artifact could not be written") from None
+    return data
 
 
 def _validated_candidate(
@@ -1402,12 +1510,13 @@ def metadata_preflight_report_json(
 def _write_run_report(
     config: ERPNextMetadataPreflightConfig,
     report: MetadataPreflightRunReport,
-) -> None:
+) -> str:
     stamp = report.ended_at.strftime("%Y%m%dT%H%M%S.%f%z")
-    _write_private_json(
+    body = _write_private_json(
         config.report_directory / f"metadata-preflight-report-{stamp}.json",
         json.loads(metadata_preflight_report_json(report)),
     )
+    return hashlib.sha256(body).hexdigest()
 
 
 def _existing_private_retry_ledger(config: ERPNextMetadataPreflightConfig) -> _RunLedger:
@@ -1529,11 +1638,12 @@ def _validated_company_permission_failure_report(
     return matches[0]
 
 
-def _write_retry_report(path: Path, report: MetadataCatalogRetryReport) -> None:
-    _write_private_json(
+def _write_retry_report(path: Path, report: MetadataCatalogRetryReport) -> str:
+    body = _write_private_json(
         path,
         json.loads(metadata_preflight_report_json(report)),
     )
+    return hashlib.sha256(body).hexdigest()
 
 
 def _validated_permission_failure_report(
@@ -1596,6 +1706,22 @@ def _validated_permission_failure_report(
         and report.doctype_catalog_complete is False
     ):
         raise MetadataPreflightError("prior metadata catalog retry is not a permission failure")
+    ledger = _existing_private_retry_ledger(config)
+    with ledger._connect() as connection:
+        present = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='doctype_catalog_retry_report_anchor'"
+        ).fetchone()
+        rows = [] if present is None else connection.execute(
+            "SELECT retry_attempt, report_digest, binding "
+            "FROM doctype_catalog_retry_report_anchor"
+        ).fetchall()
+    if rows != [(
+        DOCTYPE_CATALOG_RETRY_ATTEMPT,
+        hashlib.sha256(body).hexdigest(),
+        _admin_binding_digest(config),
+    )]:
+        raise MetadataPreflightError("prior metadata catalog retry digest differs")
     return report
 
 
@@ -1689,7 +1815,9 @@ def _run_erpnext_doctype_catalog_retry_once(
         doctype_catalog_count=doctype_count,
         doctype_catalog_complete=doctype_complete,
     )
-    _write_retry_report(report_path, report)
+    report_digest = _write_retry_report(report_path, report)
+    if retry_attempt == DOCTYPE_CATALOG_RETRY_ATTEMPT:
+        ledger.bind_doctype_retry_report(report_digest, config)
     return report
 
 
@@ -1762,6 +1890,13 @@ def run_erpnext_metadata_preflight(
         if type(reviewed_catalog) is not ReviewedAdministratorCatalog:
             raise TypeError("reviewed_catalog must be ReviewedAdministratorCatalog")
         reviewed_catalog.validate_binding(config)
+        if (
+            _consolidated_continuation
+            and len(reviewed_catalog.doctypes) != CONSOLIDATED_REVIEWED_DOCTYPES
+        ):
+            raise MetadataPreflightError(
+                "consolidated continuation requires the exact reviewed selection"
+            )
     termination = termination_requested or (lambda: False)
     if not callable(termination):
         raise TypeError("termination_requested must be callable")
@@ -1803,6 +1938,7 @@ def run_erpnext_metadata_preflight(
     other_failures = 0
     failure_stage = "company_catalog"
     failure_category = "none"
+    candidate_digest: str | None = None
     try:
         if termination():
             raise _PreflightInterrupted
@@ -1883,7 +2019,7 @@ def run_erpnext_metadata_preflight(
             ledger.update(metadata_succeeded=succeeded, metadata_failed=failed)
         candidate_fields = sum(len(scope.fields) for scope in candidates)
         failure_stage = "candidate_persistence"
-        _write_private_json(
+        candidate_body = _write_private_json(
             _candidate_path(config),
             {
                 "candidate_scopes": {
@@ -1896,6 +2032,7 @@ def run_erpnext_metadata_preflight(
                 "schema_version": 1,
             },
         )
+        candidate_digest = hashlib.sha256(candidate_body).hexdigest()
         ledger.update(
             candidate_entity_count=len(candidates),
             candidate_field_count=candidate_fields,
@@ -1929,7 +2066,23 @@ def run_erpnext_metadata_preflight(
         metadata_permission_failures=permission_failures,
         metadata_other_failures=other_failures,
     )
-    _write_run_report(config, report)
+    report_digest = _write_run_report(config, report)
+    if (
+        _consolidated_continuation
+        and report.status == "complete"
+        and candidate_digest is not None
+        and report.attempted_gets == CONSOLIDATED_MAX_TOTAL_ATTEMPTED_GETS
+        and report.metadata_succeeded == CONSOLIDATED_REVIEWED_DOCTYPES
+        and report.metadata_failed == 0
+        and report.sensitive_metadata_excluded == CONSOLIDATED_REVIEWED_DOCTYPES
+        and report.candidate_entity_count == 0
+        and report.candidate_field_count == 0
+    ):
+        ledger.bind_metadata_completion_artifacts(
+            report_digest,
+            candidate_digest,
+            config,
+        )
     return report
 
 

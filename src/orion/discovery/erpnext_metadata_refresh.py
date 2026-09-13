@@ -12,6 +12,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import signal
 import stat
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -77,6 +78,13 @@ CREATE TABLE metadata_filter_refresh_targets (
     target_index INTEGER PRIMARY KEY CHECK (target_index BETWEEN 1 AND 18),
     status TEXT NOT NULL,
     category TEXT NOT NULL
+)
+"""
+_REFRESH_CANDIDATE_ANCHOR_SCHEMA = """
+CREATE TABLE metadata_filter_refresh_candidate_anchor (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    candidate_digest TEXT NOT NULL,
+    binding TEXT NOT NULL
 )
 """
 
@@ -365,10 +373,25 @@ def _validated_prior_state(
         raise MetadataPreflightError("metadata refresh requires the empty completed candidate")
     candidate_body = _read_private_bytes(_candidate_path(config), "prior metadata candidate")
     report_digest = _validated_completion_report(config)
+    candidate_digest = hashlib.sha256(candidate_body).hexdigest()
     with ledger._connect() as connection:
         claim = connection.execute("SELECT digest FROM admin_catalog_claim").fetchone()
+        present = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='metadata_completion_artifact_anchor'"
+        ).fetchone()
+        anchor = None if present is None else connection.execute(
+            "SELECT report_digest, candidate_digest, binding "
+            "FROM metadata_completion_artifact_anchor WHERE singleton=1"
+        ).fetchone()
     if claim != (catalog.digest(),):
         raise MetadataPreflightError("metadata refresh catalog claim does not match")
+    if anchor != (
+        report_digest,
+        candidate_digest,
+        _admin_binding_digest(config),
+    ):
+        raise MetadataPreflightError("metadata refresh prior artifact binding differs")
     if _refresh_table_present(ledger):
         raise MetadataPreflightError("metadata refresh was already claimed")
     if _path_entry_exists(_refresh_candidate_path(config)):
@@ -379,7 +402,7 @@ def _validated_prior_state(
         ledger=ledger,
         companies=tuple(candidate["companies"]),
         report_digest=report_digest,
-        candidate_digest=hashlib.sha256(candidate_body).hexdigest(),
+        candidate_digest=candidate_digest,
     )
 
 
@@ -388,16 +411,16 @@ class _RefreshLedger:
         self._prior = prior
 
     def claim(self, catalog: ReviewedAdministratorCatalog, config: ERPNextMetadataPreflightConfig) -> None:
-        if _validated_completion_report(config) != self._prior.report_digest:
-            raise MetadataPreflightError("metadata refresh report changed before claim")
-        candidate_body = _read_private_bytes(
-            _candidate_path(config), "prior metadata candidate"
-        )
-        if hashlib.sha256(candidate_body).hexdigest() != self._prior.candidate_digest:
-            raise MetadataPreflightError("metadata refresh candidate changed before claim")
         connection = self._prior.ledger._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            if _validated_completion_report(config) != self._prior.report_digest:
+                raise MetadataPreflightError("metadata refresh report changed before claim")
+            candidate_body = _read_private_bytes(
+                _candidate_path(config), "prior metadata candidate"
+            )
+            if hashlib.sha256(candidate_body).hexdigest() != self._prior.candidate_digest:
+                raise MetadataPreflightError("metadata refresh candidate changed before claim")
             row = connection.execute(
                 "SELECT status, attempted_gets, company_count, doctype_catalog_count, "
                 "metadata_succeeded, metadata_failed, candidate_entity_count, "
@@ -415,11 +438,19 @@ class _RefreshLedger:
             resume_claim = connection.execute(
                 "SELECT catalog_digest, binding FROM admin_catalog_resume_claim"
             ).fetchall()
+            artifact_anchor = connection.execute(
+                "SELECT report_digest, candidate_digest, binding "
+                "FROM metadata_completion_artifact_anchor WHERE singleton=1"
+            ).fetchall()
             if existing or row != (
                 "complete", 24, 1, 18, 18, 0, 0, 0, 1, 0
             ) or admin_claim != [(catalog.digest(), binding)] or resume_claim != [
                 (catalog.digest(), binding)
-            ]:
+            ] or artifact_anchor != [(
+                self._prior.report_digest,
+                self._prior.candidate_digest,
+                binding,
+            )]:
                 raise MetadataPreflightError("metadata refresh claim no longer matches")
             connection.execute(_REFRESH_STATE_SCHEMA)
             connection.execute(_REFRESH_TARGET_SCHEMA)
@@ -495,10 +526,26 @@ class _RefreshLedger:
         finally:
             connection.close()
 
-    def finish(self, status: str, entity_count: int = 0, field_count: int = 0) -> None:
+    def finish(
+        self,
+        status: str,
+        entity_count: int = 0,
+        field_count: int = 0,
+        *,
+        candidate_digest: str | None = None,
+    ) -> None:
         if status not in {"complete", "failed", "interrupted"}:
             raise MetadataPreflightError("metadata refresh final status is invalid")
-        with self._prior.ledger._connect() as connection:
+        if status == "complete" and (
+            candidate_digest is None
+            or re.fullmatch(r"[0-9a-f]{64}", candidate_digest) is None
+        ):
+            raise MetadataPreflightError("completed metadata refresh requires candidate digest")
+        if status != "complete" and candidate_digest is not None:
+            raise MetadataPreflightError("incomplete metadata refresh cannot bind a candidate")
+        connection = self._prior.ledger._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
             cursor = connection.execute(
                 "UPDATE metadata_filter_refresh SET status=?, candidate_entity_count=?, "
                 "candidate_field_count=? WHERE singleton=1 AND status='running'",
@@ -506,6 +553,21 @@ class _RefreshLedger:
             )
             if cursor.rowcount != 1:
                 raise MetadataPreflightError("metadata refresh could not be finalized")
+            if candidate_digest is not None:
+                connection.execute(_REFRESH_CANDIDATE_ANCHOR_SCHEMA)
+                inserted = connection.execute(
+                    "INSERT INTO metadata_filter_refresh_candidate_anchor "
+                    "SELECT 1, ?, binding FROM metadata_filter_refresh WHERE singleton=1",
+                    (candidate_digest,),
+                )
+                if inserted.rowcount != 1:
+                    raise MetadataPreflightError("metadata refresh candidate anchor failed")
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def snapshot(self) -> tuple[Mapping[str, Any], tuple[MetadataRefreshTargetResult, ...]]:
         with self._prior.ledger._connect() as connection:
@@ -650,7 +712,7 @@ def run_metadata_refresh(
                 result = MetadataRefreshTargetResult(index, "failed", category)
             ledger.record(result)
         field_count = sum(len(scope.fields) for scope in candidates)
-        _write_private_json(
+        candidate_body = _write_private_json(
             _refresh_candidate_path(config),
             {
                 "candidate_scopes": {
@@ -663,7 +725,12 @@ def run_metadata_refresh(
                 "schema_version": 1,
             },
         )
-        ledger.finish("complete", len(candidates), field_count)
+        ledger.finish(
+            "complete",
+            len(candidates),
+            field_count,
+            candidate_digest=hashlib.sha256(candidate_body).hexdigest(),
+        )
     except (KeyboardInterrupt, SystemExit, _RefreshInterrupted):
         status = "interrupted"
         failure_category = "interrupted"

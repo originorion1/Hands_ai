@@ -29,6 +29,7 @@ from .erpnext_live_session import (
     ReviewedMetadataScope,
     _destination_ready,
     _live_session_termination_signals,
+    live_session_report_json,
     run_erpnext_live_session,
 )
 from .erpnext_metadata_preflight import (
@@ -65,6 +66,13 @@ CREATE TABLE bounded_readonly_trial (
     metadata_requests INTEGER NOT NULL CHECK (metadata_requests BETWEEN 0 AND 7),
     study_requests INTEGER NOT NULL CHECK (study_requests BETWEEN 0 AND 1),
     stop_reason TEXT NOT NULL
+)
+"""
+_TRIAL_REPORT_ANCHOR_SCHEMA = """
+CREATE TABLE bounded_readonly_trial_report_anchor (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+    report_digest TEXT NOT NULL,
+    binding TEXT NOT NULL
 )
 """
 
@@ -388,6 +396,19 @@ class _TrialLedger:
         ).fetchall()
         if outcomes != [("candidate", "none", 7), ("no_candidate", "scope_incompatible", 11)]:
             raise BoundedTrialError("bounded trial refresh outcomes are invalid")
+        anchor_present = connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='metadata_filter_refresh_candidate_anchor'"
+        ).fetchone()
+        anchor = None if anchor_present is None else connection.execute(
+            "SELECT candidate_digest, binding "
+            "FROM metadata_filter_refresh_candidate_anchor WHERE singleton=1"
+        ).fetchone()
+        if anchor != (
+            self._inputs.candidate_digest,
+            _admin_binding_digest(self._inputs.preflight),
+        ):
+            raise BoundedTrialError("bounded trial candidate binding differs")
         present = connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table' "
             "AND name='bounded_readonly_trial'"
@@ -399,13 +420,13 @@ class _TrialLedger:
             return "already_claimed" if self._validate_source(connection) else "ready"
 
     def claim(self) -> None:
-        if hashlib.sha256(
-            _read_private_bytes(self._inputs.candidate_path, "bounded trial candidate")
-        ).hexdigest() != self._inputs.candidate_digest:
-            raise BoundedTrialError("bounded trial candidate changed before claim")
         connection = self._ledger._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
+            if hashlib.sha256(
+                _read_private_bytes(self._inputs.candidate_path, "bounded trial candidate")
+            ).hexdigest() != self._inputs.candidate_digest:
+                raise BoundedTrialError("bounded trial candidate changed before claim")
             if self._validate_source(connection):
                 raise BoundedTrialError("bounded trial was already claimed")
             connection.execute(_TRIAL_SCHEMA)
@@ -478,9 +499,21 @@ class _TrialLedger:
             raise BoundedTrialError("bounded trial accounting exceeded its budget")
         return str(row[0]), metadata, study, str(row[3])
 
-    def finish(self, status: str, stop_reason: str) -> None:
+    def finish(
+        self,
+        status: str,
+        stop_reason: str,
+        *,
+        report_digest: str | None = None,
+    ) -> None:
         if status not in {"complete", "failed", "interrupted"}:
             raise BoundedTrialError("bounded trial final status is invalid")
+        if status == "complete" and (
+            report_digest is None or re.fullmatch(r"[0-9a-f]{64}", report_digest) is None
+        ):
+            raise BoundedTrialError("completed bounded trial requires report digest")
+        if status != "complete" and report_digest is not None:
+            raise BoundedTrialError("incomplete bounded trial cannot bind a report")
         connection = self._ledger._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -491,6 +524,15 @@ class _TrialLedger:
             )
             if cursor.rowcount != 1:
                 raise BoundedTrialError("bounded trial finalization failed")
+            if report_digest is not None:
+                connection.execute(_TRIAL_REPORT_ANCHOR_SCHEMA)
+                inserted = connection.execute(
+                    "INSERT INTO bounded_readonly_trial_report_anchor "
+                    "SELECT 1, ?, binding FROM bounded_readonly_trial WHERE singleton=1",
+                    (report_digest,),
+                )
+                if inserted.rowcount != 1:
+                    raise BoundedTrialError("bounded trial report anchor failed")
             connection.commit()
         except Exception:
             connection.rollback()
@@ -559,7 +601,21 @@ def _result(report: LiveSessionRunReport, ledger: _TrialLedger) -> BoundedTrialR
         if report.stop_reason == "user_termination"
         else "failed"
     )
-    ledger.finish(status, report.stop_reason)
+    report_digest = None
+    if status == "complete":
+        stamp = report.session_ended_at.strftime("%Y%m%dT%H%M%S.%f%z")
+        path = ledger._inputs.live.report_directory / f"shadow-soak-report-{stamp}.json"
+        try:
+            body = _read_private_bytes(path, "completed bounded trial report")
+        except MetadataPreflightError as exc:
+            ledger.finish("failed", "report_binding_failure")
+            raise BoundedTrialError("bounded trial report could not be bound") from exc
+        expected = (live_session_report_json(report) + "\n").encode("utf-8")
+        if body != expected:
+            ledger.finish("failed", "report_binding_failure")
+            raise BoundedTrialError("bounded trial report differs before binding")
+        report_digest = hashlib.sha256(body).hexdigest()
+    ledger.finish(status, report.stop_reason, report_digest=report_digest)
     return BoundedTrialRunReport(
         execution_allowed=False,
         status=status,
