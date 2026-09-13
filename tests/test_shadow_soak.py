@@ -1,7 +1,9 @@
 import json
 from dataclasses import asdict
 from datetime import UTC, datetime
+from io import StringIO
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 import pytest
 
@@ -21,6 +23,9 @@ from orion.learning.study_capability import (
     StudyCapability,
     run_routed_governed_record_evidence,
 )
+from orion.observability.activity import ActivityEvent, ActivityEventType
+from orion.observability.demo import run_demo as run_watcher_demo
+from orion.observability.terminal import TerminalActivityWatcher, render_activity_event
 from orion.stores.sqlite_historical_evidence import SQLiteHistoricalEvidenceStore
 from orion.understanding.metadata import (
     MetadataUnderstanding,
@@ -870,3 +875,251 @@ def test_runtime_composes_with_exact_identity_router_and_narrows_bound(tmp_path)
     assert len(requests) == 1
     query = parse_qs(urlparse(requests[0][0].full_url).query)
     assert query["limit_page_length"] == ["1"]
+
+
+def test_activity_events_follow_successful_semantic_boundaries(tmp_path):
+    events = []
+    run_id = UUID("00000000-0000-4000-8000-000000000055")
+    report = run(
+        understanding("Alpha", "Beta"),
+        session("Alpha", "Beta", cycles=2, cumulative=2),
+        SQLiteHistoricalEvidenceStore(tmp_path / "evidence.sqlite3"),
+        lambda resource, *_: (observation(resource, f"private-{resource}"),),
+        activity_sink=events.append,
+        activity_run_id=run_id,
+        activity_clock=lambda: START,
+    )
+
+    assert [event.event_type for event in events] == [
+        ActivityEventType.RUN_STARTED,
+        ActivityEventType.OBJECTIVE_LOADED,
+        ActivityEventType.PROPOSAL_SELECTED,
+        ActivityEventType.AUTHORIZATION_CHECKED,
+        ActivityEventType.READ_STARTED,
+        ActivityEventType.READ_COMPLETED,
+        ActivityEventType.VALIDATION_COMPLETED,
+        ActivityEventType.EVIDENCE_SINK_STARTED,
+        ActivityEventType.EVIDENCE_PERSISTED,
+        ActivityEventType.REASSESSMENT_STARTED,
+        ActivityEventType.NEXT_PROPOSAL_SELECTED,
+        ActivityEventType.AUTHORIZATION_CHECKED,
+        ActivityEventType.READ_STARTED,
+        ActivityEventType.READ_COMPLETED,
+        ActivityEventType.VALIDATION_COMPLETED,
+        ActivityEventType.EVIDENCE_SINK_STARTED,
+        ActivityEventType.EVIDENCE_PERSISTED,
+        ActivityEventType.RUN_STOPPED,
+    ]
+    assert report.cycles_completed == 2
+    assert all(event.run_id == run_id and event.erp_writes == 0 for event in events)
+    read_events = [
+        event
+        for event in events
+        if event.event_type
+        in {
+            ActivityEventType.READ_STARTED,
+            ActivityEventType.READ_COMPLETED,
+            ActivityEventType.VALIDATION_COMPLETED,
+            ActivityEventType.EVIDENCE_SINK_STARTED,
+            ActivityEventType.EVIDENCE_PERSISTED,
+        }
+    ]
+    assert [event.erp_reads for event in read_events] == [1] * 5 + [2] * 5
+    persisted = [
+        event
+        for event in events
+        if event.event_type is ActivityEventType.EVIDENCE_PERSISTED
+    ]
+    assert [event.evidence_batches_appended for event in persisted] == [1, 2]
+    rendered = repr(events)
+    assert TENANT not in rendered
+    assert "private-company-value" not in rendered
+    assert "private-Alpha" not in rendered
+    assert "private-Beta" not in rendered
+
+
+def test_absent_activity_sink_preserves_exact_report(tmp_path):
+    first = run(
+        understanding("Alpha"),
+        session("Alpha", cycles=1),
+        SQLiteHistoricalEvidenceStore(tmp_path / "first.sqlite3"),
+        lambda resource, *_: (observation(resource, 1),),
+    )
+    second = run(
+        understanding("Alpha"),
+        session("Alpha", cycles=1),
+        SQLiteHistoricalEvidenceStore(tmp_path / "second.sqlite3"),
+        lambda resource, *_: (observation(resource, 1),),
+        activity_sink=None,
+    )
+    assert first == second
+
+
+def test_denied_authorization_emits_denial_and_no_read_started(tmp_path):
+    events = []
+    report = run(
+        understanding("Alpha"),
+        session(cycles=1, cumulative=1),
+        SQLiteHistoricalEvidenceStore(tmp_path / "evidence.sqlite3"),
+        lambda *_: pytest.fail("reader must not run"),
+        activity_sink=events.append,
+        activity_run_id=UUID("00000000-0000-4000-8000-000000000055"),
+        activity_clock=lambda: START,
+    )
+    kinds = [event.event_type for event in events]
+    assert report.stop_reason is ShadowSoakStopReason.NO_AUTHORIZED_CANDIDATE
+    assert ActivityEventType.AUTHORIZATION_DENIED in kinds
+    assert ActivityEventType.READ_STARTED not in kinds
+
+
+def test_failed_read_emits_only_sanitized_failure(tmp_path):
+    events = []
+
+    def reader(*args):
+        raise RuntimeError("raw-response private-company-value")
+
+    report = run(
+        understanding("Alpha"),
+        session("Alpha", failures=1),
+        SQLiteHistoricalEvidenceStore(tmp_path / "evidence.sqlite3"),
+        reader,
+        activity_sink=events.append,
+        activity_run_id=UUID("00000000-0000-4000-8000-000000000055"),
+        activity_clock=lambda: START,
+    )
+    kinds = [event.event_type for event in events]
+    assert report.stop_reason is ShadowSoakStopReason.ERP_CONTRACT_FAILURE
+    assert ActivityEventType.READ_STARTED in kinds
+    assert ActivityEventType.SAFE_FAILURE in kinds
+    assert ActivityEventType.EVIDENCE_PERSISTED not in kinds
+    assert "raw-response" not in repr(events)
+    assert "private-company-value" not in repr(events)
+
+
+def test_validation_failure_never_emits_evidence_persisted(tmp_path):
+    events = []
+
+    def invalid_scope(request, evidence_sink, permit_read):
+        permit_read()
+        evidence_sink(request, (observation("Alpha", 1, tenant="other-tenant"),))
+
+    report = run(
+        understanding("Alpha"),
+        session("Alpha", failures=1),
+        SQLiteHistoricalEvidenceStore(tmp_path / "evidence.sqlite3"),
+        study_runner=invalid_scope,
+        activity_sink=events.append,
+        activity_run_id=UUID("00000000-0000-4000-8000-000000000055"),
+        activity_clock=lambda: START,
+    )
+    kinds = [event.event_type for event in events]
+    assert report.stop_reason is ShadowSoakStopReason.TENANT_SCOPE_MISMATCH
+    assert ActivityEventType.READ_COMPLETED in kinds
+    assert ActivityEventType.VALIDATION_COMPLETED not in kinds
+    assert ActivityEventType.EVIDENCE_PERSISTED not in kinds
+
+
+def test_activity_sink_failure_cannot_change_soak_behavior(tmp_path):
+    reads = []
+
+    def broken_sink(event):
+        raise RuntimeError("watcher unavailable")
+
+    report = run(
+        understanding("Alpha"),
+        session("Alpha", cycles=1),
+        SQLiteHistoricalEvidenceStore(tmp_path / "evidence.sqlite3"),
+        lambda resource, *_: reads.append(resource) or (observation(resource, 1),),
+        activity_sink=broken_sink,
+        activity_run_id=UUID("00000000-0000-4000-8000-000000000055"),
+        activity_clock=lambda: START,
+    )
+    assert reads == ["Alpha"]
+    assert report.stop_reason is ShadowSoakStopReason.CYCLE_LIMIT
+    assert report.cycles_completed == report.erp_reads == report.observations_persisted == 1
+    assert report.erp_writes == 0 and report.execution_allowed is False
+
+
+def test_activity_event_is_immutable_and_cannot_grant_authority():
+    event = ActivityEvent(
+        event_type=ActivityEventType.RUN_STARTED,
+        occurred_at=START,
+        run_id=UUID("00000000-0000-4000-8000-000000000055"),
+        erp_reads=0,
+        evidence_batches_appended=0,
+    )
+    assert event.recommendation_allowed is False
+    assert event.promotion_allowed is False
+    assert event.execution_allowed is False
+    assert event.erp_writes == 0
+    with pytest.raises(AttributeError):
+        event.execution_allowed = True
+
+    forbidden = {
+        "tenant_id",
+        "company",
+        "payload",
+        "raw_value",
+        "credential",
+        "origin_url",
+        "provenance_id",
+        "document_id",
+    }
+    assert forbidden.isdisjoint(ActivityEvent.__dataclass_fields__)
+
+
+def test_terminal_watcher_renders_safe_structural_timeline_only():
+    stream = StringIO()
+    watcher = TerminalActivityWatcher(stream)
+    event = ActivityEvent(
+        event_type=ActivityEventType.EVIDENCE_PERSISTED,
+        occurred_at=START,
+        run_id=UUID("00000000-0000-4000-8000-000000000055"),
+        cycle=1,
+        study_kind="record_evidence",
+        entity="Alpha",
+        fields=("selected",),
+        requested_records=1,
+        observations_acquired=1,
+        valid_count=1,
+        erp_reads=1,
+        evidence_batches_appended=1,
+        persistence_verified=True,
+    )
+    watcher(event)
+    rendered = stream.getvalue()
+    assert rendered == render_activity_event(event) + "\n"
+    assert "evidence_persisted" in rendered
+    assert "Alpha.selected" in rendered
+    assert "reads=1" in rendered and "writes=0" in rendered
+    assert TENANT not in rendered
+    assert "private-company-value" not in rendered
+
+
+@pytest.mark.parametrize("unsafe", ("bad\nlabel", "bad\x1b[31m", ""))
+def test_activity_event_rejects_unsafe_structural_labels(unsafe):
+    with pytest.raises(ValueError):
+        ActivityEvent(
+            event_type=ActivityEventType.PROPOSAL_SELECTED,
+            occurred_at=START,
+            run_id=UUID("00000000-0000-4000-8000-000000000055"),
+            entity=unsafe,
+            erp_reads=0,
+            evidence_batches_appended=0,
+        )
+
+
+def test_synthetic_watcher_demo_exposes_timeline_without_payload(tmp_path):
+    stream = StringIO()
+    report = run_watcher_demo(stream, evidence_path=tmp_path / "evidence.sqlite3")
+    rendered = stream.getvalue()
+    assert report.cycles_completed == 1
+    assert report.erp_reads == 1 and report.erp_writes == 0
+    assert report.execution_allowed is False
+    assert "run_started" in rendered
+    assert "evidence_persisted" in rendered
+    assert "run_stopped" in rendered
+    assert "SyntheticEntity.selected_field" in rendered
+    assert "synthetic-demo-tenant" not in rendered
+    assert "synthetic-company-value" not in rendered
+    assert "synthetic-record-value" not in rendered
