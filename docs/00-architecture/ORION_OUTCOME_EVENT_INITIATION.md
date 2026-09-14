@@ -2,7 +2,7 @@
 
 Status: laboratory implementation for issue #120; independent review pending.
 This feature branch composes PR #117 head aa09aa16f1a4daa55cf85033e1094d281122d81c
-and PR #119 head 74227f21f9b3b51858abc137d172bdb55ba8db23 without changing canonical.
+and PR #119 head 4540fccb2beb093b4a703d29be6ab01eafa6bc4c without changing canonical.
 
 ## Run on WSL
 
@@ -69,3 +69,10 @@ unknown predictions, invalid event/route, conflicts and deterministic demo.
 Run full pytest, Ruff, compilation, all offline demos and source/capability scans.
 Independent review and maintainer merge remain required. A real restaurant trial
 also needs a separately authorized data/export scope; none is introduced here.
+
+## Cohort-safe measurement
+
+This composition includes issue #122. For multiple targets or model versions,
+call ledger.score(tenant, target_definition=target, model_version=model).
+Both selectors are required together; ambiguous implicit pooling fails closed.
+The demonstration contains one cohort and retains its existing command/output.
