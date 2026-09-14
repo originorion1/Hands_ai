@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import Request
 
 from ..contracts import Evidence, EvidenceKind, Observation, ObservationMode
 
@@ -23,15 +23,9 @@ DEFAULT_MAX_PAGES = 100
 DEFAULT_MAX_RESPONSE_BYTES = 1_000_000
 
 
-class _NoRedirectHandler(HTTPRedirectHandler):
-    """Reject redirects so authenticated requests cannot leave the configured origin."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-def _default_opener(request: Request, timeout: int) -> Any:
-    return build_opener(_NoRedirectHandler()).open(request, timeout=timeout)
+def _default_opener(request: Any, timeout: int) -> Any:
+    """Legacy callers have no implicit network authority."""
+    raise RuntimeError("legacy network read disabled; use the pilot launcher")
 
 
 def _normalize_base_url(base_url: str) -> str:

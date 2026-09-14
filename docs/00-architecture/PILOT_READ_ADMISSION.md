@@ -11,9 +11,14 @@ Neither prediction branch is required for admission, so neither is bundled here.
 
 Existing governed study runners reauthorize some reads, but DiscoveryAdapter's
 public discover contract and legacy adapters do not enforce one global gate.
-This change creates a dedicated pilot boundary, not a retrofit or sandbox for
-every older networking path. Legacy live-session launchers remain outside it.
-Do not start a pilot through a legacy launcher assuming this policy applies.
+Legacy ERP default openers and the generic HTTP default fetcher now reject
+all calls locally. This intentionally disables their implicit live networking,
+including metadata/preflight/refresh and old session/trial runners. They are not
+silently granted the pilot's scope. Explicit injected transports remain available
+for offline testing and trusted composition, not as an authorization mechanism.
+There is no built-in raw network opener. pilot_transport.open_pilot_read dispatches
+only to an explicitly supplied trusted callable after permit/wire validation.
+The existing source/capability policy forbids raw networking imports and is unchanged.
 
 ## Application interface
 
@@ -44,7 +49,10 @@ Injected clocks are test/trusted-runtime dependencies, not caller request fields
 3. Issue a short-lived non-serializable PilotReadPermit.
 4. Adapter uses that permit; the ERP bridge independently verifies the exact
    encoded HTTP method, origin, resource path, field/filter query and limits.
-5. Claim the permit's single transport allowance immediately before I/O.
+5. Bind the exact validated URL/method/body/headers to the permit once. The
+   neutral transport checks that binding, HTTPS/GET/no body and bounded timeout,
+   consumes one allowance, then rechecks expiry and revocation immediately before
+   dispatch to the supplied transport. Mutated/reused/unbound requests fail.
 6. Existing historical adapter validates redirects, response size, company,
    submitted status, requested fields and source dates.
 7. Reauthorize; validate all evidence and rows; freeze copied payloads; reauthorize
@@ -60,8 +68,11 @@ bridge is the only transport implementation verified here.
 Python private members and permits are engineering guards, not cryptographic
 capabilities against hostile code running in the same interpreter. Untrusted
 plugins/models must not receive transport credentials, a mutable grant registry,
-or arbitrary Python execution. Egress/process containment and removal of legacy
-entry points from a deployment are prerequisites if that threat model is needed.
+or arbitrary Python execution. Explicit injected callables can execute arbitrary
+Python, including network calls; they are trusted dependencies, not sandboxed.
+Hostile plugins require OS/process egress containment. The source-inventory test
+checks the absence of built-in networking imports; it is a regression gate, not a security proof
+against obfuscated imports or deliberate monkeypatching.
 
 ## Admission and provenance
 
@@ -107,3 +118,30 @@ release; trusted operator grant lookup and source mapping; private credentials;
 route that deployment only through launch_pilot_read; verify downstream storage
 encoding privately. No actual customer information, grant, endpoint or credential
 is supplied by this change. No live connection or write operation was performed.
+
+## Network inventory and migration
+
+- ERP discovery, historical, metadata, company and identity readers share the
+  now-denying legacy opener.
+- Preflight/retry, metadata refresh, live session, bounded trial, six-hour
+  continuation and learning comparison default to that same denying opener.
+- Generic HTTP discovery also denies default network calls.
+- ERPNextPilotReader validates its wire encoding and delegates to the neutral
+  permit-gated transport. No built-in production opener is provided.
+
+Existing CLI scripts using legacy defaults now fail closed even if credentials
+and their older ledgers are present. Do not restore the old opener or inject a
+raw live opener to work around this. A separate metadata authorization contract
+would be needed to reactivate metadata discovery; a record grant is not one.
+Tests exercise all legacy opener aliases, direct adapters, permit/wire tampering,
+expiry before transport, and the absence of built-in raw network imports.
+
+A deployment must supply a reviewed HTTPS transport with redirects disabled,
+bounded timeouts and response handling through the existing historical reader.
+The callable is a trusted runtime dependency, not a request/configuration value.
+No production transport was fabricated or activated in this offline change.
+
+Adapter failures expose only one of three stable categories:
+scope_or_response_invalid, upstream_read_failed, unexpected_internal_failure.
+Raw exceptions/row contents are not logged or returned. These categories aid
+triage but do not replace an independent audit or claim detailed root causes.

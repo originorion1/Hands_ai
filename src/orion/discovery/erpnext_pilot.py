@@ -3,9 +3,17 @@ import json
 from urllib.parse import parse_qs, quote, urlsplit
 
 from ..contracts import EvidenceKind
-from .erpnext_adapter import _default_opener, _normalize_base_url
+from .erpnext_adapter import _normalize_base_url
 from .erpnext_historical_sample import ERPNextHistoricalSampleAdapter
 from .pilot_read import PilotReadPermit
+from .pilot_transport import open_pilot_read
+
+
+class PilotAdapterReadError(ValueError):
+    """Safe machine-readable category; never include transport or row details."""
+    def __init__(self, category):
+        self.category = category
+        super().__init__(f'pilot adapter read rejected: {category}')
 
 
 class ERPNextPilotReader:
@@ -13,7 +21,7 @@ class ERPNextPilotReader:
         self._source_id = _normalize_base_url(source_id)
         self._api_key = api_key
         self._api_secret = api_secret
-        self._opener = opener or _default_opener
+        self._opener = opener
 
     @property
     def source_id(self):
@@ -46,8 +54,9 @@ class ERPNextPilotReader:
             }
             if query != expected:
                 raise ValueError('encoded request differs from authorized read')
-            permit.claim_io(self._source_id)
-            return self._opener(http_request, timeout=timeout)
+            permit.bind_wire(http_request)
+            return open_pilot_read(http_request, permit=permit, timeout=timeout,
+                                   opener=self._opener)
 
         adapter = ERPNextHistoricalSampleAdapter(
             base_url=self._source_id, tenant_id=request.tenant_id,
@@ -59,5 +68,9 @@ class ERPNextPilotReader:
         )
         try:
             return adapter.discover()
-        except Exception:  # noqa: BLE001 - withhold transport and private row details
-            raise ValueError('pilot adapter read rejected') from None
+        except (ValueError, TypeError):
+            raise PilotAdapterReadError('scope_or_response_invalid') from None
+        except RuntimeError:
+            raise PilotAdapterReadError('upstream_read_failed') from None
+        except Exception:  # noqa: BLE001 - expose category without private details
+            raise PilotAdapterReadError('unexpected_internal_failure') from None

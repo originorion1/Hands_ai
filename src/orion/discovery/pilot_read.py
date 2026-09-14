@@ -85,7 +85,7 @@ _SEAL = object()
 
 class PilotReadPermit:
     """Short-lived launcher capability; not a serialized or user-created grant."""
-    __slots__ = ('_active', '_clock', '_guard', '_used')
+    __slots__ = ('_active', '_clock', '_guard', '_used', '_wire')
 
     def __init__(self, seal, guard, clock):
         if seal is not _SEAL:
@@ -94,6 +94,7 @@ class PilotReadPermit:
         self._guard = guard
         self._active = True
         self._used = False
+        self._wire = None
 
     def check(self, source_id):
         if not self._active:
@@ -107,6 +108,23 @@ class PilotReadPermit:
         if not self._active:
             raise ValueError('pilot permit is closed')
         return self._clock()
+
+    def bind_wire(self, request):
+        """Bind the trusted adapter's validated encoding once, before transport."""
+        self.check(self._guard()[0].source_id)
+        if self._wire is not None or self._used:
+            raise ValueError('pilot wire binding already consumed')
+        self._wire = (request.full_url, request.get_method(), request.data,
+                      tuple(sorted(request.header_items())))
+
+    def check_wire(self, request):
+        current, _ = self._guard()
+        self.check(current.source_id)
+        wire = (request.full_url, request.get_method(), request.data,
+                tuple(sorted(request.header_items())))
+        if self._wire is None or wire != self._wire:
+            raise ValueError('request differs from bound pilot wire request')
+        return current.source_id
 
     def claim_io(self, source_id):
         result = self.check(source_id)
@@ -237,3 +255,4 @@ def launch_pilot_read(request: PilotRequest, *, authorization_id: str,
         return result
     finally:
         permit._active = False
+        permit._wire = None
