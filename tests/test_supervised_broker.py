@@ -48,6 +48,7 @@ class Harness:
         self.source.chmod(0o600)
         self.config = json.loads(_json({'version': VERSION, 'mode': 'synthetic_read_only',
             'caller': 'app_01', 'grant': asdict(self.grant),
+            'field_classifications': {f: 'public' for f in self.grant.window.fields},
             'limits': asdict(TransportLimits(3, 32768, 65536, 196608, 1, 2,
                                              self.grant.window.expires_at)),
             'protocol': protocol, 'secret_reference': 'BROKER_SOURCE_SECRET',

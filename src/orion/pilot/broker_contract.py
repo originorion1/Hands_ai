@@ -16,7 +16,7 @@ from ..discovery.read_window import ReviewedReadWindow
 from ..history.evidence import _observation_from_data
 from ..understanding.role_checkpoint import _json
 
-VERSION = 'local-broker-v1'
+VERSION = 'local-broker-v2'
 MAX_FRAME = 65536
 
 
@@ -99,3 +99,14 @@ def observations_from(values):
         result.append(replace(observation, evidence=replace(observation.evidence,
                       payload=freeze(observation.evidence.payload))))
     return tuple(result)
+
+
+def validate_field_classifications(value, fields):
+    """Trusted control-plane labels, bound by the existing configuration MAC.
+
+    Only public fields are supported. This checks policy, not the truth of a
+    collector's labels; it is not content inspection or an authority issuer.
+    """
+    exact(value, fields)
+    if any(type(label) is not str or label != 'public' for label in value.values()):
+        raise ValueError('field classification denied')

@@ -128,3 +128,35 @@ deployment on a host where isolation can actually be tested. It must prove that
 the application cannot reach broker keys, source files, process environment or
 alternative network paths. Do not activate this local laboratory service for a
 customer or reinterpret its test results as that deployment proof.
+
+## Field classification boundary (issue #143)
+
+`local-broker-v2` requires `field_classifications`, an exact mapping from every
+field in the canonical grant window to `public`. This is an independently supplied
+control-plane classification, not inferred from names, descriptions, model output
+or confidence. No other class is supported by this first local profile. Hidden,
+sensitive, personal, authentication and unclassified fields reject; there is no
+application waiver. The planner's existing public-only policy is preserved.
+
+The complete mapping is covered by the existing configuration digest, grant MAC,
+journal binding and sealed worker bootstrap. The supervisor validates it before
+resolving credentials and again before dispatch; the worker validates before
+source access. Application messages cannot supply classifications. Configuration
+mutation denies continuation. Old v1 configurations/tokens/journals must not be
+silently migrated or reset: preserve their audit tips and use an independently
+reviewed new configuration/authorization and explicitly reconciled budget state.
+No migration or authority restoration is supplied by this increment.
+
+Both local encodings use this contract. Column envelopes must match the requested
+field set even when no rows are returned. This does not supply a second metadata
+or pagination protocol. Classification is not content inspection: a dishonest
+trusted owner can mislabel sensitive values public, and transformed credentials
+are not comprehensively detected. This limitation remains a live blocker.
+
+`PYTHONPATH=src python3 tools/read_only_boundary_gate.py` executes the full suite,
+lint, compile, scan, demo and diff checks, then reports 25 boundary criteria.
+Missing/skipped test witnesses do not pass. The report is trusted-verifier evidence
+accounting, not signed attestation, a grant or a startup override. Known containment,
+metadata, protocol and custody gaps remain FAIL/BLOCKED even with a green suite.
+Exit 2 and READ_ONLY_PILOT_BOUNDARY_NOT_READY are the expected current verdict.
+The independent live startup gate remains unchanged and denied.
