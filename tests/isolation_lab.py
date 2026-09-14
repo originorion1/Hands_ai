@@ -105,6 +105,29 @@ def assess_child(returncode, stdout, stderr, *, negative_controls, audit_unchang
                   'isolation_assertion_failed', negative_controls=negative_controls, checks=checks)
 
 
+def namespace_command(script, *, readonly=()):
+    """Trusted fixture composition of the same profile; no CLI mount/code selectors."""
+    bwrap = shutil.which('bwrap')
+    executable = str(Path(sys.executable).resolve())
+    prefix = Path(sys.base_prefix).resolve()
+    if bwrap is None or prefix == Path('/') or not Path(executable).is_relative_to(prefix):
+        raise ValueError('namespace runtime unavailable')
+    command = [bwrap, '--unshare-all', '--die-with-parent', '--new-session',
+               '--cap-drop', 'ALL', '--uid', '65534', '--gid', '65534', '--clearenv']
+    for directory in ('/usr', '/lib', '/lib64', '/bin'):
+        if Path(directory).exists():
+            command.extend(('--ro-bind', directory, directory))
+    if not str(prefix).startswith('/usr'):
+        command.extend(('--ro-bind', str(prefix), str(prefix)))
+    for source, target in readonly:
+        command.extend(('--ro-bind', str(source), target))
+    command.extend(('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
+                    '--dir', '/work', '--ro-bind', str(Path(script).resolve()),
+                    '/work/probe.py', '--chdir', '/work', executable,
+                    '-I', '-S', '/work/probe.py', '--child'))
+    return command
+
+
 def run_lab():
     bwrap = shutil.which('bwrap')
     executable = str(Path(sys.executable).resolve())
@@ -139,17 +162,7 @@ def run_lab():
                          'port': port, 'parent': os.getpid()}
                 scope.update({kind: os.readlink('/proc/self/ns/' + kind)
                               for kind in ('net', 'pid', 'mnt', 'user')})
-                command = [bwrap, '--unshare-all', '--die-with-parent', '--new-session',
-                           '--cap-drop', 'ALL', '--uid', '65534', '--gid', '65534', '--clearenv']
-                for directory in ('/usr', '/lib', '/lib64', '/bin'):
-                    if Path(directory).exists():
-                        command.extend(('--ro-bind', directory, directory))
-                if not str(prefix).startswith('/usr'):
-                    command.extend(('--ro-bind', str(prefix), str(prefix)))
-                command.extend(('--proc', '/proc', '--dev', '/dev', '--tmpfs', '/tmp',
-                                '--dir', '/work', '--ro-bind', str(Path(__file__).resolve()),
-                                '/work/probe.py', '--chdir', '/work', executable,
-                                '-I', '-S', '/work/probe.py', '--child'))
+                command = namespace_command(Path(__file__))
                 # A canary environment entry proves --clearenv, without real credentials.
                 completed = subprocess.run(command, input=json.dumps(scope), capture_output=True,
                     text=True, timeout=10, close_fds=True, check=False,
