@@ -25,6 +25,7 @@ from .erpnext_adapter import (
     _require_non_empty,
     _validate_resource,
 )
+from .json_boundary import unique_json_object
 
 DEFAULT_MAX_DOCTYPES = 100
 
@@ -153,8 +154,8 @@ class ERPNextMetadataAdapter:
             )
 
         try:
-            payload: Any = json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            payload: Any = json.loads(body.decode("utf-8"), object_pairs_hook=unique_json_object)
+        except (UnicodeDecodeError, ValueError) as exc:
             raise RuntimeError(
                 f"read-only metadata returned invalid JSON for {doctype}"
             ) from exc
