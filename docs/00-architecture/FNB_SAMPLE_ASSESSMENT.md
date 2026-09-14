@@ -104,3 +104,38 @@ Before financial or loss conclusions, independently establish bounded ledger
 coverage, stock count timestamps, unit/currency consistency, adjustments/returns,
 and recipe/price validity. Collection still requires separate human-issued
 record authority and the unresolved deployment release gates to pass.
+
+## Declared coverage and count timing (issue #141)
+
+The assessment now also evaluates two narrow instrument channels using the
+existing admitted evidence, collector lineage and semantic checkpoint:
+
+- `ledger_manifest_closed` / `sha256`: process and organizational collectors must
+  independently agree on a versioned digest of exact tenant/company/source,
+  resource, technical date field/window, selected fields and canonical record
+  identities/content. Copies are deduplicated; conflicting identities/windows
+  cannot create a coverage result. The digest is reproducible from the declared
+  export and from the admitted archive. Witnesses address subject `*` within one
+  discovered resource; that marker is not a wildcard read permission.
+- `physical_count_time` / `UTC`: process and temporal collectors must independently
+  agree on a canonical UTC timestamp for a particular admitted, semantically
+  grounded count. The timestamp must match its validated business date and cannot
+  postdate the witness acquisition.
+
+Results are CORROBORATED, UNKNOWN or CONTRADICTED, with evidence IDs. Distinct
+URLs alone do not establish independence: collector domains must be disjoint
+across required evidence classes. Superseded witnesses are excluded according
+to the already-validated revision chain; checkpoint restoration recomputes these
+results from original evidence. Missing/mutated lineage fails closed.
+
+**CORROBORATED means a declared extract or timestamp has independent support.**
+It does not prove that the organization has no other ledgers, unreported events,
+unrecorded adjustments or biased collectors. The synthetic test witnesses
+exercise this contract; they do not attest real-world source honesty.
+`upstream_completeness=NOT_PROVEN`, `loss_conclusion_allowed=false` and
+`execution_allowed=false` remain explicit even in the positive case. Stock
+variance stays a conditional hypothesis. Neither digest nor timestamp authorizes
+collection, grants access, restores authority or changes a release gate.
+
+The next unresolved product boundary is bounded reconciliation of movement
+coverage, adjustments and recipe-effective evidence across the count interval.

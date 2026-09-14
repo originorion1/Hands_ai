@@ -15,6 +15,7 @@ from itertools import pairwise
 from ..shadow.semantic_review import review_semantic_study
 from ..understanding.semantic_rules import SemanticRule
 from ..understanding.semantic_study import SemanticStudy
+from .coverage import review_coverage
 
 
 def _rule(role, kind, dimension, secondary):
@@ -306,6 +307,7 @@ def _assess_restaurant(study, *, tenant_id, company, source_id):
         'business_period': [dates[0], dates[-1]] if dates else None,
         'normalized_records': normalized, 'excluded_cells': rejected,
         'semantic_claims': states, 'evidence': evidence,
+        'coverage_review': review_coverage(study, normalized, review),
         'observed_facts': [{'category': 'OBSERVED_FACT', 'resource': o.evidence.payload['resource'],
                             'record': dict(o.evidence.payload['record']),
                             'evidence_id': str(o.evidence.evidence_id)} for o, _ in records],
@@ -342,5 +344,6 @@ def owner_report(assessment):
                      f"Evidence: {', '.join(f['evidence_ids'])}\n"
                      f"Uncertainty: {'; '.join(f['uncertainty'])}\n"
                      f"Investigate: {f['recommended_investigation']}")
+    lines.append('Coverage/timing: ' + _json(assessment['coverage_review']))
     lines.append('UNKNOWN: ' + '\n'.join(assessment['unknowns']))
     return '\n\n'.join(lines)
