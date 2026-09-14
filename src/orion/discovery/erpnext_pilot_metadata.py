@@ -24,11 +24,12 @@ class _CatalogLocation:
 
 
 class ERPNextPilotMetadataReader:
-    def __init__(self, *, source_id, api_key, api_secret, opener=None):
+    def __init__(self, *, source_id, api_key, api_secret, opener=None, journal=None):
         self._source_id = _normalize_base_url(source_id)
         self._api_key = api_key
         self._api_secret = api_secret
         self._opener = opener
+        self._journal = journal
 
     @property
     def source_id(self):
@@ -56,7 +57,7 @@ class ERPNextPilotMetadataReader:
                 'Accept': 'application/json',
                 'Authorization': f'token {self._api_key}:{self._api_secret}'})
             permit.bind_wire(authenticated)
-            return open_pilot_read(authenticated, permit=permit, timeout=timeout, opener=self._opener)
+            return open_pilot_read(authenticated, permit=permit, timeout=timeout, opener=self._opener, journal=self._journal)
         return dispatch
 
     def catalog(self, permit, requested):
