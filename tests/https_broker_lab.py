@@ -14,7 +14,7 @@ import subprocess
 import sys
 import tempfile
 import threading
-from contextlib import closing
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -221,28 +221,28 @@ def supervisor():
         return 2
 
 
-def run_case(root, behavior='ok', protocol='local_rows_v1'):
+from test_supervised_broker import Harness
+
+
+class TLSHarness(Harness):
+    def start(self, head=None, env_changes=None):
+        path = self.root / 'config.json'
+        path.write_text(_json(self.config)); path.chmod(0o600)
+        env = {'PATH': os.defpath, 'BROKER_AUTH_KEY': self.key.decode(), 'BROKER_SOURCE_SECRET': self.secret,
+               'HTTPS_PROXY': 'http://127.0.0.1:1', 'ALL_PROXY': 'http://127.0.0.1:1'}
+        args = [sys.executable, '-I', str(Path(__file__).resolve()), '--config', str(path), '--state', str(self.state)]
+        if head:
+            args.extend(('--expected-head', head))
+        self.process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, env=env, close_fds=True)
+        self.last = json.loads(self.process.stdout.readline())
+        return self.last
+
+
+@contextmanager
+def prepared_https(h, behavior="ok"):
     import secrets
-
-    from test_supervised_broker import Harness
-
-    from orion.pilot.broker_contract import observations_from
-
-    class TLSHarness(Harness):
-        def start(self, head=None, env_changes=None):
-            path = self.root / 'config.json'
-            path.write_text(_json(self.config)); path.chmod(0o600)
-            env = {'PATH': os.defpath, 'BROKER_AUTH_KEY': self.key.decode(), 'BROKER_SOURCE_SECRET': self.secret,
-                   'HTTPS_PROXY': 'http://127.0.0.1:1', 'ALL_PROXY': 'http://127.0.0.1:1'}
-            args = [sys.executable, '-I', str(Path(__file__).resolve()), '--config', str(path), '--state', str(self.state)]
-            if head:
-                args.extend(('--expected-head', head))
-            self.process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, text=True, env=env, close_fds=True)
-            self.last = json.loads(self.process.stdout.readline())
-            return self.last
-
-    h = TLSHarness(root, protocol)
+    root = h.root
     # Fixed synthetic alphanumeric credential, not a real secret.
     h.secret = secrets.token_hex(24)
     envelope = decode(h.source.read_bytes())
@@ -255,44 +255,53 @@ def run_case(root, behavior='ok', protocol='local_rows_v1'):
         (root / 'other-trust').mkdir()
         trust, _ = certificates(root / 'other-trust')
     server = FixtureServer(cert, key, raw, h.secret, behavior)
-    profile = {'binding': digest(h.config), 'port': server.port, 'certificate': str(trust),
-               'certificate_sha256': hashlib.sha256(trust.read_bytes()).hexdigest()}
-    path = root / 'tls-profile.json'
-    path.write_text(_json({'profile': profile, 'mac': authenticate(h.key, 'local_https_fixture', profile)}))
-    path.chmod(0o600)
-    h.source.unlink()  # Success must use HTTPS response bytes, not cached source data.
     try:
-        assert h.start()['status'] == 'unarmed'
-        assert h.send(h.message())['budget']['attempts'] == 0
-        assert h.control('arm')['status'] == 'arm'
-        for message in (dict(h.message(), operation='write'), dict(h.message(), url='https://attacker.invalid/'),
-                        dict(h.message(), grant_token='0' * 64)):
-            assert h.send(message)['budget']['attempts'] == 0
-        assert server.requests == []
-        result = h.send(h.message())
-        assert result['budget']['attempts'] == 1
-        if behavior == 'ok':
-            assert result['status'] == 'admitted'
-            observations = observations_from(result['observations'])
-            assert observations[0].evidence.payload['record'] == h.rows[0]
-            assert observations[0].evidence.payload['provenance']['authorization_id'] == h.grant.authorization_id
-            assert h.secret not in _json(result) and h.key.decode() not in _json(result)
-        else:
-            assert result['status'] == 'denied' and 'observations' not in result
-            assert result['budget']['failures'] == 1
-        expected_requests = [] if behavior in ('wrong_hostname', 'untrusted_certificate') else [{'get': True, 'authorized': True}]
-        assert server.requests == expected_requests
-        assert h.send(h.message())['status'] == 'denied'
-        h.control('revoke'); head = h.close()['head']
-        assert h.start(head)['status'] == 'unarmed'
-        assert h.control('arm')['status'] == 'denied'
-        assert h.send(h.message('restart'))['budget']['attempts'] == 1
-        assert server.requests == expected_requests
-        return {'case': behavior, 'protocol': protocol, 'status': 'PASS', 'source_requests': len(server.requests),
-                'attempts_after_restart': 1, 'execution_allowed': False}
+        profile = {'binding': digest(h.config), 'port': server.port, 'certificate': str(trust),
+                   'certificate_sha256': hashlib.sha256(trust.read_bytes()).hexdigest()}
+        path = root / 'tls-profile.json'
+        path.write_text(_json({'profile': profile, 'mac': authenticate(h.key, 'local_https_fixture', profile)}))
+        path.chmod(0o600)
+        h.source.unlink()  # Success must use HTTPS response bytes, not cached source data.
+        yield server
     finally:
-        h.close(); server.close()
+        server.close()
 
+
+def run_case(root, behavior="ok", protocol="local_rows_v1"):
+    from orion.pilot.broker_contract import observations_from
+    h = TLSHarness(root, protocol)
+    with prepared_https(h, behavior) as server:
+        try:
+            assert h.start()['status'] == 'unarmed'
+            assert h.send(h.message())['budget']['attempts'] == 0
+            assert h.control('arm')['status'] == 'arm'
+            for message in (dict(h.message(), operation='write'), dict(h.message(), url='https://attacker.invalid/'),
+                            dict(h.message(), grant_token='0' * 64)):
+                assert h.send(message)['budget']['attempts'] == 0
+            assert server.requests == []
+            result = h.send(h.message())
+            assert result['budget']['attempts'] == 1
+            if behavior == 'ok':
+                assert result['status'] == 'admitted'
+                observations = observations_from(result['observations'])
+                assert observations[0].evidence.payload['record'] == h.rows[0]
+                assert observations[0].evidence.payload['provenance']['authorization_id'] == h.grant.authorization_id
+                assert h.secret not in _json(result) and h.key.decode() not in _json(result)
+            else:
+                assert result['status'] == 'denied' and 'observations' not in result
+                assert result['budget']['failures'] == 1
+            expected_requests = [] if behavior in ('wrong_hostname', 'untrusted_certificate') else [{'get': True, 'authorized': True}]
+            assert server.requests == expected_requests
+            assert h.send(h.message())['status'] == 'denied'
+            h.control('revoke'); head = h.close()['head']
+            assert h.start(head)['status'] == 'unarmed'
+            assert h.control('arm')['status'] == 'denied'
+            assert h.send(h.message('restart'))['budget']['attempts'] == 1
+            assert server.requests == expected_requests
+            return {'case': behavior, 'protocol': protocol, 'status': 'PASS', 'source_requests': len(server.requests),
+                    'attempts_after_restart': 1, 'execution_allowed': False}
+        finally:
+            h.close()
 
 def run():
     report = {'status': 'BLOCKED', 'reason': 'loopback_socket_unavailable', 'cases': [],

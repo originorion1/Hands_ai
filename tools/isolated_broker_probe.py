@@ -6,8 +6,11 @@ import sys
 from pathlib import Path
 
 
-def run():
-    fixture = Path(__file__).resolve().parents[1] / 'tests' / 'isolated_broker_lab.py'
+def run(*, https=False):
+    if type(https) is not bool:
+        raise ValueError('fixed probe profile required')
+    name = 'isolated_https_lab.py' if https else 'isolated_broker_lab.py'
+    fixture = Path(__file__).resolve().parents[1] / 'tests' / name
     try:
         completed = subprocess.run([sys.executable, '-I', str(fixture)], capture_output=True,
             text=True, timeout=60, check=False, close_fds=True, cwd=fixture.parents[1], env={'PATH': os.defpath})
