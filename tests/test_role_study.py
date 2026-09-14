@@ -26,18 +26,19 @@ class Experiment:
         self.sensitivity = {(self.resource, f): 'public' for f in self.fields}
         self.reads = 0
 
-    def acquire(self, values, *, lookup=None, tenant=None, resource=None, clock=lambda: NOW, selected=None):
+    def acquire(self, values, *, lookup=None, tenant=None, resource=None, clock=lambda: NOW, selected=None, window=None, limit=10):
         # A separate, fixture-owned control plane supplies technical partition and
         # identity bindings. These are NOT inferred business roles or metadata grants.
         all_fields = (*self.fields, 'x_81', 'x_92')
         fields = all_fields if selected is None else tuple(dict.fromkeys(
             (*selected, self.fields[1], 'x_81', 'x_92')))
+        start, end = window or (date(2024, 1, 1), date(2024, 12, 31))
         req = PilotRequest(tenant or self.study.tenant, self.study.company, self.study.source,
-            resource or self.resource, fields, self.fields[1], date(2024, 1, 1), date(2024, 12, 31), 10)
+            resource or self.resource, fields, self.fields[1], start, end, limit)
         grant = PilotAuthorization('local-sample', req.source_id,
             ReviewedReadWindow(req.tenant_id, req.company, req.resource, fields,
                 req.date_field, req.start, req.end, NOW + timedelta(hours=1)),
-            'x_81', 'x_92', 'local-fixture', EvidenceKind.EXPERIMENT, 10)
+            'x_81', 'x_92', 'local-fixture', EvidenceKind.EXPERIMENT, limit)
         parent = self
 
         class LocalReader:
@@ -65,7 +66,7 @@ class Experiment:
         return observations, req
 
     def plan(self, **kwargs):
-        return self.study.next_observation(start=date(2024, 1, 1), end=date(2024, 1, 7),
+        return self.study.next_observation(start=date(2024, 6, 1), end=date(2024, 6, 7),
             sensitivity=self.sensitivity, **kwargs)
 
 
@@ -227,7 +228,9 @@ def test_killer_experiment_collects_only_proposed_fields_plus_required_read_bind
     assert plan and x.reads == 0
     # The experiment's independent control plane explicitly approves the proposal
     # and resolves its technical blockers. The study has no grant-issuing method.
-    observations, req = x.acquire(rows(), selected=plan.fields)
+    observations, req = x.acquire(rows(), selected=plan.fields,
+                                  window=(plan.start, plan.end), limit=plan.max_records)
+    assert (req.start, req.end, req.max_records) == (plan.start, plan.end, plan.max_records)
     assert set(req.fields) == {*plan.fields, x.fields[1], 'x_81', 'x_92'}
     x.study.observe(observations, request=req)
     claims = x.study.claims()
