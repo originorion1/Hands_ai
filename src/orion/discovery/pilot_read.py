@@ -246,11 +246,20 @@ def launch_pilot_read(request: PilotRequest, *, authorization_id: str,
             raise ValueError('authorization changed during read')
         return request, current
 
-    permit = PilotReadPermit(_SEAL, guard, clock)
-    try:
+    def operation(permit):
         observations = adapter.read(permit)
         guard()
-        result = _admit(observations, request, initial, clock())
+        return _admit(observations, request, initial, clock())
+
+    return _run_permitted_read(guard, clock, operation)
+
+
+def _run_permitted_read(guard, clock, operation):
+    """Shared permit lifecycle for separately authorized metadata operations."""
+    guard()
+    permit = PilotReadPermit(_SEAL, guard, clock)
+    try:
+        result = operation(permit)
         guard()
         return result
     finally:

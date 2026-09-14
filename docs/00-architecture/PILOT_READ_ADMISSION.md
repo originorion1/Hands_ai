@@ -152,3 +152,66 @@ This is acquisition time, not a business date or a source-system event timestamp
 Full-reader tests with a frozen clock verify deterministic admitted identities;
 advancing that clock produces a distinct acquisition. Header-copy tests cover
 mixed-case request headers without weakening exact wire binding.
+
+## Separately authorized metadata discovery
+
+`launch_pilot_metadata` in `orion.discovery.pilot_metadata` is the metadata entry
+point alongside `launch_pilot_read`. It uses the same sealed single-use permit
+lifecycle and `open_pilot_read` transport gate; it does not use a record grant.
+`ERPNextPilotMetadataReader` reuses the existing name-catalog reader, metadata
+adapter, sensitive-value screening and structural scope-candidate derivation.
+Legacy default networking remains disabled.
+
+A trusted lookup supplies a `MetadataAuthorization` containing an exact
+`MetadataRequest(tenant_id, company, source_id)`, authorization ID, aware expiry,
+explicit `site_schema_read=True`, catalog budget (1–100), schema budget (1–10,
+no larger than catalog budget), and an explicit tuple of resource exclusions.
+These are operator-supplied values: none are populated with customer settings.
+Schema visibility is site-wide and may span companies; company is the intended
+pilot context, NOT proof that a discovered schema belongs only to that company.
+An operator must actually have authority over the site's schema visibility.
+No historical record window is needed for schema reads; expiry still applies.
+
+Invocation:
+
+```python
+from orion.discovery.pilot_metadata import launch_pilot_metadata
+
+result = launch_pilot_metadata(
+    metadata_request,
+    authorization_id=metadata_authorization_reference,
+    lookup=trusted_metadata_grant_lookup,
+    adapter=configured_metadata_reader,
+    clock=trusted_clock,
+)
+```
+
+The caller does not need DocType names. One name-only DocType GET requests the
+catalog budget plus one sentinel. At most the schema budget of nonexcluded names
+are considered in deterministic catalog order, each with its own target-bound,
+one-use permit. Permissions are never changed and failures are not retried.
+The request cap is per invocation (one catalog GET plus at most max_schemas GETs),
+not a durable cross-run budget. No implicit paging or continuation occurs.
+
+`MetadataDiscovery` returns visible catalog names, catalog completeness relative
+to the API response, schema targets considered, sanitized scope proposals, and an
+immutable metadata observation with tenant, company context, source, acquisition
+time, authorization reference and grant digest. Full schemas/defaults/scripts
+are not retained. `schema_targets` does not imply that every target produced a
+usable proposal. Existing sensitive-name/value screening remains in effect;
+child/singleton/non-submittable or otherwise unsupported schemas yield no proposal.
+Catalog completeness is NOT a claim of visibility into all entities on the server.
+If the catalog or schema budget is exhausted, uncovered names remain unexamined.
+
+Proposals contain field and source-Date candidates derived from observed schema,
+plus the historical reader's required audit fields. They may have no viable date
+field. Proposals always require review and carry no record authority. Company
+identity, business date meaning, selected fields, dates and a separate expiring
+record grant must be reviewed before `launch_pilot_read` can admit records.
+There is no conversion from a metadata result/grant into a `PilotAuthorization`.
+Metadata and record grant types reject each other.
+
+This is an offline-tested application interface, not a production CLI or a live
+activation. Supply only a separately reviewed no-redirect bounded transport and
+trusted grant registry in deployment. No raw networking, production values,
+credentials, customer records or writes are added by metadata discovery.
