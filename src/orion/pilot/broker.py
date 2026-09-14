@@ -31,6 +31,7 @@ from .broker_contract import (
     observations_from,
     private_bytes,
     request_from,
+    validate_field_classifications,
 )
 from .journal import AttemptJournal, JournalDenied, TransportLimits
 
@@ -40,7 +41,8 @@ class Broker:
 
     def __init__(self, config, directory, *, expected_head=None):
         exact(config, ('version', 'mode', 'caller', 'grant', 'limits', 'protocol',
-            'secret_reference', 'auth_reference', 'source_path', 'source_digest'))
+            'secret_reference', 'auth_reference', 'source_path', 'source_digest',
+            'field_classifications'))
         if config['version'] != VERSION or config['mode'] != 'synthetic_read_only':
             raise ValueError('offline broker configuration required')
         _text(config['caller'])
@@ -60,6 +62,7 @@ class Broker:
         self.limits = TransportLimits(**limits)
         if self.limits.response_bytes > MAX_FRAME or self.limits.request_bytes > MAX_FRAME:
             raise ValueError('bounded broker frames required')
+        validate_field_classifications(config['field_classifications'], self.grant.window.fields)
         refs = CredentialEnvironmentReferences(config['auth_reference'], config['secret_reference'])
         resolved = refs.resolve(os.environ)
         # Referenced values stay in the broker process; only the source credential
@@ -137,6 +140,9 @@ class Broker:
             raise ValueError('duplicate attempt denied')
         request = request_from(value['request'])
         self.phase = 'scope_authorization'
+        if digest(self.config) != self.binding:
+            raise ValueError('broker configuration changed')
+        validate_field_classifications(self.config['field_classifications'], self.grant.window.fields)
         supervisor = self
 
         class ProcessReader:
@@ -152,7 +158,7 @@ class Broker:
                 success = False
                 try:
                     bootstrap = {k: supervisor.config[k] for k in
-                                 ('grant', 'protocol', 'source_digest')}
+                                 ('grant', 'protocol', 'source_digest', 'field_classifications')}
                     bootstrap.update(request=asdict(request), path=supervisor.config['source_path'],
                                      secret=supervisor.secret)
                     source = str(Path(__file__).resolve().parents[2])

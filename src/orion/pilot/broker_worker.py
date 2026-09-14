@@ -22,12 +22,15 @@ from .broker_contract import (
     grant_from,
     private_bytes,
     request_from,
+    validate_field_classifications,
 )
 
 
 def acquire(bootstrap):
-    exact(bootstrap, ('grant', 'request', 'path', 'source_digest', 'protocol', 'secret'))
+    exact(bootstrap, ('grant', 'request', 'path', 'source_digest', 'protocol', 'secret',
+                      'field_classifications'))
     grant, request = grant_from(bootstrap['grant']), request_from(bootstrap['request'])
+    validate_field_classifications(bootstrap['field_classifications'], grant.window.fields)
     if bootstrap['protocol'] not in ('local_rows_v1', 'local_columns_v1'):
         raise ValueError('unsupported local protocol')
 
@@ -55,7 +58,8 @@ def acquire(bootstrap):
             else:
                 columns = envelope['columns']
                 if (type(columns) is not list or any(type(x) is not str for x in columns)
-                        or len(columns) != len(set(columns)) or type(envelope['values']) is not list):
+                        or len(columns) != len(set(columns)) or set(columns) != set(request.fields)
+                        or type(envelope['values']) is not list):
                     raise ValueError('malformed columns')
                 rows = [dict(zip(columns, row, strict=True)) for row in envelope['values']
                         if type(row) is list]
