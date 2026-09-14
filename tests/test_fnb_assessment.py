@@ -48,6 +48,13 @@ def test_restaurant_records_to_traceable_owner_assessment_without_action():
         'conditional_stock_variance': '27.2'}
     for code, value in expected.items():
         assert finding(result, code)['value'] == value
+    for code in ('sample_purchase_cost', 'sample_purchase_quantity'):
+        purchase = finding(result, code)
+        assert purchase['uncertainty'] == ['Ledger completeness is unknown.']
+        assert 'Uncertainty: Ledger completeness is unknown.' in owner_report({
+            **result, 'findings': [purchase]})
+    assert finding(result, 'sample_sales_change')['uncertainty'] == [
+        'Ledger completeness is unknown.', 'Daily sample coverage may differ.']
     variance = finding(result, 'conditional_stock_variance')
     assert variance['category'] == 'HYPOTHESIS'
     assert variance['estimated_business_impact']['value'] == '108.8'
@@ -57,6 +64,8 @@ def test_restaurant_records_to_traceable_owner_assessment_without_action():
     assert prediction['prediction']['target_date'] == '2024-06-04'
     assert prediction['prediction']['actual_outcome'] is None
     for f in result['findings']:
+        assert f['uncertainty'] and all(item.strip() for item in f['uncertainty'])
+        assert 'Uncertainty: \n' not in owner_report({**result, 'findings': [f]})
         assert f['evidence_ids'] and set(f['evidence_ids']) <= result['evidence'].keys()
         assert f['execution_allowed'] is False and f['action_authority'] == 'NONE'
         assert all(result['evidence'][k]['provenance']['authorization_id'] for k in f['evidence_ids'])
