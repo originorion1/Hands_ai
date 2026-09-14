@@ -53,6 +53,25 @@ def test_review_preserves_both_original_and_corrected_evidence():
     assert review(lab, restored) == outcome
 
 
+def test_shared_collector_conflict_cannot_hide_an_independent_disagreement():
+    lab = Organization('B')
+    lab.records()
+    supporting = lab.anchors('monetary', observe=False)
+    conflicting = lab.anchors('monetary', override=[8, 11], observe=False)
+    # One process witness supports; another from that collector disagrees.
+    # A separately grounded aggregate collector also disagrees. The shared
+    # collector must not suppress review of this independent disagreement.
+    lab.study.observe(supporting[:1])
+    lab.study.observe(conflicting[1:])
+    assert not any(c.hypothesis.status == 'validated'
+                   for revision in lab.study.history for c in revision.claims)
+    outcome = review(lab)
+    assert outcome.decision is not None and outcome.contradicted_hypotheses
+    assert not outcome.execution_allowed
+    assert {o.evidence.evidence_id for o in (*supporting[:1], *conflicting[1:])} <= set(outcome.evidence_ids)
+    assert review(lab, restore(lab, checkpoint_semantic(lab.study))) == outcome
+
+
 def test_unknown_audit_retains_scope_evidence_and_explicit_state():
     lab = Organization('C').populate()
     result = review(lab)

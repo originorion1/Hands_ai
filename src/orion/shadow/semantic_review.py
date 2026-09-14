@@ -50,9 +50,13 @@ def review_semantic_study(study, *, tenant_id, company, source_id):
                       for o in study.evidence_snapshot()}
 
     def independent_disagreement(claim):
-        support = {root[0] for k in claim.independent for root in anchor_origins.get(k, ())}
-        against = {root[0] for k in claim.contradicting for root in anchor_origins.get(k, ())}
-        return bool(support and against and support.isdisjoint(against))
+        support = [{root[0] for root in anchor_origins.get(k, ())}
+                   for k in claim.independent]
+        against = [{root[0] for root in anchor_origins.get(k, ())}
+                   for k in claim.contradicting]
+        # One shared collector must not hide a different independent witness.
+        # Compare witnesses, not the union of every collector on each side.
+        return any(a and b and a.isdisjoint(b) for a in support for b in against)
 
     claims = tuple(c for c in evaluated if c.hypothesis.status == 'invalidated'
                    and c.contradicting and (c.hypothesis.hypothesis_id in previously_validated

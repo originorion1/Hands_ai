@@ -1,6 +1,6 @@
 {
   "scope": "Repository-wide source inventory; critical-path audit, not independent certification",
-  "dependency_head": "e850d410100945b789f9a42abb5b5b341823e98a",
+  "dependency_head": "36a38f44f1bc432137bc8f6aa8671e40271aea9b",
   "files": [
     {
       "file": "src/orion/__init__.py",
@@ -861,7 +861,7 @@
     },
     {
       "file": "src/orion/shadow/semantic_review.py",
-      "sha256": "858147962b3ec83c83d53d91dfa17ecaeddf1b493ebacb37f03f4fda97d99b07",
+      "sha256": "16b02a31fd97721e1583dd0fc58213d5ab41f5f83a5495619d6cbe4022bc9571",
       "symbols": [
         "SemanticReview",
         "review_semantic_study"
