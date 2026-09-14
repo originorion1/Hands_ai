@@ -23,7 +23,7 @@ def test_known_direct_adapter_escape_prevents_release():
 
 def test_prototype_count_validation_is_not_live_semantic_attestation():
     hypothesis=Hypothesis(uuid4(),'synthetic','unverified model assertion',())
-    assert validate_hypothesis(hypothesis).status=='validated'
+    assert validate_hypothesis(hypothesis).status=='unvalidated'
     gate=next(g for g in release_report()['gates'] if g['category']=='EPISTEMIC_SAFETY')
     assert gate['status']=='BLOCKED'
 

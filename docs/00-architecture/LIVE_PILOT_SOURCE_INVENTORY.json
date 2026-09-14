@@ -1,6 +1,6 @@
 {
-  "scope": "Repository-wide source inventory; critical-path manual audit, not independent certification",
-  "dependency_head": "2375ad61af37f8e13a6c59935051d614e2ead8cb",
+  "scope": "Repository-wide source inventory; critical-path audit, not independent certification",
+  "dependency_head": "36a38f44f1bc432137bc8f6aa8671e40271aea9b",
   "files": [
     {
       "file": "src/orion/__init__.py",
@@ -23,7 +23,7 @@
     },
     {
       "file": "src/orion/demo.py",
-      "sha256": "f4d4ee5dd2416994fdf26ac8d6d6cf8e440f635d77dcaebfbb7cee8e800cfb36",
+      "sha256": "3e5080b7bf4f69bf03b42ace3b73dc6307f1bab85a476bd3197b416bf8c53281",
       "symbols": [
         "DemoReport",
         "_MockResponse",
@@ -640,7 +640,7 @@
     },
     {
       "file": "src/orion/knowledge/promotion.py",
-      "sha256": "df9c903d0f27b5e98b5a9979f2c7f245faec0b49de093055404d7b100d1ac9f8",
+      "sha256": "4464cb90313e0f4104361bdfee13380c5635703b0fb92f96a8f86161b5f56c44",
       "symbols": [
         "KnowledgeEntry",
         "KnowledgeStore"
@@ -860,6 +860,14 @@
       ]
     },
     {
+      "file": "src/orion/shadow/semantic_review.py",
+      "sha256": "16b02a31fd97721e1583dd0fc58213d5ab41f5f83a5495619d6cbe4022bc9571",
+      "symbols": [
+        "SemanticReview",
+        "review_semantic_study"
+      ]
+    },
+    {
       "file": "src/orion/stores/__init__.py",
       "sha256": "b45af36d48251827c38a7b37994393a7decbede90f07a48d7d6f80397b283489",
       "symbols": []
@@ -893,7 +901,7 @@
     },
     {
       "file": "src/orion/understanding/graph.py",
-      "sha256": "a6fe9919a52b3e430f9c1b304c1fff23eaa7855e3d5bf23a2e2d0f2171e68970",
+      "sha256": "7f54dd4ad61b2bfd9ec30c854205abcb95be4e2a7fb0bcd1e148c6608879174f",
       "symbols": [
         "utc_now",
         "NodeType",
@@ -910,7 +918,7 @@
     },
     {
       "file": "src/orion/understanding/hypotheses.py",
-      "sha256": "8132c24daa61591f688be37692d338cc179763bd513a2ebee9ce26f9492f20d9",
+      "sha256": "02105768a19718dc82819aa0cc9e8c81232b09091bac0c4425de94aef5091a6d",
       "symbols": [
         "Hypothesis",
         "generate_hypotheses"
@@ -1000,6 +1008,32 @@
       ]
     },
     {
+      "file": "src/orion/understanding/semantic_checkpoint.py",
+      "sha256": "29c90fb155e6dd6aec993a58738b54d43ae7986a6b664694673e6fac1e8257bf",
+      "symbols": [
+        "checkpoint_semantic",
+        "restore_semantic"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/semantic_rules.py",
+      "sha256": "aa794a9981c6227c2b1c9a94054da07da012771694d487fb285e0a5e77bb37c5",
+      "symbols": [
+        "SemanticRule"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/semantic_study.py",
+      "sha256": "65183eac44114130a5ce8dc6e14614ad940fb2363d76246732fb04d65a4bf5af",
+      "symbols": [
+        "Instrument",
+        "Origin",
+        "SemanticClaim",
+        "SemanticRevision",
+        "SemanticStudy"
+      ]
+    },
+    {
       "file": "src/orion/understanding/validation.py",
       "sha256": "4dd30f0040a243ec659a1a5dc464d967a5faab74ca84a933ea85d32672c71d10",
       "symbols": [
@@ -1011,11 +1045,39 @@
     },
     {
       "file": "src/orion/validation/claims.py",
-      "sha256": "4d4bbc7b8db2d6cb7ecfc4b4e2ef3324969d27d5142da8a1b0a9126f3106805c",
+      "sha256": "c55c5686daa0865a4ccb1433198e9b470c86fcec4ed35bd556677973a82ea815",
       "symbols": [
         "Assurance",
         "ValidationDecision",
         "validate_hypothesis"
+      ]
+    },
+    {
+      "file": "tools/orion_lab.py",
+      "sha256": "6625141b31b8c695fb86df52682f98def1bdc6576d6ce0acd109241bdffaf13b",
+      "symbols": [
+        "SafeFail",
+        "AutomationContract",
+        "CheckResult",
+        "ChangeSnapshot",
+        "ReviewReport",
+        "run_command",
+        "checked",
+        "parse_metadata",
+        "issue_contract",
+        "build_prompt",
+        "_PythonNetworkPolicy",
+        "Orchestrator",
+        "render_report",
+        "parser",
+        "main"
+      ]
+    },
+    {
+      "file": "tools/semantic_discovery_gate.py",
+      "sha256": "4192c5017d8047bdb3617ea265ab2eb8be5d75992069b33942a4992eebc7265b",
+      "symbols": [
+        "run"
       ]
     }
   ]

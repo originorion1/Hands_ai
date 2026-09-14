@@ -33,6 +33,11 @@ class KnowledgeStore:
         validation: ValidationDecision,
         scope: str,
     ) -> KnowledgeEntry:
+        if (not isinstance(hypothesis.tenant_id, str) or not hypothesis.tenant_id.strip()
+                or type(hypothesis.supporting_evidence) is not tuple
+                or any(type(k) is not UUID for k in hypothesis.supporting_evidence)
+                or len(set(hypothesis.supporting_evidence)) != len(hypothesis.supporting_evidence)):
+            raise ValueError("scoped unique evidence references required")
         if validation.hypothesis_id != hypothesis.hypothesis_id:
             raise ValueError("validation decision does not belong to hypothesis")
 

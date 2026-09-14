@@ -19,6 +19,8 @@ from .role_checkpoint import _json, _observation_digest, _scope_digest, checkpoi
 from .role_study import ObservationRequirement, RoleStudy
 from .semantic_rules import RULES, SemanticRule
 
+SEMANTIC_EVALUATOR_VERSION = "semantic-rules-v1"
+
 # Protocol mechanics, not identifiers in the unfamiliar business schema.
 ANCHOR_FIELDS = ('id', 'partition', 'on', 'subject_source', 'subject_resource',
                  'subject_id', 'evidence_class', 'channel', 'dimension', 'value',
