@@ -61,6 +61,13 @@ def custody_checks(scope):
             checks[label] = False
         except OSError:
             checks[label] = True
+    if 'https' in scope:
+        import socket
+
+        from isolation_lab import connectable
+        checks['https_profile_denied'] = not readable(scope['https']['profile'])
+        checks['https_private_key_denied'] = not readable(scope['https']['key'])
+        checks['https_direct_tcp_denied'] = not connectable(socket.AF_INET, ('127.0.0.1', scope['https']['port']))
     # Reproduce the legacy injected-reader route using only a synthetic file.
     from orion.contracts import utc_now
     from orion.discovery.http_adapter import ReadOnlyHttpDiscoveryAdapter

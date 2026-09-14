@@ -84,7 +84,9 @@ def relay(h, scope, *, confined, metadata_broker):
                 child.kill(); child.wait(timeout=5)
 
 
-def run_case(root, protocol, *, confined=True):
+def run_case(root, protocol, *, confined=True, transport="local"):
+    if transport not in ("local", "https"):
+        raise ValueError("fixed laboratory transport required")
     # Existing dev fixtures are used only by the trusted owner, never mounted in the consumer.
     from isolated_semantic_consumer import semantic_state
     from semantic_lab import Organization
@@ -106,7 +108,11 @@ def run_case(root, protocol, *, confined=True):
     grant = PilotAuthorization('isolated-read', lab.source, ReviewedReadWindow(lab.tenant,
         lab.company, request.resource, fields, request.date_field, request.start, request.end,
         utc_now() + timedelta(hours=1)), lab.identity, lab.partition, 'local-records', EvidenceKind.EXPERIMENT, 2)
-    h = Harness(root, protocol, rows=rows, request=request, grant=grant)
+    if transport == 'https':
+        from https_broker_lab import TLSHarness
+        h = TLSHarness(root, protocol, rows=rows, request=request, grant=grant)
+    else:
+        h = Harness(root, protocol, rows=rows, request=request, grant=grant)
     schemas = {resource: [{'name': name, 'kind': kind, 'classification': 'public'}
                          for r, name, kind, _evidence in lab.base.facts if r == resource]
                for resource in lab.resources}
@@ -114,6 +120,19 @@ def run_case(root, protocol, *, confined=True):
                          request=MetadataRequest(lab.tenant, lab.company, lab.source))
     try:
         with ExitStack() as stack:
+            server, https_scope, https_negative = None, None, False
+            source_canary = h.source
+            if transport == 'https':
+                from https_broker_lab import prepared_https
+                server = stack.enter_context(prepared_https(h))
+                source_canary = root / 'protected-source-canary.json'
+                source_canary.write_bytes(server.body); source_canary.chmod(0o600)
+                https_scope = {'port': server.port, 'profile': str(root / 'tls-profile.json'),
+                               'key': str(root / 'key.pem')}
+                https_negative = (connectable(socket.AF_INET, ('127.0.0.1', server.port))
+                                  and readable(https_scope['profile']) and readable(https_scope['key'])
+                                  and readable(source_canary))
+                assert https_negative and not h.source.exists()
             port, unix_path, negative = 0, str(root / 'listener'), False
             if confined:
                 tcp = stack.enter_context(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
@@ -133,15 +152,20 @@ def run_case(root, protocol, *, confined=True):
                 'metadata_source_denied': str(mh.source),
                 'metadata_configuration_denied': str(mh.root / 'config.json'),
                 'metadata_journal_write_denied': str(mh.state / 'broker.db'),
-                'instruments': [asdict(i) for i in lab.instruments], 'source_denied': str(h.source),
+                'instruments': [asdict(i) for i in lab.instruments], 'source_denied': str(source_canary),
                 'configuration_denied': str(root / 'config.json'), 'journal_write_denied': str(h.state / 'broker.db'),
                 'isolation': {'secret': str(secret), 'audit': str(audit), 'unix': unix_path,
                     'port': port, 'parent': h.process.pid,
                     **{kind: os.readlink('/proc/self/ns/' + kind) for kind in ('net', 'pid', 'mnt', 'user')}}}
-            negative = negative and readable(secret) and readable(h.source) and readable(f'/proc/{h.process.pid}/environ')
+            if https_scope is not None:
+                scope['https'] = https_scope
+            negative = negative and readable(secret) and readable(source_canary) and readable(f'/proc/{h.process.pid}/environ')
             first, observations, trace = relay(h, scope, confined=confined, metadata_broker=mh)
             assert trace == [('admitted', 3)] + [('denied', 0)] * 4 + [('admitted', 1), ('denied', 1)]
             assert all(first['pipeline_checks'].values()) and len(observations) == 2
+            if server is not None:
+                assert server.requests == [{'get': True, 'authorized': True}]
+                assert not h.source.exists()
             # Consumer output is not trusted as an archive or semantic attestation.
             expected = semantic_state(scope, observations)
             assert first['state'] == expected
@@ -161,8 +185,15 @@ def run_case(root, protocol, *, confined=True):
             assert all(second['pipeline_checks'].values()) and second['state'] == expected
             checks = {k: first['isolation_checks'][k] and second['isolation_checks'][k]
                       for k in first['isolation_checks']}
+            if server is not None:
+                assert server.requests == [{'get': True, 'authorized': True}]
+                required = {'https_profile_denied', 'https_private_key_denied', 'https_direct_tcp_denied'}
+                assert required <= first['isolation_checks'].keys()
+                assert required <= second['isolation_checks'].keys()
             passed = confined and negative and all(checks.values()) and audit.read_bytes() == b'original'
-            return {'protocol': protocol, 'status': 'PASS' if passed else 'FAIL',
+            return {'protocol': protocol, 'transport': transport,
+                    'https_requests': len(server.requests) if server is not None else 0,
+                    'https_negative_controls': https_negative, 'status': 'PASS' if passed else 'FAIL',
                     'pipeline_checks': first['pipeline_checks'] | second['pipeline_checks'] |
                         {'canonical_recomputation': True, 'fresh_restart_identity': True},
                     'isolation_checks': checks, 'negative_controls': negative,
@@ -177,16 +208,18 @@ def run_case(root, protocol, *, confined=True):
             h.close()
 
 
-def run_integration():
+def run_integration(*, transport="local"):
+    if transport not in ("local", "https"):
+        raise ValueError("fixed laboratory transport required")
     prerequisite = run_lab()
     if prerequisite['status'] != 'PASS':
         return result('BLOCKED', 'kernel_prerequisite_' + prerequisite['reason'])
     try:
         with tempfile.TemporaryDirectory(prefix='orion-isolated-broker-') as temporary:
-            cases = [run_case(Path(temporary) / protocol, protocol)
+            cases = [run_case(Path(temporary) / protocol, protocol, transport=transport)
                      for protocol in ('local_rows_v1', 'local_columns_v1')]
         report = result('PASS' if all(c['status'] == 'PASS' for c in cases) else 'FAIL',
-                        'local_broker_consumer_only', negative_controls=True)
+                        'local_https_consumer_only' if transport == 'https' else 'local_broker_consumer_only', negative_controls=True)
         report['cases'] = cases
         return report
     except ImportError:
