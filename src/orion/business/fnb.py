@@ -199,11 +199,13 @@ def _assess_restaurant(study, *, tenant_id, company, source_id):
     if purchase_costs:
         add('sample_purchase_cost', 'INFERRED_CONCLUSION',
             'Sum of received purchase costs in the admitted sample.', purchase_costs,
-            value=sum(number(r, 'receipt_cost') for r in purchase_costs), unit='USD')
+            value=sum(number(r, 'receipt_cost') for r in purchase_costs), unit='USD',
+            uncertainty=('Ledger completeness is unknown.',))
     if purchases:
         add('sample_purchase_quantity', 'INFERRED_CONCLUSION',
             'Sum of received mass in the admitted sample.', purchases,
-            value=sum(number(r, 'received_quantity') for r in purchases), unit='kg')
+            value=sum(number(r, 'received_quantity') for r in purchases), unit='kg',
+            uncertainty=('Ledger completeness is unknown.',))
 
     # Quantity signals do not depend on cost or recipe availability.
     for ingredient in sorted({target(r, 'ingredient') for r in stocks + wastes}):

@@ -48,6 +48,11 @@ def test_restaurant_records_to_traceable_owner_assessment_without_action():
         'conditional_stock_variance': '27.2'}
     for code, value in expected.items():
         assert finding(result, code)['value'] == value
+    for code in ('sample_purchase_cost', 'sample_purchase_quantity'):
+        purchase = finding(result, code)
+        assert purchase['uncertainty'] == ['Ledger completeness is unknown.']
+        assert 'Uncertainty: Ledger completeness is unknown.' in owner_report({
+            **result, 'findings': [purchase]})
     variance = finding(result, 'conditional_stock_variance')
     assert variance['category'] == 'HYPOTHESIS'
     assert variance['estimated_business_impact']['value'] == '108.8'
