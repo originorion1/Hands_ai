@@ -143,3 +143,24 @@ def test_closed_permit_releases_bound_headers(fail):
         launch(Capture())
     assert captured[0]._wire is None
     assert not captured[0]._active
+
+
+@pytest.mark.parametrize('headers', [
+    {'x-ReQuEsT-ID': 'fixture', 'aCcEpT': 'application/json'},
+    {'AUTHORIZATION': 'fixture-only', 'x-custom-HEADER': 'value'},
+])
+def test_bound_request_header_casing_survives_copy(headers):
+    calls = []
+    class Probe:
+        source_id = 'https://example.test'
+        def read(self, permit):
+            req = Request('https://example.test/api/resource/Entry', headers=headers, method='GET')
+            permit.bind_wire(req)
+            def capture(outbound, timeout):
+                assert outbound is not req
+                assert sorted(outbound.header_items()) == sorted(req.header_items())
+                calls.append(outbound)
+            open_pilot_read(req, permit=permit, timeout=20, opener=capture)
+            return ()
+    assert launch(Probe()) == ()
+    assert len(calls) == 1

@@ -145,3 +145,10 @@ Adapter failures expose only one of three stable categories:
 scope_or_response_invalid, upstream_read_failed, unexpected_internal_failure.
 Raw exceptions/row contents are not logged or returned. These categories aid
 triage but do not replace an independent audit or claim detailed root causes.
+
+Historical sample evidence timestamps use the same trusted injected clock as
+window enforcement, captured once per returned batch after the response check.
+This is acquisition time, not a business date or a source-system event timestamp.
+Full-reader tests with a frozen clock verify deterministic admitted identities;
+advancing that clock produces a distinct acquisition. Header-copy tests cover
+mixed-case request headers without weakening exact wire binding.

@@ -247,3 +247,19 @@ def test_fresh_acquisition_identity_ignores_random_upstream_ids():
     assert first.observation_id == second.observation_id
     assert first.evidence.payload['provenance']['upstream_evidence_id'] != (
         second.evidence.payload['provenance']['upstream_evidence_id'])
+
+
+def test_full_reader_uses_one_trusted_clock_for_timestamp_and_replay():
+    calls = []
+    first = launch(reader(calls))[0]
+    second = launch(reader(calls))[0]
+    assert len(calls) == 2
+    assert first.evidence.observed_at == second.evidence.observed_at == NOW
+    assert first.evidence.evidence_id == second.evidence.evidence_id
+    assert first.observation_id == second.observation_id
+    assert first.evidence.payload['provenance']['upstream_evidence_id'] != (
+        second.evidence.payload['provenance']['upstream_evidence_id'])
+    later = launch(reader(calls), clock=lambda: NOW + timedelta(seconds=1))[0]
+    assert later.evidence.observed_at == NOW + timedelta(seconds=1)
+    assert later.evidence.evidence_id != first.evidence.evidence_id
+    assert later.observation_id != first.observation_id

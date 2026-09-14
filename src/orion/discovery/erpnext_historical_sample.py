@@ -263,6 +263,8 @@ class ERPNextHistoricalSampleAdapter:
         self._check_read_window()
         rows = self._fetch_sample()
         self._check_read_window()
+        observed_at = self._clock()
+        ReviewedReadWindow.check_time_type(observed_at)
 
         return tuple(
             Observation(
@@ -272,6 +274,7 @@ class ERPNextHistoricalSampleAdapter:
                         "erpnext-historical-sample-read-only"
                     ),
                     tenant_id=self._tenant_id,
+                    observed_at=observed_at,
                     payload={
                         "resource": self._resource,
                         "record": row,
