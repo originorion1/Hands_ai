@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "live_ready": false,
+  "read_only": true,
+  "execution_allowed": false,
+  "customer_connections": 0,
+  "gates": [
+    {
+      "category": "SECURITY",
+      "status": "FAIL",
+      "critical": true,
+      "reason": "same_process_injection_bypass"
+    },
+    {
+      "category": "EPISTEMIC_SAFETY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "prototype_promotion_not_attested"
+    },
+    {
+      "category": "AUTHORIZATION",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "isolated_grant_issuer_missing"
+    },
+    {
+      "category": "DISCOVERY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "record_identity_and_partition_bindings_unresolved"
+    },
+    {
+      "category": "SEMANTIC_UNDERSTANDING",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "commercial_roles_not_validated"
+    },
+    {
+      "category": "WORLD_MODEL",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "durable_revision_index_missing"
+    },
+    {
+      "category": "PROVENANCE",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "production_admission_archive_missing"
+    },
+    {
+      "category": "RESTART",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "independent_checkpoint_index_missing"
+    },
+    {
+      "category": "TRANSPORT",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "isolated_https_worker_unverified"
+    },
+    {
+      "category": "SECRETS",
+      "status": "FAIL",
+      "critical": true,
+      "reason": "credentials_share_application_process"
+    },
+    {
+      "category": "TENANT_ISOLATION",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "legacy_unscoped_store_surface"
+    },
+    {
+      "category": "AUDIT",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "independent_journal_custody_and_lifecycle_audit_missing"
+    },
+    {
+      "category": "OBSERVABILITY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "supervisor_metrics_and_alerting_missing"
+    },
+    {
+      "category": "FAILURE_SAFETY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "isolated_worker_failure_tests_missing"
+    },
+    {
+      "category": "DATA_MINIMIZATION",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "retention_and_sensitive_record_policy_missing"
+    },
+    {
+      "category": "COST_CONTROL",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "mandatory_os_egress_broker_missing"
+    },
+    {
+      "category": "ERP_GATEWAY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "second_protocol_full_lifecycle_unproven"
+    },
+    {
+      "category": "TEST_COVERAGE",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "complete_release_candidate_simulation_missing"
+    },
+    {
+      "category": "DEPLOYMENT_CONFIGURATION",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "isolation_and_secret_mount_validation_missing"
+    }
+  ]
+}

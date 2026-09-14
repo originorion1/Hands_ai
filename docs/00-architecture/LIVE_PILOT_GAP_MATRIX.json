@@ -1,0 +1,415 @@
+{
+  "version": 1,
+  "verdict": "NOT_LIVE_PILOT_READY",
+  "scope": "Current stacked laboratory tree; independently reviewed deployment is not available",
+  "requirements": [
+    {
+      "requirement": "Discovery and schema",
+      "current_implementation": "Opaque metadata catalog, field types and candidates; ERP protocol supported",
+      "evidence": [
+        "src/orion/discovery/pilot_metadata.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Technical identity/company/date bindings still require independent proof",
+      "implementation_required": "Evidence-backed binding validation",
+      "test_required": "Unknown schemas without operator field names",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Business semantics",
+      "current_implementation": "Sample date/reference matches against a trusted trace protocol",
+      "evidence": [
+        "src/orion/understanding/process_roles.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "General commercial-role validation absent",
+      "implementation_required": "Independent lifecycle/reconciliation evidence and semantic tests",
+      "test_required": "Second protocol, false confidence and UNKNOWN cases",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Hypotheses and epistemic lifecycle",
+      "current_implementation": "Support, counterexamples, unknown and revision represented",
+      "evidence": [
+        "src/orion/understanding/role_study.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Prototype validation accepts caller evidence counts",
+      "implementation_required": "Keep prototype promotion outside deployment; verified evidence policy",
+      "test_required": "Forged validation must not promote deployed knowledge",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "World model",
+      "current_implementation": "Scoped graph snapshots; provenance-linked matches and contradictions",
+      "evidence": [
+        "src/orion/understanding/graph.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Durable current-revision index absent",
+      "implementation_required": "Authenticated revision history and scoped queries",
+      "test_required": "Restart current versus historical graph",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Evidence provenance",
+      "current_implementation": "Immutable admitted records bind source/tenant/grant digest/upstream IDs",
+      "evidence": [
+        "src/orion/discovery/pilot_read.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Trusted archive has no production wiring or separate custody",
+      "implementation_required": "Isolated admission archive",
+      "test_required": "Attested producer and tamper-resistant retrieval",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Authorization and expiry",
+      "current_implementation": "Exact scoped grants; pre/post lookup and exclusive expiry",
+      "evidence": [
+        "src/orion/discovery/pilot_read.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "Grant authority and caller share process",
+      "implementation_required": "Isolated authenticated issuer/reader protocol",
+      "test_required": "Forged caller, private permit, revocation during I/O",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Grant issuance and human review",
+      "current_implementation": "Grant dataclasses and supplied lookup; no authenticated control plane",
+      "evidence": [
+        "src/orion/discovery/pilot_metadata.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "Operator identity, purpose and approval issuance service absent",
+      "implementation_required": "Deny-by-default independently authenticated control plane",
+      "test_required": "Unauthorized grant issuance and substitution",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Permit and live transport",
+      "current_implementation": "Bound request, GET/origin/fields/window checks; default networking denied",
+      "evidence": [
+        "src/orion/discovery/pilot_transport.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "Explicit opener can bypass mediation outside path",
+      "implementation_required": "Mandatory OS-separated egress broker",
+      "test_required": "TLS/DNS/redirect/timeout/failure tests across sandbox",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Adapter escapes",
+      "current_implementation": "Legacy direct adapters still accept injected callables",
+      "evidence": [
+        "src/orion/discovery/http_adapter.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "No OS-level prevention of arbitrary network or file access",
+      "implementation_required": "Reviewed isolation boundary; exclude legacy imports from worker",
+      "test_required": "Untrusted worker cannot connect except broker",
+      "live_pilot_status": "FAIL"
+    },
+    {
+      "requirement": "Historical and live reads",
+      "current_implementation": "Date-window and tenant/company validation; legacy launchers remain denied by default",
+      "evidence": [
+        "src/orion/discovery/erpnext_historical_sample.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Optional trusted construction remains outside mediation",
+      "implementation_required": "Route deployed reads exclusively through isolated broker",
+      "test_required": "Every legacy entry point and direct invocation",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Budgets rate limits and circuit",
+      "current_implementation": "New grant-bound durable attempts, byte reservations, single in-flight operation, failure latch",
+      "evidence": [
+        "src/orion/pilot/journal.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Optional composition and no independently owned budget file/key",
+      "implementation_required": "Make budget service mandatory at OS egress boundary",
+      "test_required": "Restart rate/reset, concurrent writer, retry amplification",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Retries",
+      "current_implementation": "New budgeted path performs no automatic retry; attempts remain spent after failure",
+      "evidence": [
+        "src/orion/pilot/budgeted_transport.py"
+      ],
+      "risk": "MEDIUM",
+      "missing_primitive": "No reviewed live retry policy with upstream backoff",
+      "implementation_required": "Keep retries disabled until isolated retry service is verified",
+      "test_required": "Rate limiting and upstream retry headers",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Audit integrity",
+      "current_implementation": "HMAC chain, immutable sequence, external expected-head verification for transport attempts",
+      "evidence": [
+        "src/orion/pilot/journal.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "Key/head custody and all epistemic/control-plane audit events absent",
+      "implementation_required": "Independent append service plus full lifecycle audit",
+      "test_required": "Rollback, log rewrite, missing authorization decision",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Logging and redaction",
+      "current_implementation": "Safe errors and aggregate reports; new journal omits URLs/headers/record values",
+      "evidence": [
+        "src/orion/discovery/erpnext_live_session.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Unified redaction and protected log collector absent",
+      "implementation_required": "Typed telemetry and isolated collector",
+      "test_required": "Secret-bearing upstream exceptions and malicious text",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Secrets/configuration",
+      "current_implementation": "Credential variable references; actual credentials remain in adapter memory",
+      "evidence": [
+        "src/orion/discovery/erpnext_live_session.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "Application can inspect resolved keys and injected callables",
+      "implementation_required": "Credential-only worker and separate secret provider",
+      "test_required": "Worker cannot inspect secret environment or file descriptors",
+      "live_pilot_status": "FAIL"
+    },
+    {
+      "requirement": "Tenant/company/source isolation",
+      "current_implementation": "Pilot admission binds exact scopes; legacy store supports unscoped query",
+      "evidence": [
+        "src/orion/stores/memory.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "Deployment storage API not tenant-bound",
+      "implementation_required": "Tenant-bound archive facade outside worker",
+      "test_required": "Cross-tenant/company/source replay and reads",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Checkpoint and process restart",
+      "current_implementation": "Base and process-trace reference checkpoints rehydrate trusted evidence; fresh process test added",
+      "evidence": [
+        "src/orion/understanding/process_checkpoint.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Production evidence archive and trusted checkpoint index absent",
+      "implementation_required": "Durable isolated evidence/index custody",
+      "test_required": "Crash and revoke before continuation",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Retention and forgetting",
+      "current_implementation": "No complete pilot retention policy or deletion scheduler",
+      "evidence": [
+        "src/orion/history/evidence.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Retention horizons, privacy erasure and dependency invalidation missing",
+      "implementation_required": "Explicit retention contract without restoring authority",
+      "test_required": "Expired evidence, deletion and derived-claim invalidation",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Sensitive information",
+      "current_implementation": "Credential-name/field-type screening; unknown-sensitive planner fields denied",
+      "evidence": [
+        "src/orion/discovery/erpnext_live_session.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Financial/personnel/payment classification and authorization policies incomplete",
+      "implementation_required": "Reviewed explicit sensitivity policy; deny unknown classes",
+      "test_required": "PII/payment/employee data minimization",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Prediction/outcome",
+      "current_implementation": "Shadow backtests exist; prospective ledger and event outcome in unmerged PR119/121",
+      "evidence": [
+        "src/orion/learning/shadow_backtest.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Semantic prerequisite and reviewed prospective integration incomplete",
+      "implementation_required": "Do not activate or duplicate pending prediction work",
+      "test_required": "Prospective prediction to outcome/error/revision",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Recommendations",
+      "current_implementation": "ShadowDecision never enables execution",
+      "evidence": [
+        "src/orion/shadow/decision.py"
+      ],
+      "risk": "MEDIUM",
+      "missing_primitive": "Full benefit/risk/assumption and contradictory-evidence contract incomplete",
+      "implementation_required": "Evidence-derived recommendation contract after semantic gate",
+      "test_required": "Recommendation cannot execute or authorize",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Execution/actions",
+      "current_implementation": "Prototype shadow simulation only; no pilot write API",
+      "evidence": [
+        "src/orion/ports.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "Host caller can execute arbitrary Python outside pilot path",
+      "implementation_required": "OS confinement; keep write/communication/employee actions excluded",
+      "test_required": "No filesystem/network/process escape",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "ERP-neutral gateway",
+      "current_implementation": "Neutral observations and pilot grant interfaces; ERP-specific wire adapters",
+      "evidence": [
+        "src/orion/discovery/erpnext_pilot.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Complete second-protocol semantic lifecycle unproven",
+      "implementation_required": "Second independent adapter and cross-protocol experiment",
+      "test_required": "Same logic across two structurally different systems",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Model boundary",
+      "current_implementation": "No model calls/dependency in pilot path; prototype assertion promotion remains callable",
+      "evidence": [
+        "src/orion/validation/claims.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "No verified model-to-evidence attestation gateway",
+      "implementation_required": "Keep models disabled; require evidence-backed promotion",
+      "test_required": "Model output and prompt injection cannot grant/fact-promote",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Workers and scheduling",
+      "current_implementation": "Synchronous laboratory sessions; event workers in unmerged PR117/121",
+      "evidence": [
+        "src/orion/learning/shadow_soak.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Supervised isolated runtime and scheduling absent",
+      "implementation_required": "Bounded supervisor with explicit cancellation",
+      "test_required": "Crash, restart and no duplicate external attempt",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Health and readiness",
+      "current_implementation": "New strict startup diagnostic exposes all 19 critical gates; live startup denied",
+      "evidence": [
+        "src/orion/pilot/readiness.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Real worker health/connection readiness not implementable here",
+      "implementation_required": "Verified isolated worker probes and version binding",
+      "test_required": "Unknown config/force flags and startup fail closed",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Monitoring/alerts",
+      "current_implementation": "Aggregate laboratory reports and new journal counters",
+      "evidence": [
+        "src/orion/pilot/journal.py"
+      ],
+      "risk": "MEDIUM",
+      "missing_primitive": "No protected metrics exporter or alert routing",
+      "implementation_required": "Secret-free metrics and reviewed alerts",
+      "test_required": "Latency, bytes, unknown/contradiction and failure metrics",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Incidents emergency stop",
+      "current_implementation": "Durable journal stop blocks further mediated attempts; active grant lookup rechecked",
+      "evidence": [
+        "src/orion/pilot/journal.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "No authenticated global stop across all application paths",
+      "implementation_required": "Supervisor egress removal plus centralized revocation",
+      "test_required": "In-flight stop and unmediated egress denial",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Rollback and migrations",
+      "current_implementation": "Append-only existing stores; reference checkpoint hashes; startup remains blocked",
+      "evidence": [
+        "src/orion/stores/sqlite_checkpoint.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Release rollback and externally pinned audit migration unspecified",
+      "implementation_required": "Tested backup/index and deployment migration plan",
+      "test_required": "Crash during migration and rollback against pinned tip",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Deployment configuration",
+      "current_implementation": "Strict JSON, secret references only, read-only mode, no force/live overrides",
+      "evidence": [
+        "src/orion/pilot/readiness.py"
+      ],
+      "risk": "CRITICAL",
+      "missing_primitive": "OS isolation/TLS/secret mounts not verified; bwrap network namespace fails here",
+      "implementation_required": "Reviewed host with verifiable namespace/egress and secrets boundary",
+      "test_required": "Exercise actual deployment under hostile worker",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Complete release simulation",
+      "current_implementation": "Offline schema/roles/contradictions/restart and revoked continuation tested",
+      "evidence": [
+        "tests/test_pilot_recovery.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Prediction/recommendation/audit and second protocol not end-to-end complete",
+      "implementation_required": "Complete release candidate only after prerequisite gates",
+      "test_required": "Three environment release simulations",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "No hardcoding",
+      "current_implementation": "New role logic follows types and independent trace data; legacy business mappings remain",
+      "evidence": [
+        "src/orion/learning/customer_patterns.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "Legacy mappings cannot be part of generic pilot reasoning",
+      "implementation_required": "Explicit deployed module inventory and no-hardcode scope scan",
+      "test_required": "Rename opaque schemas; reject source-specific business defaults",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Prompt injection",
+      "current_implementation": "Data does not execute in deterministic path; startup remains denied",
+      "evidence": [
+        "tests/test_pilot_release_adversarial.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "No isolated model/agent execution boundary verified",
+      "implementation_required": "Keep external interpreters/agents outside deployment until confined",
+      "test_required": "Malicious records, metadata, documents, tool calls",
+      "live_pilot_status": "BLOCKED"
+    },
+    {
+      "requirement": "Dependency/security validation",
+      "current_implementation": "Runtime dependencies empty; source scan unchanged",
+      "evidence": [
+        "pyproject.toml"
+      ],
+      "risk": "MEDIUM",
+      "missing_primitive": "Supply-chain/vulnerability assessment of deployed image absent",
+      "implementation_required": "Pinned reviewed runtime artifact and available security scanner",
+      "test_required": "Dependency audit, image provenance and SBOM",
+      "live_pilot_status": "BLOCKED"
+    }
+  ]
+}

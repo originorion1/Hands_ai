@@ -218,6 +218,11 @@ class ProcessRoleStudy:
             tuple(c.hypothesis.hypothesis_id for c in unresolved),
             'Compare opaque fields with independently instrumented process evidence.',len(fields)*2)
 
+    def evidence_snapshot(self):
+        """Revalidated immutable trace references for recovery, not authority."""
+        self.claims()
+        return self._study, self._protocol, tuple(self._traces[key] for key in sorted(self._traces))
+
     def world_model(self):
         graph = GraphStore()
         for c in self.claims():
