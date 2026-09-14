@@ -1,7 +1,9 @@
 """Independent synthetic instruments; opaque business schemas, no field mapping input."""
+import json
 import random
 from datetime import date, timedelta
 from urllib.parse import parse_qs, urlsplit
+from urllib.request import Request
 
 from test_erpnext_metadata_adapter import FakeResponse
 from test_pilot_read import NOW
@@ -14,6 +16,7 @@ from orion.discovery.pilot_metadata import (
     launch_pilot_metadata,
 )
 from orion.discovery.pilot_read import PilotAuthorization, PilotRequest, launch_pilot_read
+from orion.discovery.pilot_transport import open_pilot_read
 from orion.discovery.read_window import ReviewedReadWindow
 from orion.understanding.role_study import RoleStudy
 from orion.understanding.semantic_study import (
@@ -26,7 +29,8 @@ from orion.understanding.semantic_study import (
 
 
 class Organization:
-    def __init__(self, variant='A', seed=17, tenant='t_01', reorder=False, note=''):
+    def __init__(self, variant='A', seed=17, tenant='t_01', reorder=False, note='',
+                 journal_factory=None):
         rng = random.Random(seed)
         opaque = lambda prefix: prefix + format(rng.getrandbits(80), 'x')
         self.resources = tuple(opaque('r_') for _ in range(2))
@@ -38,6 +42,7 @@ class Organization:
         self.archive, self.calls = {}, []
         self.now = NOW
         self.counter = 0
+        self.journal_factory = journal_factory
         self.instruments = (
             Instrument('https://instrument-a.test', 'r_aa7', 'local-instrument-a', ('process',)),
             Instrument('https://instrument-b.test', 'r_bb9', 'local-instrument-b',
@@ -48,7 +53,8 @@ class Organization:
         metadata_grant = MetadataAuthorization('m_01', metadata_request,
                                                NOW + timedelta(hours=1), True, 5, 2, ())
         adapter = ERPNextPilotMetadataReader(source_id=self.source,
-            api_key='fixture', api_secret='fixture', opener=self.metadata)
+            api_key='fixture', api_secret='fixture', opener=self.metadata,
+            journal=journal_factory(metadata_grant) if journal_factory else None)
         discovered = launch_pilot_metadata(metadata_request, authorization_id='m_01',
             lookup=lambda _: metadata_grant, adapter=adapter, clock=lambda: self.now)
         self.archive.update((o.evidence.evidence_id, o) for o in discovered.observations)
@@ -68,6 +74,8 @@ class Organization:
 
     def metadata(self, req, timeout):
         self.calls.append('metadata')
+        if self.journal_factory:
+            self.now += timedelta(seconds=2)
         parsed = urlsplit(req.full_url)
         if parsed.path == '/api/resource/DocType':
             names = sorted(self.resources)
@@ -101,11 +109,23 @@ class Organization:
 
             def read(self, permit):
                 permit.check(source)
-                permit.claim_io(source)
-                parent.calls.append('records')
+                if parent.journal_factory:
+                    def local_transport(req, timeout):
+                        parent.calls.append('records')
+                        parent.now += timedelta(seconds=2)
+                        return FakeResponse({'data': rows}, url=req.full_url)
+                    wire = Request(source + '/bounded-observation', method='GET')
+                    permit.bind_wire(wire)
+                    with open_pilot_read(wire, permit=permit, timeout=10, opener=local_transport,
+                                         journal=parent.journal_factory(grant)) as response:
+                        values = json.loads(response.read())['data']
+                else:
+                    permit.claim_io(source)
+                    parent.calls.append('records')
+                    values = rows
                 return tuple(Observation(Evidence(EvidenceKind.EXPERIMENT, provenance,
                     {'resource': resource, 'record': row}, observed_at=parent.now,
-                    tenant_id=parent.tenant)) for row in rows)
+                    tenant_id=parent.tenant)) for row in values)
 
         observations = launch_pilot_read(scope, authorization_id=grant.authorization_id,
             lookup=lookup if lookup is not None else lambda _: grant,

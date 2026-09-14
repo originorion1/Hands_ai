@@ -1,6 +1,6 @@
 {
   "scope": "Repository-wide source inventory; critical-path audit, not independent certification",
-  "dependency_head": "48001d8ff9cebb7f34229dd6cac94368f310b3b9",
+  "dependency_head": "e850d410100945b789f9a42abb5b5b341823e98a",
   "files": [
     {
       "file": "src/orion/__init__.py",
@@ -861,7 +861,7 @@
     },
     {
       "file": "src/orion/shadow/semantic_review.py",
-      "sha256": "591f26a4404583b28bf9cca3b66542a480bc65214d8e559a7e8ff3f9acb8b927",
+      "sha256": "858147962b3ec83c83d53d91dfa17ecaeddf1b493ebacb37f03f4fda97d99b07",
       "symbols": [
         "SemanticReview",
         "review_semantic_study"
@@ -1009,7 +1009,7 @@
     },
     {
       "file": "src/orion/understanding/semantic_checkpoint.py",
-      "sha256": "9320d7b4217f22b8fc8812aba005208386925209d2a1185c430c1f4aa7d35643",
+      "sha256": "29c90fb155e6dd6aec993a58738b54d43ae7986a6b664694673e6fac1e8257bf",
       "symbols": [
         "checkpoint_semantic",
         "restore_semantic"
@@ -1024,7 +1024,7 @@
     },
     {
       "file": "src/orion/understanding/semantic_study.py",
-      "sha256": "bfa04da5d38b0e29e220ce33c848aead6cd36707e0d2a66128752bd2ad279e89",
+      "sha256": "65183eac44114130a5ce8dc6e14614ad940fb2363d76246732fb04d65a4bf5af",
       "symbols": [
         "Instrument",
         "Origin",

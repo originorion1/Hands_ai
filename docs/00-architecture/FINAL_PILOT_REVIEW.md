@@ -27,8 +27,8 @@ counts and directly constructed ValidationDecision objects remain unsuitable for
 a deployment trust boundary; that gate is still blocked.
 
 `shadow.semantic_review` composes the existing semantic study/checkpoint and
-ShadowDecision contracts. A review is produced only when a previously validated
-role becomes contradicted. Eliminating an unsupported alternative is normal
+ShadowDecision contracts. A review is produced when a previously validated role becomes contradicted
+or independently grounded supporting and contradicting sources disagree. Eliminating an unsupported alternative is normal
 learning and does not trigger a false-positive recommendation. UNKNOWN alone
 produces no invented risk. The result contains exact scope, evidence/grant
 references, checkpoint hash, deterministic audit/decision IDs and an explicit
@@ -98,3 +98,32 @@ exclusive credential/grant/audit custody and mandatory egress limits. It must be
 verified in an isolation-capable local test environment before any pilot source
 configuration or activation. This does not require the operator to supply ERP
 DocTypes, fields or business mappings.
+
+## Issue #135 completion: audit and recovery contract
+
+Review artifacts now retain all bounded evaluated inputs, evidence classes,
+original collector roots, current claim states and evaluator version even when
+the result is UNKNOWN or supported and no proposal is produced. Original validated
+support remains referenced after explicit corrections supersede it. The immutable
+result exposes execution_allowed=false and execution_status=not_attempted. It
+contains no record values and is still an audit value object, not a durable log
+service. Lineage authenticity still depends on the reviewed archive/instruments.
+
+Semantic checkpoint format 2 binds semantic-rules-v1 explicitly, alongside
+existing policy and evidence fingerprints. Format 1 and different evaluator
+versions reject; there is no silent migration. Old laboratory checkpoints must
+be reconstructed from the original scoped archive under reviewed code. Future
+semantic algorithm changes must change the evaluator version. The existing
+base role/process checkpoint formats are unchanged.
+
+The instrumented local restaurant fixture now optionally routes metadata and
+record reads through the actual #131 permit/budget transport and AttemptJournal.
+The test verifies attempt accounting, journal restoration, durable stop denial,
+and metadata budget exhaustion before further collection. No new production
+transport, credential or network implementation is introduced. Test integrity
+keys are generated locally and never committed or returned.
+
+Fresh-interpreter A/B/C recovery now compares review audit identity and proposal
+state in addition to semantic claims/revisions, and still rejects revoked
+continuation before adapter invocation. Separate tests reject using a review
+artifact as a request or grant. The offline proof does not change release gates.

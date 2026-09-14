@@ -265,7 +265,7 @@
     },
     {
       "requirement": "Recommendations",
-      "current_implementation": "Contradiction of previously validated semantic roles produces a provenance-bound shadow review and audit record; rejected alternatives alone do not",
+      "current_implementation": "Prior validated-role contradiction or independent source disagreement produces a bounded shadow review; every state retains evaluated provenance and explicit execution denial",
       "evidence": [
         "src/orion/shadow/semantic_review.py"
       ],

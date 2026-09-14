@@ -55,7 +55,8 @@ def test_restaurant_settlement_discrepancy_through_actual_governed_pipeline():
 def test_unknown_does_not_manufacture_risk_or_recommendation():
     lab = Organization('C').populate()
     result = review(lab)
-    assert result.decision is None and not result.evidence_ids
+    assert result.decision is None and result.evidence_ids
+    assert all(c.hypothesis.status == "unknown" for c in result.evaluated_claims)
     assert result.execution_status == 'not_attempted'
 
 

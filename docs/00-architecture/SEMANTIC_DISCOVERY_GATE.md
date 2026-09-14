@@ -104,7 +104,9 @@ states; proposed relationships never become authorization edges.
 `semantic_checkpoint.py` reuses `role_checkpoint.py`. Checkpoints contain original
 evidence references/fingerprints, externally supplied policy fingerprints and
 batch/revision identities. They contain no raw records, credentials or grants.
-Restore requires the independently pinned checkpoint digest, exact tenant/company/
+Format 2 also binds the explicit semantic evaluator version. Older formats or
+different evaluators reject rather than silently migrating. Restore requires the
+independently pinned checkpoint digest, exact tenant/company/
 source, the original trusted archive and separately supplied matching policy.
 It reconstructs every revision and recomputes claims. Missing/changed evidence,
 lineage, scope, policy or revision identities fail closed. Three tests perform
