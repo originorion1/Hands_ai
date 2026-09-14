@@ -108,3 +108,38 @@ def test_offline_demonstration_is_repeatable_and_reports_all_outcomes():
     assert report['lead_seconds'] == (86400.0,) * 4
     assert report['economic_value'] is None
     assert report['execution_allowed'] is False
+
+
+def test_cohorts_are_never_silently_pooled(tmp_path):
+    from dataclasses import replace
+
+    ledger = PredictionLedger(tmp_path / 'ledger.db', clock=lambda: NOW)
+    first = prediction()
+    ledger.record(first)
+    ledger.record(replace(first, prediction_id='other-model', model_version='candidate-v1',
+                          probability=0.2))
+    ledger.record(replace(first, prediction_id='other-target', target_definition='different-v1'))
+    ledger = PredictionLedger(tmp_path / 'ledger.db', clock=lambda: NOW + timedelta(days=1))
+    ledger.resolve(Outcome('tenant-a', 'p1', NOW + timedelta(days=1), True, (REF,)))
+    with pytest.raises(ValueError, match='cohort'):
+        ledger.score('tenant-a')
+    report = ledger.score('tenant-a', target_definition=first.target_definition,
+                          model_version=first.model_version)
+    assert report['predictions'] == report['resolved'] == 1
+    assert report['brier'] == pytest.approx(0.04)
+    pending = ledger.score('tenant-a', target_definition=first.target_definition,
+                           model_version='candidate-v1')
+    assert pending['pending'] == 1 and pending['brier'] is None
+    for tenant, target in [('tenant-b', first.target_definition), ('tenant-a', 'absent-v1')]:
+        empty = ledger.score(tenant, target_definition=target, model_version=first.model_version)
+        assert empty['predictions'] == 0 and empty['brier'] is None
+
+
+@pytest.mark.parametrize('filters', [
+    {'model_version': 'm'}, {'target_definition': 't'},
+    {'target_definition': '', 'model_version': 'm'},
+])
+def test_cohort_filters_must_be_complete_and_valid(tmp_path, filters):
+    ledger = PredictionLedger(tmp_path / 'ledger.db', clock=lambda: NOW)
+    with pytest.raises(ValueError):
+        ledger.score('tenant-a', **filters)

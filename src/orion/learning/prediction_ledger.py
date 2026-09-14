@@ -168,20 +168,40 @@ class PredictionLedger:
                                (outcome.tenant_id, outcome.prediction_id, payload, now.isoformat()))
             connection.commit()
 
-    def score(self, tenant_id: str) -> dict[str, object]:
-        """Report proper binary loss and fixed-threshold counts, not causal value."""
+    def score(
+        self, tenant_id: str, *, target_definition: str | None = None,
+        model_version: str | None = None,
+    ) -> dict[str, object]:
+        """Score one cohort; ambiguous implicit pooling fails closed.
+
+        Target definitions must version horizon/label semantics. Model versions
+        must identify the evaluated arm. This is not a paired comparison test.
+        """
         _identity(tenant_id)
+        if (target_definition is None) != (model_version is None):
+            raise ValueError('cohort requires both target_definition and model_version')
+        if target_definition is not None:
+            _identity(target_definition)
+            _identity(model_version)
         with self._connect() as connection:
             rows = connection.execute('''
                 SELECT p.payload, o.payload, p.recorded_at FROM predictions p
                 LEFT JOIN prediction_outcomes o ON p.tenant=o.tenant AND p.identity=o.identity
                 WHERE p.tenant=? ORDER BY p.identity
             ''', (tenant_id,)).fetchall()
-        scored = [(json.loads(p), json.loads(o), datetime.fromisoformat(t))
-                  for p, o, t in rows if o is not None]
+        decoded = [(json.loads(p), json.loads(o) if o is not None else None,
+                    datetime.fromisoformat(t)) for p, o, t in rows]
+        if target_definition is not None:
+            decoded = [(p, o, t) for p, o, t in decoded
+                       if (p['target_definition'], p['model_version'])
+                       == (target_definition, model_version)]
+        elif len({(p['target_definition'], p['model_version']) for p, _, _ in decoded}) > 1:
+            raise ValueError('multiple prediction cohorts; select target_definition and model_version')
+        scored = [(p, o, t) for p, o, t in decoded if o is not None]
         pairs = [(p['probability'], int(o['actual'])) for p, o, _ in scored]
         return {
-            'predictions': len(rows), 'resolved': len(pairs), 'pending': len(rows) - len(pairs),
+            'predictions': len(decoded), 'resolved': len(pairs),
+            'pending': len(decoded) - len(pairs),
             'brier': sum((p-y)**2 for p, y in pairs) / len(pairs) if pairs else None,
             'true_positive': sum(p >= 0.5 and y == 1 for p, y in pairs),
             'false_positive': sum(p >= 0.5 and y == 0 for p, y in pairs),
