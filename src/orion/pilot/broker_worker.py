@@ -24,6 +24,7 @@ from .broker_contract import (
     request_from,
     validate_field_classifications,
 )
+from .broker_metadata import acquire_metadata
 
 
 def acquire(bootstrap):
@@ -81,7 +82,10 @@ def authenticated_acquire(envelope, key):
     if (type(envelope['mac']) is not str or not hmac.compare_digest(envelope['mac'],
             authenticate(key, 'worker_bootstrap', envelope['bootstrap']))):
         raise ValueError('worker bootstrap authentication denied')
-    return acquire(envelope['bootstrap'])
+    bootstrap = envelope['bootstrap']
+    if type(bootstrap) is dict and bootstrap.get('operation') == 'metadata':
+        return acquire_metadata(bootstrap)
+    return acquire(bootstrap)
 
 
 def main():
@@ -98,7 +102,8 @@ def main():
         if len(key) != 32:
             raise ValueError('invalid supervisor seal')
         observations = authenticated_acquire(decode(sys.stdin.buffer.read(MAX_FRAME + 1)), key)
-        output = _json([_observation_to_data(o) for o in observations]).encode()
+        output = _json(observations if type(observations) is dict else
+                       [_observation_to_data(o) for o in observations]).encode()
         if len(output) > MAX_FRAME:
             raise ValueError('reply oversized')
         sys.stdout.buffer.write(output)

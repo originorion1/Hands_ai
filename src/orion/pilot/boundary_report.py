@@ -6,7 +6,7 @@ controls cannot be waived by passing synthetic tests or caller-supplied results.
 
 # Each entry names actual test witnesses and a scope limit, when one remains.
 REQUIREMENTS = {
-    'read_only_contract': ('test_application_attacks_denied_before_source_io', 'metadata_not_brokered'),
+    'read_only_contract': ('test_application_attacks_denied_before_source_io', 'production_metadata_broker_unproven'),
     'erp_neutral_interface': ('test_two_protocols_actual_supervised_read_admits_canonical_observations', 'only_local_record_encodings'),
     'secret_isolation': ('test_untrusted_application_process_has_no_broker_environment_secrets', 'same_uid_custody_uncontained'),
     'bounded_request': ('test_scope_and_request_size_reject_before_opener', None),

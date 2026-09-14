@@ -11,12 +11,13 @@ from types import MappingProxyType
 
 from ..contracts import EvidenceKind
 from ..discovery.json_boundary import unique_json_object
+from ..discovery.pilot_metadata import MetadataAuthorization, MetadataRequest
 from ..discovery.pilot_read import PilotAuthorization, PilotRequest
 from ..discovery.read_window import ReviewedReadWindow
 from ..history.evidence import _observation_from_data
 from ..understanding.role_checkpoint import _json
 
-VERSION = 'local-broker-v2'
+VERSION = 'local-broker-v3'
 MAX_FRAME = 65536
 
 
@@ -110,3 +111,17 @@ def validate_field_classifications(value, fields):
     exact(value, fields)
     if any(type(label) is not str or label != 'public' for label in value.values()):
         raise ValueError('field classification denied')
+
+
+def metadata_request_from(value):
+    return MetadataRequest(**exact(value, MetadataRequest.__dataclass_fields__))
+
+
+def metadata_grant_from(value):
+    value = dict(exact(value, MetadataAuthorization.__dataclass_fields__))
+    value['request'] = metadata_request_from(value['request'])
+    value['expires_at'] = datetime.fromisoformat(value['expires_at'])
+    if type(value['excluded_resources']) is not list:
+        raise ValueError('explicit exclusion list required')
+    value['excluded_resources'] = tuple(value['excluded_resources'])
+    return MetadataAuthorization(**value)

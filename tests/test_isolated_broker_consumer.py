@@ -13,6 +13,10 @@ def test_real_broker_and_fresh_semantic_consumers_without_isolation_cannot_pass(
     assert not report['isolation_checks']['journal_write_denied']
     assert report['observations'] == 2 and report['unknown_count'] > 0
     assert report['attempts_after_revocation'] == 1
+    assert report['metadata_attempts_after_revocation'] == 3
+    assert not report['isolation_checks']['metadata_source_denied']
+    assert report['pipeline_checks']['brokered_discovery']
+    assert report['pipeline_checks']['metadata_token_read_denied']
     assert not report['execution_allowed'] and not report['live_ready']
 
 

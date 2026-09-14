@@ -98,8 +98,8 @@ class MetadataDiscovery:
     record_reads_allowed: bool = False
 
 
-def launch_pilot_metadata(request, *, authorization_id, lookup, adapter, clock=utc_now):
-    """One bounded catalog read plus bounded schema reads; no persistence or retry."""
+def _metadata_guard(request, authorization_id, lookup, clock):
+    """Shared canonical authorization checks for supervisor and sealed worker."""
     if type(request) is not MetadataRequest:
         raise TypeError('explicit metadata request required')
     request.__post_init__()
@@ -121,14 +121,20 @@ def launch_pilot_metadata(request, *, authorization_id, lookup, adapter, clock=u
         return value
 
     initial = authorize()
-    if adapter.source_id != request.source_id:
-        raise ValueError('metadata adapter source mismatch')
 
     def guard(resource=None):
         if authorize() != initial:
             raise ValueError('metadata grant changed')
         return MetadataTarget(request.tenant_id, request.company, request.source_id, resource), initial
 
+    return initial, guard
+
+
+def launch_pilot_metadata(request, *, authorization_id, lookup, adapter, clock=utc_now):
+    """One bounded catalog read plus bounded schema reads; no persistence or retry."""
+    initial, guard = _metadata_guard(request, authorization_id, lookup, clock)
+    if adapter.source_id != request.source_id:
+        raise ValueError('metadata adapter source mismatch')
     catalog, complete = _run_permitted_read(guard, clock,
         lambda permit: adapter.catalog(permit, initial.max_catalog_entries + 1))
     if (type(catalog) is not tuple or type(complete) is not bool

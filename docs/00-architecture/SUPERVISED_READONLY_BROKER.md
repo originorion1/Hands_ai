@@ -160,3 +160,55 @@ accounting, not signed attestation, a grant or a startup override. Known contain
 metadata, protocol and custody gaps remain FAIL/BLOCKED even with a green suite.
 Exit 2 and READ_ONLY_PILOT_BOUNDARY_NOT_READY are the expected current verdict.
 The independent live startup gate remains unchanged and denied.
+
+
+## Brokered metadata discovery (issue #149)
+
+The current wire/configuration version is `local-broker-v3`. Configuration requires
+an explicit `operation` (`read` or `metadata`). That operation, protocol, source,
+grant, limits and secret references are covered by the existing MAC/journal
+binding. Metadata and record requests/grants are parsed as distinct canonical
+types. A metadata token cannot authorize records, even with the same source.
+Old configurations fail closed; this version supplies no audit/budget migration.
+
+Metadata uses `MetadataAuthorization`, `MetadataRequest`, the shared canonical
+authorization guard, and `launch_pilot_metadata`. Its grant explicitly permits
+site schema discovery for a tenant/company/source, with exclusions, expiry and
+bounded catalogue/schema counts. The broker profile caps catalogue visibility at
+10 and schema acquisitions at 2. Metadata can expose site resource names; company
+binding is context, not a claim that a site's schema belongs exclusively to one
+company. Record scope still requires an independently supplied record grant.
+
+Only the fixed synthetic `local_schema_v1` file format is supported. The trusted
+owner pins its digest and supplies source credentials to sealed workers, never
+the consumer. Exact schema-only envelopes reject records, scripts and defaults.
+Each field has a classification; only public structural declarations are emitted.
+Missing labels reject, other classes are withheld, duplicate fields reject. A
+public string that resembles an instruction remains an opaque identifier. Types
+produce candidates/UNKNOWN, never validated business roles or authorization.
+Classification accuracy remains a trusted collector responsibility.
+
+The supervisor launches one sealed fixed worker for the catalogue and one for
+each selected schema. Each file acquisition consumes its own durable journal
+attempt and response-byte reservation. Existing rate limits remain enforced;
+bounded scheduling waits for the next allowed attempt within a five-second
+operation deadline, without retry. Worker timeout is limited by the remaining
+deadline. Denial/partial failure returns no metadata observations. Canonical guard
+checks run before dispatch and after response, including configuration integrity,
+expiry and durable stop/revocation. Workers recheck canonical scope before file
+access. Supervisor reconstructs structural interpretations and canonical metadata
+admission produces immutable observations with authorization/scope provenance.
+
+The application wire exposes no worker target, file path, credential reference,
+URL, callable, control signature or record-grant issuer. Python composition and
+brokers remain trusted: arbitrary hostile same-process Python is not contained by
+these checks. The separate kernel lab is the executable consumer-custody test.
+Stop is synchronous between operations; urgent termination is external supervision,
+not a claim of interruptible production revocation. No production transport,
+metadata pagination protocol, protected audit service or live activation is added.
+
+`tests/test_broker_metadata.py` exercises real broker/worker processes and local
+adversarial cases. `tools/isolated_broker_probe.py` now requires brokered metadata
+before record reasoning and rechecks both revocations after restart. Unconfined
+negative controls cannot pass containment. Release statuses remain FAIL/BLOCKED;
+the read-only report's metadata blocker now names missing **production** proof.
