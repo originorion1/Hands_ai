@@ -6,10 +6,12 @@ Same-UID filesystem/process attacks are NOT contained by this module.
 """
 import argparse
 import hmac
+import json
 import os
 import secrets
 import subprocess
 import sys
+import time
 from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +19,7 @@ from pathlib import Path
 from ..contracts import utc_now
 from ..discovery.erpnext_adapter import _normalize_base_url
 from ..discovery.erpnext_live_session import CredentialEnvironmentReferences
+from ..discovery.pilot_metadata import launch_pilot_metadata
 from ..discovery.pilot_read import _text, launch_pilot_read
 from ..history.evidence import _observation_to_data
 from ..understanding.role_checkpoint import _json
@@ -28,11 +31,14 @@ from .broker_contract import (
     digest,
     exact,
     grant_from,
+    metadata_grant_from,
+    metadata_request_from,
     observations_from,
     private_bytes,
     request_from,
     validate_field_classifications,
 )
+from .broker_metadata import proposal_from
 from .journal import AttemptJournal, JournalDenied, TransportLimits
 
 
@@ -42,18 +48,34 @@ class Broker:
     def __init__(self, config, directory, *, expected_head=None):
         exact(config, ('version', 'mode', 'caller', 'grant', 'limits', 'protocol',
             'secret_reference', 'auth_reference', 'source_path', 'source_digest',
-            'field_classifications'))
+            'field_classifications', 'operation'))
         if config['version'] != VERSION or config['mode'] != 'synthetic_read_only':
             raise ValueError('offline broker configuration required')
         _text(config['caller'])
-        self.grant = grant_from(config['grant'])
-        if (not _normalize_base_url(self.grant.source_id).endswith('.test')
-                or self.grant.source_id != _normalize_base_url(self.grant.source_id)
-                or self.grant.max_records > 25 or len(self.grant.window.fields) > 64
-                or (self.grant.window.end - self.grant.window.start).days > 31):
+        self.operation = config['operation']
+        if self.operation == 'read':
+            self.grant = grant_from(config['grant'])
+            self.source_id = self.grant.source_id
+            self.expires_at = self.grant.window.expires_at
+            if (self.grant.max_records > 25 or len(self.grant.window.fields) > 64
+                    or (self.grant.window.end - self.grant.window.start).days > 31):
+                raise ValueError('bounded synthetic records required')
+            protocols = ('local_rows_v1', 'local_columns_v1')
+            validate_field_classifications(config['field_classifications'], self.grant.window.fields)
+        elif self.operation == 'metadata':
+            self.grant = metadata_grant_from(config['grant'])
+            self.source_id = self.grant.request.source_id
+            self.expires_at = self.grant.expires_at
+            if self.grant.max_catalog_entries > 10 or self.grant.max_schemas > 2:
+                raise ValueError('bounded synthetic discovery required')
+            exact(config['field_classifications'], ())
+            protocols = ('local_schema_v1',)
+        else:
+            raise ValueError('explicit read operation required')
+        if (not _normalize_base_url(self.source_id).endswith('.test')
+                or self.source_id != _normalize_base_url(self.source_id)):
             raise ValueError('bounded synthetic source required')
-        if (config['protocol'] not in ('local_rows_v1', 'local_columns_v1')
-                or type(config['source_path']) is not str
+        if (config['protocol'] not in protocols or type(config['source_path']) is not str
                 or not Path(config['source_path']).is_absolute()
                 or type(config['source_digest']) is not str or len(config['source_digest']) != 64):
             raise ValueError('pinned local source required')
@@ -62,7 +84,6 @@ class Broker:
         self.limits = TransportLimits(**limits)
         if self.limits.response_bytes > MAX_FRAME or self.limits.request_bytes > MAX_FRAME:
             raise ValueError('bounded broker frames required')
-        validate_field_classifications(config['field_classifications'], self.grant.window.fields)
         refs = CredentialEnvironmentReferences(config['auth_reference'], config['secret_reference'])
         resolved = refs.resolve(os.environ)
         # Referenced values stay in the broker process; only the source credential
@@ -112,7 +133,7 @@ class Broker:
                 or not hmac.compare_digest(value['mac'], authenticate(self.key, 'control', payload))):
             raise ValueError('control authentication denied')
         if value['control'] == 'arm':
-            if self.stopped() or utc_now() >= min(self.limits.expires_at, self.grant.window.expires_at):
+            if self.stopped() or utc_now() >= min(self.limits.expires_at, self.expires_at):
                 raise ValueError('stopped or expired')
             self._event('broker_arm')
             self.armed = True
@@ -129,7 +150,7 @@ class Broker:
         if not self.armed or self.stopped():
             raise ValueError('broker not armed')
         self.phase = 'grant_authentication'
-        if (value['operation'] != 'read' or type(value['grant_token']) is not str
+        if (value['operation'] != self.operation or type(value['grant_token']) is not str
                 or not hmac.compare_digest(value['grant_token'],
                     authenticate(self.key, 'read_grant', self.binding))):
             raise ValueError('grant authentication denied')
@@ -138,10 +159,12 @@ class Broker:
         if any(e.get('references', {}).get('request') == identity
                for e in self.journal.lifecycle_records()):
             raise ValueError('duplicate attempt denied')
-        request = request_from(value['request'])
         self.phase = 'scope_authorization'
         if digest(self.config) != self.binding:
             raise ValueError('broker configuration changed')
+        if self.operation == 'metadata':
+            return self._metadata(value, identity)
+        request = request_from(value['request'])
         validate_field_classifications(self.config['field_classifications'], self.grant.window.fields)
         supervisor = self
 
@@ -161,34 +184,9 @@ class Broker:
                                  ('grant', 'protocol', 'source_digest', 'field_classifications')}
                     bootstrap.update(request=asdict(request), path=supervisor.config['source_path'],
                                      secret=supervisor.secret)
-                    source = str(Path(__file__).resolve().parents[2])
-                    command = 'import sys;sys.path.insert(0,' + repr(source) + ');' + (
-                        'from orion.pilot.broker_worker import main;raise SystemExit(main())')
-                    seal = secrets.token_bytes(32)
-                    envelope = {'bootstrap': bootstrap,
-                                'mac': authenticate(seal, 'worker_bootstrap', bootstrap)}
-                    sealed_input = _json(envelope).encode()
-                    if len(sealed_input) > MAX_FRAME:
-                        raise ValueError('worker bootstrap oversized')
-                    supervisor.phase = 'worker_acquisition'
-                    read_fd, write_fd = os.pipe()
-                    try:
-                        os.write(write_fd, seal)
-                    finally:
-                        os.close(write_fd)
-                    try:
-                        result = subprocess.run([sys.executable, '-I', '-c', command,
-                            '--seal-fd', str(read_fd)], input=sealed_input, capture_output=True,
-                            timeout=5, check=False, env={'PATH': os.defpath, 'LANG': 'C.UTF-8'},
-                            close_fds=True, pass_fds=(read_fd,))
-                    finally:
-                        os.close(read_fd)
+                    result = supervisor._worker(bootstrap)
                     received = len(result.stdout)
-                    if (result.returncode != 0 or result.stderr
-                            or received > min(MAX_FRAME, supervisor.limits.response_bytes)
-                            or any(_json(secret)[1:-1].encode() in result.stdout
-                                   for secret in (supervisor.secret, supervisor.key.decode()))):
-                        raise ValueError('local worker failed')
+                    supervisor._validate_worker(result)
                     admitted = observations_from(decode(result.stdout))
                     permit.check(self.source_id)
                     supervisor.journal.check_active(permit.current_time())
@@ -211,6 +209,121 @@ class Broker:
         response['observations'] = [_observation_to_data(o) for o in observations]
         if len(_json(response).encode()) > MAX_FRAME:
             raise ValueError('application reply oversized')
+        return response
+
+    def _worker(self, bootstrap, *, timeout=5):
+        source = str(Path(__file__).resolve().parents[2])
+        command = 'import sys;sys.path.insert(0,' + repr(source) + ');' + (
+            'from orion.pilot.broker_worker import main;raise SystemExit(main())')
+        seal = secrets.token_bytes(32)
+        envelope = {'bootstrap': bootstrap,
+                    'mac': authenticate(seal, 'worker_bootstrap', bootstrap)}
+        sealed_input = _json(envelope).encode()
+        if len(sealed_input) > MAX_FRAME:
+            raise ValueError('worker bootstrap oversized')
+        self.phase = 'worker_acquisition'
+        read_fd, write_fd = os.pipe()
+        try:
+            os.write(write_fd, seal)
+        finally:
+            os.close(write_fd)
+        try:
+            result = subprocess.run([sys.executable, '-I', '-c', command,
+                '--seal-fd', str(read_fd)], input=sealed_input, capture_output=True,
+                timeout=timeout, check=False, env={'PATH': os.defpath, 'LANG': 'C.UTF-8'},
+                close_fds=True, pass_fds=(read_fd,))
+        finally:
+            os.close(read_fd)
+        return result
+
+    def _validate_worker(self, result):
+        if (result.returncode != 0 or result.stderr
+                or len(result.stdout) > min(MAX_FRAME, self.limits.response_bytes)
+                or any(_json(secret)[1:-1].encode() in result.stdout
+                       for secret in (self.secret, self.key.decode()))):
+            raise ValueError('local worker failed')
+
+    def _metadata(self, value, identity):
+        request = metadata_request_from(value['request'])
+        supervisor = self
+        deadline = time.monotonic() + 5
+        requested = False
+
+        class ProcessMetadata:
+            source_id = supervisor.source_id
+
+            def acquire(self, permit, target):
+                nonlocal requested
+                permit.check(self.source_id)
+                if not requested:
+                    supervisor._event('broker_request', request=identity)
+                    requested = True
+                # Each catalog/schema acquisition consumes its own durable attempt.
+                attempts = [e for e in supervisor.journal.lifecycle_records() if e['event'] == 'attempt']
+                if attempts:
+                    wait = attempts[-1]['at'] + supervisor.limits.minimum_interval_seconds - utc_now().timestamp()
+                    if wait > 0:
+                        if wait >= deadline - time.monotonic():
+                            raise ValueError('metadata scheduling deadline')
+                        time.sleep(wait)
+                if time.monotonic() >= deadline:
+                    raise ValueError('metadata deadline')
+                permit.claim_io(self.source_id)
+                supervisor.phase = 'resource_reservation'
+                supervisor.journal.begin(permit.current_time(), len(_json(value).encode()))
+                received, success = 0, False
+                try:
+                    bootstrap = {k: supervisor.config[k] for k in
+                        ('operation', 'grant', 'protocol', 'source_digest', 'field_classifications')}
+                    bootstrap.update(request=asdict(request), path=supervisor.config['source_path'],
+                                     secret=supervisor.secret, target=target)
+                    result = supervisor._worker(bootstrap, timeout=max(0.001, deadline - time.monotonic()))
+                    received = len(result.stdout)
+                    supervisor._validate_worker(result)
+                    response = decode(result.stdout)
+                    permit.check(self.source_id)
+                    supervisor.journal.check_active(permit.current_time())
+                    if time.monotonic() >= deadline:
+                        raise ValueError('metadata response deadline')
+                    if target is None:
+                        exact(response, ('catalog', 'complete'))
+                        if type(response['catalog']) is not list:
+                            raise ValueError('catalog list required')
+                        output = tuple(response['catalog']), response['complete']
+                    else:
+                        exact(response, ('resource', 'declarations'))
+                        if response['resource'] != target:
+                            raise ValueError('schema scope mismatch')
+                        output = proposal_from(target, response['declarations'])
+                    success = True
+                    return output
+                finally:
+                    supervisor.journal.finish(success=success, received_bytes=received)
+
+            def catalog(self, permit, limit):
+                return self.acquire(permit, None)
+
+            def schema(self, permit, resource):
+                return self.acquire(permit, resource)
+
+        def lookup(_authorization_id):
+            if digest(self.config) != self.binding or not self.armed or self.stopped():
+                return None
+            return self.grant
+
+        discovery = launch_pilot_metadata(request, authorization_id=self.grant.authorization_id,
+            lookup=lookup, adapter=ProcessMetadata())
+        observations = discovery.observations
+        # History's wire format uses JSON lists; canonical admission remains frozen.
+        values = [_observation_to_data(replace(o, evidence=replace(o.evidence,
+                  payload=json.loads(_json(o.evidence.payload))))) for o in observations]
+        response = self.status('admitted')
+        response['observations'] = values
+        if len(_json(response).encode()) > MAX_FRAME:
+            raise ValueError('application reply oversized')
+        self._event('broker_admitted', request=identity,
+                    observations=digest([str(o.observation_id) for o in observations]))
+        response.update(self.status('admitted'))
         return response
 
     def handle(self, value):

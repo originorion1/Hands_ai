@@ -47,7 +47,7 @@ class Harness:
         self.source.write_text(_json(envelope))
         self.source.chmod(0o600)
         self.config = json.loads(_json({'version': VERSION, 'mode': 'synthetic_read_only',
-            'caller': 'app_01', 'grant': asdict(self.grant),
+            'caller': 'app_01', 'operation': 'read', 'grant': asdict(self.grant),
             'field_classifications': {f: 'public' for f in self.grant.window.fields},
             'limits': asdict(TransportLimits(3, 32768, 65536, 196608, 1, 2,
                                              self.grant.window.expires_at)),
