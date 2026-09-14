@@ -1,6 +1,8 @@
 """Report validation is not OS isolation; the real-host probe reports its own capability."""
 import json
+import os
 
+import isolation_lab
 import pytest
 from isolation_lab import CHECKS, assess_child, run_lab
 
@@ -38,3 +40,24 @@ def test_no_negative_control_or_changed_audit_prevents_pass(negative, audit):
 def test_missing_kernel_capability_is_blocked_not_passed():
     assert assess_child(1, '', 'private details', negative_controls=True,
                         audit_unchanged=True)['status'] == 'BLOCKED'
+
+
+@pytest.mark.parametrize('existing', [False, True])
+def test_audit_witness_does_not_create_shadow_but_detects_existing_write(tmp_path, monkeypatch, existing):
+    # Exercise real filesystem I/O. Network witnesses are unrelated to this
+    # regression and deliberately stubbed; this does not prove OS confinement.
+    audit = tmp_path / 'audit'
+    if existing:
+        audit.write_bytes(b'original')
+    monkeypatch.setattr(isolation_lab, 'connectable', lambda *args: False)
+    scope = {'audit': str(audit), 'secret': str(tmp_path / 'absent'),
+             'unix': str(tmp_path / 'socket'), 'port': 1, 'parent': os.getpid()}
+    scope.update({k: os.readlink('/proc/self/ns/' + k) for k in ('net', 'pid', 'mnt', 'user')})
+    checks = isolation_lab.inspect_child(scope)
+    assert checks['audit_write_denied'] is (not existing)
+    if existing:
+        assert audit.read_bytes() == b'originalcanary-mutation'
+        assert assess_child(0, json.dumps(checks), '', negative_controls=True,
+                            audit_unchanged=False)['status'] == 'FAIL'
+    else:
+        assert not audit.exists()

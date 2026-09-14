@@ -58,3 +58,12 @@ mounts are not a general hostile-code sandbox certification.
 Production modules, authorization, admission, scanners and release gates are
 unchanged. `execution_allowed=false`, `allow_live_customer_access=false`,
 `live_ready=false`, `production_containment=NOT PROVEN` remain mandatory.
+
+## Existing-audit witness
+
+The shared audit write probe opens the target with `O_WRONLY | O_APPEND` and
+without `O_CREAT`. A hidden owner audit must not be confused with a newly
+created same-path file in the writable private filesystem. Existing writable
+audit targets still cause a failed check and a changed owner canary. Regression
+tests exercise both cases with real filesystem I/O; they do not replace the
+required host namespace experiment.
