@@ -41,7 +41,10 @@ def connectable(family, destination):
 
 def inspect_child(scope):
     try:
-        with open(scope['audit'], 'ab') as stream:
+        # Never create a same-path shadow inside the private filesystem.
+        # Test write access to an existing target, including write-only files.
+        fd = os.open(scope['audit'], os.O_WRONLY | os.O_APPEND)
+        with os.fdopen(fd, 'wb') as stream:
             stream.write(b'canary-mutation')
         audit_denied = False
     except OSError:
