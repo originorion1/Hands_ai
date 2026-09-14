@@ -152,6 +152,35 @@ class AttemptJournal:
                 'stopped':any(e['event']=='stop' for e in events),
                 'pending':events[-1]['event']=='attempt','head':self.head}
 
+    def lifecycle(self, event, *, at, references):
+        """Bounded digest-only broker events; no records, paths or secret values.
+
+        This shares the existing integrity chain and its fixed length bound.
+        It cannot hide an unfinished attempt or grant/revive authority.
+        """
+        allowed = {'broker_start', 'broker_arm', 'broker_request', 'broker_denied', 'broker_admitted',
+                   'broker_stop', 'broker_revoke', 'broker_shutdown', 'broker_failed'}
+        ReviewedReadWindow.check_time_type(at)
+        if (event not in allowed or type(references) is not dict or len(references) > 8
+                or not set(references) <= {'caller', 'scope', 'request', 'observations', 'version', 'reason'}
+                or any(type(v) is not str or len(v) != 64 or
+                       any(c not in '0123456789abcdef' for c in v) for v in references.values())):
+            raise JournalDenied('invalid lifecycle event')
+        with self._connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            events = self._verify(db)
+            if len(events) >= 201 or events[-1]['event'] == 'attempt':
+                raise JournalDenied('pending or exhausted audit')
+            self._append(db, {'sequence': len(events) + 1, 'event': event,
+                'binding': self.binding, 'previous': self.head, 'at': at.isoformat(),
+                'references': references, 'execution_allowed': False,
+                'execution_status': 'not_attempted'})
+
+    def lifecycle_records(self):
+        """Detached verified values, not mutable journal authority."""
+        with self._connect() as db:
+            return tuple(self._verify(db))
+
     def begin(self,now,request_bytes):
         ReviewedReadWindow.check_time_type(now)
         if type(request_bytes) is not int or not 0<=request_bytes<=self.limits.request_bytes:

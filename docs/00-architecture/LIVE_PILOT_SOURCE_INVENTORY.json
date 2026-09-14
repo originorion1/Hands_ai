@@ -1,6 +1,6 @@
 {
   "scope": "Repository-wide source inventory; critical-path audit, not independent certification",
-  "dependency_head": "36a38f44f1bc432137bc8f6aa8671e40271aea9b",
+  "dependency_head": "8dc0c0cb8a72bde2907c547b25b7297aa7f027ec",
   "files": [
     {
       "file": "src/orion/__init__.py",
@@ -802,6 +802,37 @@
       "symbols": []
     },
     {
+      "file": "src/orion/pilot/broker.py",
+      "sha256": "98fad1c19deeccf06137478cceb3fb180603a460d08ac3d319d989c03e12c09e",
+      "symbols": [
+        "Broker",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/broker_contract.py",
+      "sha256": "0c729e39d548f71be3a97f9ed7c07b166fb90a625c5e90f0ee2c435ac81b7c2a",
+      "symbols": [
+        "digest",
+        "authenticate",
+        "exact",
+        "decode",
+        "request_from",
+        "grant_from",
+        "private_bytes",
+        "observations_from"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/broker_worker.py",
+      "sha256": "cd5a892c5535ca1c10bc56c60fa5a4b5196e6cfb75e57e5dc455267cad235a9d",
+      "symbols": [
+        "acquire",
+        "authenticated_acquire",
+        "main"
+      ]
+    },
+    {
       "file": "src/orion/pilot/budgeted_transport.py",
       "sha256": "879cfaf70944ff7e618f6fd77f325fd087a005905a23ac27c5441ea18a2f8924",
       "symbols": [
@@ -811,7 +842,7 @@
     },
     {
       "file": "src/orion/pilot/journal.py",
-      "sha256": "bb9b42f386cbdce7b5331e8964dc21c0a961ed7d6c86ba5377c56434502e2b92",
+      "sha256": "493871e558f57fddec0eaeedd0f7f1bc6b196da95697042e7fe70621d1a9f907",
       "symbols": [
         "JournalDenied",
         "TransportLimits",

@@ -444,6 +444,21 @@
       "test_required": "Dependency audit, image provenance and SBOM",
       "live_pilot_status": "BLOCKED",
       "issue_class": "PILOT BLOCKER"
+    },
+    {
+      "requirement": "Supervised local read-only broker",
+      "current_implementation": "Authenticated pinned read/control frames, fixed separately launched synthetic worker, two local encodings, mandatory per-attempt journal within this broker, fresh arming and durable stop/revocation",
+      "evidence": [
+        "src/orion/pilot/broker.py",
+        "src/orion/pilot/broker_worker.py",
+        "tests/test_supervised_broker.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "OS-enforced application/broker ownership and egress separation, protected issuer/journal custody, live protocol and metadata integration",
+      "implementation_required": "Test independently owned deployment isolation on a capable host; retain all live release denials",
+      "test_required": "Application cannot access broker environment/files/alternative egress; full deployed lifecycle",
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     }
   ]
 }

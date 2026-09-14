@@ -1,0 +1,130 @@
+# Locally supervised read-only broker
+
+Issue #137, stacked on PR #136 head `8dc0c0cb8a72bde2907c547b25b7297aa7f027ec`.
+This is an executable offline process boundary, **not a live runtime or OS sandbox**.
+The existing release report and startup denial remain unchanged.
+
+## Composition and custody
+
+`orion.pilot.broker` is a supervisor intended to run outside the ORION application.
+It accepts bounded newline-delimited JSON on stdin and emits bounded JSON replies.
+The fixed child `broker_worker` is launched with an empty credential environment,
+closed inherited descriptors except a one-use seal pipe, isolated Python import
+mode, a pinned repository module path, and a five-second deadline. It cannot be
+selected or replaced by an application message. The worker receives its source
+credential only in an anonymous supervisor pipe; it receives no issuer key.
+A separate seal descriptor authenticates the child bootstrap before source access.
+
+The supervisor resolves two approved environment **references** from owner-only
+configuration: an authentication/journal key and a synthetic source credential.
+The application wire format has no credential, reference, path, URL, module or
+callable parameter. Extra keys reject. A read token is an HMAC capability bound
+to the complete configuration digest, including the canonical grant, caller,
+source-file digest, encoding, references and limits. The token is reusable within
+that grant's bounds; individual request IDs are single-use, including failed
+reserved attempts. It is not a caller identity provider or human approval service.
+
+The supervisor reuses `PilotAuthorization`, `PilotRequest`, `launch_pilot_read`
+and canonical admission. It reserves the existing `AttemptJournal` before spawning
+a source worker. The child also uses the canonical launcher, then the supervisor
+reauthorizes and admits the returned batch. No new canonical evidence or hypothesis
+type is introduced. Returned observations can enter the existing RoleStudy and
+SemanticStudy archive without semantic mapping changes.
+
+## Actual source boundary
+
+Only the explicitly selected `local_rows_v1` and `local_columns_v1` formats exist:
+one carries JSON row objects, the other an ordered column array plus value tuples.
+These are two synthetic wire formats over local files, **not two live ERP protocols**.
+Both require exact resource and field bindings and a synthetic credential digest.
+The source is an owner-only regular file, opened without following a final symlink,
+read with a 64-KiB ceiling and checked against the supervisor's pinned SHA-256.
+FIFO/device input rejects. Only `.test` HTTPS-shaped source identities are accepted;
+they are provenance identifiers and are never contacted. There is no HTTP client,
+URL forwarding, production adapter, write method or dynamic adapter registry.
+
+Resource mechanics and field identifiers are supplied by the independent synthetic
+control-plane fixtures, not inferred as authority by semantic reasoning. The
+integration tests retain existing separately admitted metadata, then route record
+and independent process evidence through the broker. Metadata transport itself
+has not been moved behind this broker and remains a future reviewed increment.
+
+## Supervisor contract
+
+The trusted owner starts the process with `--config`, `--state`, and, for restart,
+the independently retained `--expected-head`. These arguments are **not** accepted
+through the application protocol. Every start is unarmed. A fresh random challenge
+and current journal head must be authenticated with a domain-separated control MAC
+before arming. No active authority is restored from disk. Only `arm`, `stop` and
+`revoke` are recognized controls. Stop and revocation are terminal for this grant
+instance and retained in the journal. Restart cannot undo either.
+
+Controls and requests are serialized. A stop/revoke acknowledgement establishes
+the stop; sending a control message does not imply it has already been applied.
+A graceful control can wait for the bounded current worker operation (five seconds).
+Immediate host-level kill/revocation, protected process groups and asynchronous
+source revocation remain deployment work. The worker has its own alarm if orphaned;
+this is not proof against an uninterruptible kernel/filesystem operation.
+
+A pending attempt after supervisor termination denies restart. Budget reservations
+are not refunded. Rate spacing and the failure circuit survive restart. Missing,
+stale or altered audit tips, changed configuration, and modified journal entries
+reject. The supervisor does not reconstruct or manufacture a lost trusted tip.
+
+## Audit and minimization
+
+Broker lifecycle events use the existing journal HMAC chain and its fixed 202-event
+limit. Events cannot be appended over an unfinished attempt. There is no second
+persistence system or unbounded audit growth. Exhaustion fails closed.
+
+Events retain timestamps, the configuration/grant binding, hashed caller, request,
+version and observation-set identities. Denials retain a hash of the fixed stage:
+`request_validation`, `control_authentication`, `grant_authentication`,
+`scope_authorization`, `resource_reservation`, `worker_acquisition`, or `admission`.
+The external retained configuration and observation archive resolve those bounded
+references; the journal is not a standalone copy of all evidence. Transport success
+does not claim admission success; `broker_admitted` is recorded after admission.
+No source rows, credential values, paths, headers or exception text are journaled.
+Literal source/issuer credential values appearing in output are rejected. This is
+not a complete classifier for transformed secrets or sensitive business data.
+
+Both journal and configuration remain accessible to their OS owner. A same-UID
+hostile process may read files or `/proc/<pid>/environ`, replace code, invoke legacy
+adapters or create another state directory. Neither Python privacy nor MACs held
+in the same trust domain prevent that. Mandatory protected custody, anti-reset
+index ownership, filesystem isolation and kernel egress controls remain required.
+
+## Executable checks
+
+`tests/test_supervised_broker.py` starts actual supervisor and worker processes,
+tests both formats, rejected application/control frames, scope and MAC attacks,
+replay, limits, fresh arming, stop/revocation recovery, changed audit/configuration,
+source failures, terminated supervisor with a pending attempt, credential leakage,
+and existing semantic contradiction-review/checkpoint integration.
+
+The existing `test_pilot_release_adversarial.py` still demonstrates the injected
+legacy-adapter bypass. The same-UID probe is diagnostic, not a passing isolation
+assertion. No tests or scanner policies are weakened to make this increment pass.
+
+## Release assessment
+
+| Requirement | Status | Limit |
+| --- | --- | --- |
+| Supervised local read broker | PASS | Fixed synthetic child only |
+| Authenticated scoped read/control protocol | PASS | Trusted issuer and bearer custody required |
+| Budget/rate/replay/stop recovery | PASS | Independently pinned audit head required |
+| Local record formats through semantic review | PASS | Metadata remains on its existing separate path |
+| Mandatory broker for all application paths | FAIL | Legacy injected calls still exist |
+| Process credential/API minimization | PASS | Does not establish OS custody |
+| Protected secret/journal custody | BLOCKED | Same-UID access is not contained |
+| Production egress/OS isolation | BLOCKED | Network-namespace probe fails in this environment |
+| Full second live protocol lifecycle | BLOCKED | Two local encodings are not live protocols |
+| Monitoring/retention/deployment validation | BLOCKED | No deployed supervisor or protected storage |
+| Live customer readiness | BLOCKED | Existing release gates unchanged |
+| Execution authority denied | PASS | No action interface or live activation |
+
+The next boundary is an independently owned, kernel-enforced broker/application
+deployment on a host where isolation can actually be tested. It must prove that
+the application cannot reach broker keys, source files, process environment or
+alternative network paths. Do not activate this local laboratory service for a
+customer or reinterpret its test results as that deployment proof.
