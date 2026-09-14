@@ -34,6 +34,7 @@ from .erpnext_adapter import (
     _require_non_empty,
     _validate_resource,
 )
+from .json_boundary import unique_json_object
 from .read_window import ReviewedReadWindow
 
 DEFAULT_SAMPLE_SIZE = 5
@@ -398,12 +399,12 @@ class ERPNextHistoricalSampleAdapter:
         try:
             payload: Mapping[str, Any] = (
                 json.loads(
-                    body.decode("utf-8")
+                    body.decode("utf-8"), object_pairs_hook=unique_json_object
                 )
             )
         except (
             UnicodeDecodeError,
-            json.JSONDecodeError,
+            ValueError,
         ) as exc:
             raise ERPNextHistoricalSampleError(
                 "historical sample returned "
