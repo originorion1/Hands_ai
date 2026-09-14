@@ -199,7 +199,8 @@ immutable metadata observation with tenant, company context, source, acquisition
 time, authorization reference and grant digest. Full schemas/defaults/scripts
 are not retained. `schema_targets` does not imply that every target produced a
 usable proposal. Existing sensitive-name/value screening remains in effect;
-child/singleton/non-submittable or otherwise unsupported schemas yield no proposal.
+schemas incompatible with the historical reader yield no executable field scope;
+sanitized structural interpretations may still be returned.
 Catalog completeness is NOT a claim of visibility into all entities on the server.
 If the catalog or schema budget is exhausted, uncovered names remain unexamined.
 
@@ -215,3 +216,43 @@ This is an offline-tested application interface, not a production CLI or a live
 activation. Supply only a separately reviewed no-redirect bounded transport and
 trusted grant registry in deployment. No raw networking, production values,
 credentials, customer records or writes are added by metadata discovery.
+
+## Evidence-backed unfamiliar-schema interpretation
+
+The bounded metadata path now preserves structural evidence even when a schema
+cannot satisfy the historical reader's existing conventions. The ERP adapter maps
+protocol field types to neutral number/date/reference declarations, using the
+existing hidden/sensitive-field screening. Labels, defaults, scripts and arbitrary
+metadata attributes are not copied into this representation.
+
+`understanding.schema_evidence.interpret_schema` consumes those declarations;
+it never matches resource/field names to an expected answer. Each candidate has
+its declaration, an entity/field locator and a SHA-256 of that declaration. The
+metadata observation anchors these candidates to source, tenant, acquisition time
+and the metadata grant digest. These are observed declarations and candidate roles,
+not proof of business meaning or source authenticity. The nested evidence remains
+immutable and is validated against the interpretation before admission.
+
+Multiple Date declarations yield `date_role_ambiguous`. Record identity, tenant
+filter semantics, business meaning and record authorization remain explicit
+unknowns. An incompatible schema produces empty executable `fields`/`date_fields`
+with its structural interpretation attached. Compatible historical proposals keep
+the existing mapping rules; interpreting a schema never extends those rules.
+No interpretation/result can be supplied as a record grant.
+
+The offline experiment generates opaque resource and field identifiers inside a
+fake environment. Grant/request inputs contain none of those identifiers. Catalog
+and schema responses are the only route to them. Renaming fixtures preserves
+structural candidate behavior; changing declared types changes interpretations.
+Tests cover evidence tampering, hidden fields, resource exclusions, missing grants
+and attempted proposal-to-record-authority conversion, alongside existing expiry,
+revocation, tenant and wire-scope cases.
+
+Missing before the full organizational-learning experiment: evidence-backed
+validation of business roles and a task-specific minimal-read planner. Types alone
+cannot prove which date measures an event or which relationship isolates company
+data. The current interpreter exposes those unknowns rather than answering them
+with assumptions. It is a reusable understanding component; graph promotion,
+record authorization negotiation, outcome learning and live deployment are not
+performed by it. Operators may later approve concrete discovered proposals; they
+need not pre-supply resource or field names to run this bounded discovery.

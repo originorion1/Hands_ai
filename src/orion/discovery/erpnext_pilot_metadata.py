@@ -4,8 +4,13 @@ from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request
 
 from ..understanding.metadata import build_metadata_understanding
+from ..understanding.schema_evidence import FieldDeclaration, interpret_schema
 from .erpnext_adapter import _normalize_base_url
-from .erpnext_live_session import derive_metadata_scope_candidate, is_sensitive_metadata_name
+from .erpnext_live_session import (
+    _is_safe_study_field,
+    derive_metadata_scope_candidate,
+    is_sensitive_metadata_name,
+)
 from .erpnext_metadata_adapter import ERPNextMetadataAdapter
 from .erpnext_metadata_preflight import _contains_sensitive_embedded_value, _read_name_catalog
 from .pilot_metadata import MetadataAuthorization, MetadataTarget, ScopeProposal
@@ -84,16 +89,24 @@ class ERPNextPilotMetadataReader:
             raw = observations[0].evidence.payload['metadata']
             if _contains_sensitive_embedded_value(raw):
                 return None
+            understanding = build_metadata_understanding(observations, tenant_id=request.tenant_id,
+                allowed_doctypes=frozenset({resource}))
+            if len(understanding.entities) != 1:
+                raise ValueError('metadata must resolve one requested entity')
+            entity = understanding.entities[0]
+            # Translate protocol types into neutral structural evidence, not business roles.
+            kinds = {'Int': 'number', 'Float': 'number', 'Currency': 'number',
+                     'Percent': 'number', 'Date': 'date', 'Link': 'reference'}
+            declarations = tuple(FieldDeclaration(resource, f.fieldname, kinds[f.fieldtype], f.fieldtype)
+                for f in entity.fields if f.fieldtype in kinds and _is_safe_study_field(f)
+                and not is_sensitive_metadata_name(f.fieldname))
+            interpretation = interpret_schema(resource, declarations)
             candidate = derive_metadata_scope_candidate(request.tenant_id, resource, observations)
-            if candidate is None:
-                return None
-            entity = build_metadata_understanding(observations, tenant_id=request.tenant_id,
-                allowed_doctypes=frozenset({resource})).entities[0]
-            if not entity.is_submittable:
-                return None
+            if candidate is None or not entity.is_submittable:
+                return ScopeProposal(resource, (), (), interpretation)
             dates = tuple(sorted(f.fieldname for f in entity.fields
                 if f.fieldtype == 'Date' and f.fieldname in candidate.fields))
             fields = tuple(sorted(set(candidate.fields) | {'name', 'company', 'docstatus'}))
-            return ScopeProposal(resource, fields, dates)
+            return ScopeProposal(resource, fields, dates, interpretation)
         except Exception:  # noqa: BLE001 - no raw schema payload in diagnostics
             raise ValueError('pilot metadata schema rejected') from None

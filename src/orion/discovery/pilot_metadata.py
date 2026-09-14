@@ -7,6 +7,7 @@ from types import MappingProxyType
 from uuid import NAMESPACE_URL, uuid5
 
 from ..contracts import Evidence, EvidenceKind, Observation, utc_now
+from ..understanding.schema_evidence import SchemaInterpretation, interpret_schema
 from .pilot_read import _run_permitted_read, _text
 from .read_window import ReviewedReadWindow
 
@@ -66,9 +67,17 @@ class ScopeProposal:
     resource: str
     fields: tuple[str, ...]
     date_fields: tuple[str, ...]
+    interpretation: SchemaInterpretation | None = None
 
     def __post_init__(self):
         _text(self.resource)
+        if self.interpretation is not None:
+            if type(self.interpretation) is not SchemaInterpretation:
+                raise TypeError('explicit schema interpretation required')
+            rebuilt = interpret_schema(self.resource, tuple(
+                c.declaration for c in self.interpretation.candidates))
+            if rebuilt != self.interpretation:
+                raise ValueError('schema interpretation evidence mismatch')
         for values in (self.fields, self.date_fields):
             if type(values) is not tuple or len(set(values)) != len(values):
                 raise ValueError('unique immutable proposal fields required')
@@ -150,7 +159,7 @@ def launch_pilot_metadata(request, *, authorization_id, lookup, adapter, clock=u
         default=lambda value: value.isoformat()).encode()).hexdigest()
     payload = MappingProxyType({'catalog': visible, 'catalog_complete': complete,
         'schema_targets': tuple(examined),
-        'proposals': tuple(MappingProxyType(asdict(p)) for p in proposals),
+        'proposals': tuple(_freeze(asdict(p)) for p in proposals),
         'company_context': request.company, 'site_schema_scope': True,
         'authorization_id': authorization_id, 'scope_sha256': digest,
         'source_id': request.source_id, 'review_required': True,
@@ -165,3 +174,11 @@ def launch_pilot_metadata(request, *, authorization_id, lookup, adapter, clock=u
         observation_id=uuid5(NAMESPACE_URL, 'orion:metadata:observation:' + identity))
     guard()
     return MetadataDiscovery(visible, complete, tuple(examined), tuple(proposals), (observation,))
+
+
+def _freeze(value):
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    if isinstance(value, (tuple, list)):
+        return tuple(_freeze(item) for item in value)
+    return value
