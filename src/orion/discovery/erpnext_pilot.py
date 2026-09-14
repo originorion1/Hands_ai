@@ -2,6 +2,7 @@
 import json
 from urllib.parse import parse_qs, quote, urlsplit
 
+from ..contracts import EvidenceKind
 from .erpnext_adapter import _default_opener, _normalize_base_url
 from .erpnext_historical_sample import ERPNextHistoricalSampleAdapter
 from .pilot_read import PilotReadPermit
@@ -22,7 +23,9 @@ class ERPNextPilotReader:
         if not isinstance(permit, PilotReadPermit):
             raise TypeError('launcher-issued read permit required')
         request, grant = permit.check(self._source_id)
-        if grant.identity_field != 'name' or grant.company_field != 'company':
+        if (grant.identity_field != 'name' or grant.company_field != 'company'
+                or grant.provenance_source != 'erpnext-historical-sample-read-only'
+                or grant.evidence_kind is not EvidenceKind.API):
             raise ValueError('unsupported ERP provenance field mapping')
 
         def guarded_transport(http_request, timeout):

@@ -71,19 +71,23 @@ exact resource and field membership, company, identity and historical date.
 Only flat JSON scalar record values are supported; reject nested/extra fields,
 non-finite numbers, invalid confidence and duplicate identities within a batch.
 
-The canonical Evidence and Observation types are preserved. Original evidence ID,
-observation ID, source label and observation timestamp survive. Copied record
-payloads and added provenance are immutable MappingProxyType values. Provenance
-adds authorization_id, complete grant SHA-256, bound source_id and source record
-identity. The digest records a scope, not a signature or proof of issuer authority.
-No sink is called before complete batch validation; this API does not persist data.
+The canonical Evidence and Observation types are preserved. Admission derives
+versioned UUID5 identities from the complete grant digest, tenant, resource,
+canonical row, source/kind, observation timestamp, confidence and mode. Random
+upstream UUIDs do not affect admitted identity; they remain attached as
+upstream_evidence_id and upstream_observation_id in immutable provenance.
+Copied record payloads and provenance use MappingProxyType. Source timestamps
+and labels survive unchanged. The grant digest is not proof of issuer authority.
 
-Re-admitting the same source observations with the same grant preserves identities
-and produces equal evidence. Separate live acquisitions may have different source
-IDs/timestamps. There is no durable request cache, cross-run deduplication or
-exactly-once acquisition claim. Downstream stores must preserve the mapping-based
-payload and the source IDs; serializers that blindly deepcopy mapping proxies
-need an explicit mapping encoder. Persistence is deliberately not added here.
+Freshly constructed observations with identical acquisition content have identical
+admitted IDs. Different observation timestamps represent different acquisitions.
+Upstream provenance IDs may differ between fresh constructions, so complete object
+equality is not promised. No durable cache or exactly-once acquisition is provided.
+Downstream persistence needs a mapping-aware serializer. No sink is called here.
+
+The ERP bridge rejects unsupported provenance source and evidence kind before
+constructing its historical adapter or contacting transport. Grant lookup is
+reconsulted before transport and after response; a changed grant is rejected.
 
 ## Supported scope and remaining release gates
 

@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, replace
 from datetime import date
 from types import MappingProxyType
 from typing import Protocol
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from ..contracts import Evidence, EvidenceKind, Observation, ObservationMode, utc_now
 from .read_window import ReviewedReadWindow
@@ -188,11 +188,23 @@ def _admit(observations, request, grant, now):
         identities.add(identity)
         evidence_ids.add(evidence.evidence_id)
         observation_ids.add(observation.observation_id)
+        acquisition = json.dumps({
+            'version': 1, 'scope_sha256': digest, 'tenant_id': request.tenant_id,
+            'resource': request.resource, 'record': dict(record),
+            'observed_at': evidence.observed_at.isoformat(),
+            'kind': evidence.kind, 'source': evidence.source,
+            'confidence': confidence, 'mode': observation.mode,
+        }, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        evidence_id = uuid5(NAMESPACE_URL, 'orion:pilot:evidence:v1:' + acquisition)
+        observation_id = uuid5(NAMESPACE_URL, 'orion:pilot:observation:v1:' + acquisition)
         provenance = MappingProxyType({'authorization_id': grant.authorization_id,
-            'scope_sha256': digest, 'source_id': grant.source_id, 'source_record_id': identity})
+            'scope_sha256': digest, 'source_id': grant.source_id, 'source_record_id': identity,
+            'upstream_evidence_id': str(evidence.evidence_id),
+            'upstream_observation_id': str(observation.observation_id)})
         frozen = MappingProxyType({'resource': request.resource,
             'record': MappingProxyType(dict(record)), 'provenance': provenance})
-        admitted.append(replace(observation, evidence=replace(evidence, payload=frozen)))
+        admitted.append(replace(observation, observation_id=observation_id,
+                                evidence=replace(evidence, evidence_id=evidence_id, payload=frozen)))
     return tuple(admitted)
 
 

@@ -137,8 +137,8 @@ def test_replay_preserves_original_identity_and_provenance_without_aliasing():
     first = launch(LocalReader())
     second = launch(LocalReader())
     assert first == second
-    assert first[0].evidence.evidence_id == original.evidence.evidence_id
-    assert first[0].observation_id == original.observation_id
+    assert first[0].evidence.payload['provenance']['upstream_evidence_id'] == str(original.evidence.evidence_id)
+    assert first[0].evidence.payload['provenance']['upstream_observation_id'] == str(original.observation_id)
     mutable['name'] = 'changed-after-admission'
     assert first[0].evidence.payload['record']['name'] == 'r1'
 
@@ -224,3 +224,26 @@ def test_wrong_adapter_binding_and_missing_grant_reference_do_not_dispatch():
         launch_pilot_read(request(), authorization_id='', lookup=lambda key: grant(),
                           adapter=reader(calls), clock=lambda: NOW)
     assert not calls
+
+
+@pytest.mark.parametrize('changes', [
+    {'provenance_source': 'different'}, {'evidence_kind': EvidenceKind.EVENT},
+])
+def test_unsupported_provenance_never_contacts_transport(changes):
+    calls = []
+    with pytest.raises(ValueError):
+        launch(reader(calls), grants=lambda key: replace(grant(), **changes))
+    assert calls == []
+
+
+def test_fresh_acquisition_identity_ignores_random_upstream_ids():
+    class FreshReader:
+        source_id = 'https://example.test'
+        def read(self, permit):
+            return (Observation(Evidence(EvidenceKind.API, grant().provenance_source,
+                {'resource': 'Entry', 'record': row()}, observed_at=NOW, tenant_id='tenant-a')),)
+    first, second = launch(FreshReader())[0], launch(FreshReader())[0]
+    assert first.evidence.evidence_id == second.evidence.evidence_id
+    assert first.observation_id == second.observation_id
+    assert first.evidence.payload['provenance']['upstream_evidence_id'] != (
+        second.evidence.payload['provenance']['upstream_evidence_id'])
