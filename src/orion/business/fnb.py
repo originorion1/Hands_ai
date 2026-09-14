@@ -130,7 +130,10 @@ def _assess_restaurant(study, *, tenant_id, company, source_id):
         return sorted({k for r in rows for c in r['cells'].values() for k in c['evidence_ids']})
 
     def add(code, category, text, rows, *, value=None, unit=None, severity='information',
-            uncertainty=(), next_step='Review completeness under a separate bounded read grant.'):
+            uncertainty=('Ledger completeness is unknown.',),
+            next_step='Review completeness under a separate bounded read grant.'):
+        if not uncertainty or any(type(item) is not str or not item.strip() for item in uncertainty):
+            raise ValueError('finding requires explicit uncertainty disclosure')
         ids = refs(rows)
         if not ids or not set(ids) <= set(evidence):
             raise ValueError('finding without traceable evidence')
@@ -177,7 +180,8 @@ def _assess_restaurant(study, *, tenant_id, company, source_id):
         if len(days) >= 2:
             add('sample_sales_change', 'INFERRED_CONCLUSION',
                 'Last observed day minus first observed day, without filling missing days.', sales,
-                value=daily[days[-1]] - daily[days[0]], unit='USD')
+                value=daily[days[-1]] - daily[days[0]], unit='USD',
+                uncertainty=('Ledger completeness is unknown.', 'Daily sample coverage may differ.'))
         if len(days) >= 3 and all((date.fromisoformat(b)-date.fromisoformat(a)).days == 1
                                  for a, b in pairwise(days)):
             add('next_day_sample_sales', 'PREDICTION',
