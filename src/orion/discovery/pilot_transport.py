@@ -9,7 +9,10 @@ from urllib.request import Request
 from .pilot_read import PilotReadPermit
 
 
-def open_pilot_read(request, *, permit, timeout, opener=None):
+def open_pilot_read(request, *, permit, timeout, opener=None, journal=None):
+    if journal is not None:
+        from ..pilot.budgeted_transport import open_budgeted_read
+        return open_budgeted_read(request,permit=permit,timeout=timeout,opener=opener,journal=journal)
     if opener is None or not callable(opener):
         raise ValueError('reviewed pilot transport must be explicitly supplied')
     if type(permit) is not PilotReadPermit:
