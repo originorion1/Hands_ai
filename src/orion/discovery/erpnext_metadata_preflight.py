@@ -1105,14 +1105,19 @@ def _read_name_catalog(
     resource: str,
     requested: int,
     opener: Callable[..., Any],
+    after_name: str | None = None,
 ) -> tuple[tuple[str, ...], bool]:
     _validate_resource(resource)
+    if after_name is not None:
+        _validate_resource(after_name)
     query = urlencode(
         {
             "fields": json.dumps(_CATALOG_FIELDS, separators=(",", ":")),
             "limit_start": 0,
             "limit_page_length": requested,
             "order_by": "name asc",
+            **({"filters": json.dumps([["name", ">", after_name]])}
+               if after_name is not None else {}),
         }
     )
     request = Request(
@@ -1175,6 +1180,8 @@ def _read_name_catalog(
             raise _CategorizedPreflightError("response_validation") from None
         names.append(name)
     if names != sorted(names) or len(names) != len(set(names)):
+        raise _CategorizedPreflightError("response_validation")
+    if after_name is not None and any(name <= after_name for name in names):
         raise _CategorizedPreflightError("response_validation")
     complete = len(names) < requested
     return tuple(names), complete
