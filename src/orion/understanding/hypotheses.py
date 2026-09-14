@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
@@ -28,7 +29,7 @@ def generate_hypotheses(observations: tuple[Observation, ...]) -> tuple[Hypothes
         payload = evidence.payload
         resource = payload.get("resource")
         record = payload.get("record")
-        if not isinstance(resource, str) or not isinstance(record, dict):
+        if not isinstance(resource, str) or not isinstance(record, Mapping):
             continue
         name = record.get("name")
         if not isinstance(name, str) or not name:
