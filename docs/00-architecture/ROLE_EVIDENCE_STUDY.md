@@ -89,3 +89,37 @@ record authorization, evaluates only acquired fields, and requests another
 unresolved scope. Independent scenarios change only evidence to reverse date
 ordering, contradict an earlier result, retain ambiguity, and test authorization,
 provenance, replay, budgets and tenant boundaries. All transports are local.
+
+## Evidence-reference checkpoints
+
+`role_checkpoint.checkpoint_study(study)` returns bounded canonical JSON (64 KiB
+maximum) containing the tenant/company/source binding, evaluator format version,
+schema evidence ID/hash and at most 100 record evidence ID/hash/request-hash
+references. It contains no copied record values, grants, credentials or saved
+classifications. The fingerprint includes acquisition timing, upstream identity
+and provenance. Tuple-based immutable metadata needs a dedicated fingerprint
+encoding; the legacy historical serializer only accepts its narrower API-record
+shape and is deliberately unchanged.
+
+`restore_study(payload, expected_sha256=..., tenant_id=..., company=...,
+source_id=..., evidence_lookup=...)` resolves original observations and acquisition
+scopes from the trusted archive. It checks all hashes and bindings, then replays
+ordinary study admission and recomputes claims. Duplicate/unknown JSON keys,
+duplicate evidence IDs, unknown evaluator versions, oversized checkpoints and
+missing/changed evidence fail closed. Current claims and checkpoint creation now
+also reject acquisition scopes changed in the archive after initial ingestion.
+
+A caller may persist the returned JSON using its existing local storage policy.
+It must retain the expected digest in a separately trusted checkpoint index;
+a hash beside attacker-writable content does not establish authenticity. Selecting
+an old snapshot as the current one is rejected when the current digest is pinned.
+There is no automatic latest-revision selector, signed index, production archive
+or new storage service. Tests persist successive snapshots to local temporary
+files, reopen them and prove that earlier and contradictory revisions reproduce
+their respective conclusions and that unchanged planning stays deterministic.
+
+Checkpoint restoration performs no collection, restores no grant and cannot
+make a metadata authorization into record authority. The evidence archive must
+remain available; these reference checkpoints are not standalone evidence backups.
+Semantic business-role validation remains outside what these sample predicates
+can legitimately establish.

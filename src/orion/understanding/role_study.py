@@ -188,8 +188,10 @@ class RoleStudy:
 
     def claims(self):
         self._verify(self.schema)
-        for observation in self._rows.values():
+        for key, observation in self._rows.items():
             self._verify(observation)
+            if self._lookup(('scope', key)) != self._scopes[key]:
+                raise ValueError('archived acquisition scope changed')
         result = []
         for claim in self._claims:
             rows = [(key, obs.evidence.payload['record']) for key, obs in self._rows.items()
@@ -232,6 +234,11 @@ class RoleStudy:
             result.append(RoleClaim(hypothesis, claim.resource, claim.fields, claim.predicate,
                 tuple(sorted(support)), tuple(sorted(against)), confidence, unknowns))
         return tuple(result)
+
+    def evidence_snapshot(self):
+        """Immutable references for restart; this does not export authorization."""
+        self.claims()  # Revalidate all archived observations and acquisition scopes.
+        return tuple((self._rows[key], self._scopes[key]) for key in sorted(self._rows))
 
     def next_observation(self, *, start: date, end: date, sensitivity: Mapping,
                          budget: int = 8, max_records: int = 2):
