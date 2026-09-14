@@ -43,7 +43,7 @@ class ERPNextPilotReader:
                     or f'{target.scheme}://{target.netloc}' != self._source_id
                     or target.path != '/api/resource/' + quote(request.resource, safe='')):
                 raise ValueError('transport exceeded read-only source boundary')
-            query = parse_qs(target.query, strict_parsing=True)
+            query = parse_qs(target.query, strict_parsing=True, keep_blank_values=True)
             expected = {
                 'fields': [json.dumps(list(request.fields), separators=(',', ':'))],
                 'filters': [json.dumps([['company', '=', request.company],

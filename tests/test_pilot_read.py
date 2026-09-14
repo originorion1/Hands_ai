@@ -157,7 +157,7 @@ def test_adapter_cannot_forge_cross_tenant_or_missing_provenance(changes):
         launch(InvalidReader())
 
 
-@pytest.mark.parametrize('mutation', ['method', 'source', 'fields', 'resource', 'repeat'])
+@pytest.mark.parametrize('mutation', ['method', 'source', 'fields', 'resource', 'repeat', 'blank_extra', 'blank_duplicate'])
 def test_wire_level_bypass_cannot_widen_read(monkeypatch, mutation):
     import json
     from urllib.parse import quote, urlencode
@@ -176,7 +176,12 @@ def test_wire_level_bypass_cannot_widen_read(monkeypatch, mutation):
         resource = 'Other' if mutation == 'resource' else 'Entry'
         if mutation == 'fields':
             query['fields'] = '["*"]'
-        req = Request(origin + '/api/resource/' + quote(resource) + '?' + urlencode(query),
+        encoded = urlencode(query)
+        if mutation == 'blank_extra':
+            encoded += '&unexpected='
+        if mutation == 'blank_duplicate':
+            encoded += '&fields='
+        req = Request(origin + '/api/resource/' + quote(resource) + '?' + encoded,
                       method='POST' if mutation == 'method' else 'GET')
         self._opener(req, timeout=1)
         if mutation == 'repeat':
