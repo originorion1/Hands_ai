@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Callable, Mapping
+from datetime import datetime
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
@@ -23,6 +24,7 @@ from ..contracts import (
     EvidenceKind,
     Observation,
     ObservationMode,
+    utc_now,
 )
 from .erpnext_adapter import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -32,6 +34,7 @@ from .erpnext_adapter import (
     _require_non_empty,
     _validate_resource,
 )
+from .read_window import ReviewedReadWindow
 
 DEFAULT_SAMPLE_SIZE = 5
 MAX_SAMPLE_SIZE = 25
@@ -147,6 +150,8 @@ class ERPNextHistoricalSampleAdapter:
         max_response_bytes: int = DEFAULT_SAMPLE_RESPONSE_BYTES,
         timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
         opener: Callable[..., Any] | None = None,
+        read_window: ReviewedReadWindow | None = None,
+        clock: Callable[[], datetime] = utc_now,
     ) -> None:
         _require_non_empty(
             "tenant_id",
@@ -233,6 +238,12 @@ class ERPNextHistoricalSampleAdapter:
         self._tenant_id = tenant_id
         self._api_key = api_key
         self._api_secret = api_secret
+        if read_window is not None and not isinstance(read_window, ReviewedReadWindow):
+            raise TypeError("read_window must be ReviewedReadWindow")
+        if not callable(clock):
+            raise TypeError("clock must be callable")
+        self._read_window = read_window
+        self._clock = clock
         self._resource = resource
         self._company = company
         self._fields = fields
@@ -249,7 +260,9 @@ class ERPNextHistoricalSampleAdapter:
     def discover(
         self,
     ) -> tuple[Observation, ...]:
+        self._check_read_window()
         rows = self._fetch_sample()
+        self._check_read_window()
 
         return tuple(
             Observation(
@@ -268,6 +281,11 @@ class ERPNextHistoricalSampleAdapter:
             )
             for row in rows
         )
+
+    def _check_read_window(self):
+        if self._read_window is not None:
+            self._read_window.check(self._tenant_id, self._company, self._resource,
+                                    self._fields, self._clock())
 
     def _fetch_sample(
         self,
@@ -294,7 +312,7 @@ class ERPNextHistoricalSampleAdapter:
                     "=",
                     1,
                 ],
-            ],
+            ] + (self._read_window.filters() if self._read_window else []),
             separators=(",", ":"),
         )
 
@@ -486,6 +504,9 @@ class ERPNextHistoricalSampleAdapter:
                     "historical sample contains "
                     "non-submitted document"
                 )
+
+            if self._read_window is not None:
+                self._read_window.validate_row(row)
 
             normalized.append(
                 dict(row)
