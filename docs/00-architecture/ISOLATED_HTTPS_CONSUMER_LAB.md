@@ -55,8 +55,10 @@ profile, key, source and listener remain accessible without the namespace profil
 These are deterministic regression tests, not an operator activation option.
 
 PASS means only this fixed composed local profile ran on the tested host. Broker
-and source remain owner-side trusted processes; no mandatory broker egress sandbox
-or production credential service is established. Metadata uses the existing local
+and source remain owner-side trusted processes in this profile. Issue #157
+separately confines the record broker and TLS fixture to one synthetic private
+network namespace; neither laboratory establishes a mandatory production egress
+sandbox or credential service. Metadata uses the existing local
 schema protocol, not HTTPS metadata. The two HTTPS record encodings are not two
 ERP implementations. OS containment, TLS and semantic proofs are reported at their
 actual scopes; this does not validate commercial roles or universal discovery.

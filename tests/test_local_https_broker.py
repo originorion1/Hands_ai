@@ -125,7 +125,7 @@ def test_partial_or_oversized_body_rejects(data):
 
 
 def test_client_uses_fixed_route_no_proxy_and_closes(tls_files, monkeypatch):
-    import https_broker_lab
+    import https_broker_support
     calls = []
     class Connection:
         def __init__(self, host, port, *, timeout, context):
@@ -139,7 +139,7 @@ def test_client_uses_fixed_route_no_proxy_and_closes(tls_files, monkeypatch):
             calls.append('closed')
     monkeypatch.setenv('HTTPS_PROXY', 'http://attacker.invalid')
     monkeypatch.setenv('ALL_PROXY', 'http://attacker.invalid')
-    monkeypatch.setattr(https_broker_lab.http.client, 'HTTPSConnection', Connection)
+    monkeypatch.setattr(https_broker_support.http.client, 'HTTPSConnection', Connection)
     assert https_read(policy(tls_files[0]), 'abc123', 64) == b'{}'
     assert calls == [(HOST, 443, 1, True), ('GET', '/fixture'), 'closed']
 
@@ -157,7 +157,7 @@ def configured_broker(tmp_path, monkeypatch, tls_files):
 
 
 def test_existing_broker_admits_exact_received_bytes_after_reservation(tmp_path, monkeypatch, tls_files):
-    import https_broker_lab
+    import https_broker_support
     h, broker = configured_broker(tmp_path, monkeypatch, tls_files)
     raw = h.source.read_bytes(); h.source.unlink()
     calls = []
@@ -166,7 +166,7 @@ def test_existing_broker_admits_exact_received_bytes_after_reservation(tmp_path,
         assert secret == h.secret and limit <= broker.limits.response_bytes // 2
         calls.append(policy.port)
         return raw
-    monkeypatch.setattr(https_broker_lab, 'https_read', transport)
+    monkeypatch.setattr(https_broker_support, 'https_read', transport)
     assert broker.handle(h.message())['budget']['attempts'] == 0
     broker.armed = True  # Trusted test issuer; not a new application control path.
     wrong = h.message(); wrong['request']['tenant_id'] = 'other'
@@ -182,7 +182,7 @@ def test_existing_broker_admits_exact_received_bytes_after_reservation(tmp_path,
 def test_failed_tls_acquisition_never_creates_observation(tmp_path, monkeypatch, tls_files, failure):
     from datetime import timedelta
 
-    import https_broker_lab
+    import https_broker_support
     h, broker = configured_broker(tmp_path, monkeypatch, tls_files)
     raw = h.source.read_bytes(); h.source.unlink()
     calls = []
@@ -199,7 +199,7 @@ def test_failed_tls_acquisition_never_creates_observation(tmp_path, monkeypatch,
             broker.grant = replace(broker.grant, window=replace(broker.grant.window,
                                   expires_at=utc_now() - timedelta(seconds=1)))
         return b'{}' if failure == 'changed_body' else raw
-    monkeypatch.setattr(https_broker_lab, 'https_read', transport)
+    monkeypatch.setattr(https_broker_support, 'https_read', transport)
     broker.armed = True
     if failure == 'profile':
         broker.profile_path.write_text('{}')

@@ -45,8 +45,9 @@ A test-suite pass is not a successful namespace experiment. The probe must retur
 PASS on the actual target host; BLOCKED records no broker containment proof.
 The two synthetic record encodings are not two live ERP protocols. Metadata and
 HTTPS remain covered by earlier, separate laboratories. This profile permits no
-HTTPS acquisition: narrowly permitted broker-side HTTPS egress is the next
-unproven boundary, and must not be implemented by sharing the host network.
+HTTPS acquisition. Issue #157 separately composes the local TLS fixture and
+broker inside one private network namespace; it does not retroactively add
+egress to this zero-egress profile or prove production egress.
 
 The issuer, supervisor, fixture bootstrap and broker implementation remain trusted.
 The broker can modify its own journal; this is not a protected external audit
