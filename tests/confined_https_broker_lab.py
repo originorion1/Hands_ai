@@ -171,7 +171,7 @@ def confined_command(paths, state):
     return command
 
 
-def prepare(h):
+def prepare(h, *, host=HOST):
     h.secret = hashlib.sha256(os.urandom(32)).hexdigest()
     envelope = decode(h.source.read_bytes())
     envelope["credential_digest"] = hashlib.sha256(h.secret.encode()).hexdigest()
@@ -179,13 +179,15 @@ def prepare(h):
     h.source.chmod(0o600)
     h.config["source_path"] = "/fixture/source.json"
     h.config["source_digest"] = hashlib.sha256(h.source.read_bytes()).hexdigest()
-    cert, key = certificates(h.root)
+    cert, key = certificates(h.root, hostname=host)
     profile = {
         "binding": digest(h.config),
         "port": APPROVED_PORT,
         "certificate": "/fixture/cert.pem",
         "certificate_sha256": hashlib.sha256(cert.read_bytes()).hexdigest(),
     }
+    if host != HOST:
+        profile["host"] = host
     route = h.root / "tls-profile.json"
     route.write_text(
         _json({"profile": profile, "mac": authenticate(h.key, "local_https_fixture", profile)})
@@ -236,7 +238,7 @@ def start_confined(h, paths, scope, behavior, head=None):
     return witness["checks"], h.last
 
 
-def relay_reasoner(h, paths, isolation):
+def relay_reasoner(h, paths, isolation, *, approved_host=HOST):
     from isolated_broker_lab import Frames
 
     root = Path(__file__).resolve().parents[1]
@@ -251,6 +253,7 @@ def relay_reasoner(h, paths, isolation):
     scope = {
         "message": h.message(),
         "approved_port": APPROVED_PORT,
+        "approved_host": approved_host,
         "denied_paths": {
             "configuration": str(paths["config"]),
             "source": str(paths["source"]),
