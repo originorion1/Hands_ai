@@ -154,12 +154,14 @@ class AuthorizationCustody(Broker):
     in custody: restart refuses it, rather than reissuing a usable receipt.
     """
 
-    def __init__(self, config, audit):
+    def __init__(self, config, audit, *, received_transform=None, installed_worker=False):
         self.offer = None
         self.lock = threading.RLock()
         self.offers = queue.Queue(maxsize=1)
         self.results = queue.Queue(maxsize=1)
         self.reading = False
+        self.received_transform = received_transform
+        self.installed_worker = installed_worker
         super().__init__(config, "/unused", journal_factory=lambda *a, **kw: audit)
 
     def _worker(self, bootstrap, *, timeout=5):
@@ -187,9 +189,14 @@ class AuthorizationCustody(Broker):
                 raise ValueError("source digest denied")
             with tempfile.TemporaryDirectory(prefix="orion-custody-received-") as temporary:
                 path = Path(temporary) / "received.json"
-                path.write_bytes(raw)
+                normalized = self.received_transform(raw, self.secret) if self.received_transform else raw
+                if type(normalized) is not bytes or len(normalized) > MAX_FRAME // 2:
+                    raise ValueError("normalization budget denied")
+                path.write_bytes(normalized)
                 path.chmod(0o600)
-                result = super()._worker(dict(bootstrap, path=str(path)), timeout=timeout)
+                prepared = dict(bootstrap, path=str(path),
+                                source_digest=hashlib.sha256(normalized).hexdigest())
+                result = super()._worker(prepared, timeout=timeout)
             if len(raw) + len(result.stdout) > self.limits.response_bytes:
                 raise ValueError("combined response budget denied")
             return result
@@ -284,10 +291,19 @@ class RuntimeCustody:
         self.active = None
         self.lock = threading.RLock()
 
+    def _before_begin(self, owner, value):
+        """Trusted deployment hook under the single runtime admission lock."""
+
+    def _before_redeem(self, owner, value):
+        """Trusted independently protected storage liveness hook."""
+
+    def _accepted(self, owner, result):
+        return self.runtime.accept(owner, result)
+
     def dispatch(self, role, action, value):
         with self.lock:
             if role == "owner" and action == "health":
-                return self.runtime.health()
+                return dict(self.runtime.health(), acquisition_in_flight=self.active is not None)
             if role == "owner" and action == "status":
                 owner = {"metadata": self.runtime.metadata, "read": self.runtime.records}[value]
                 return owner.status("unarmed")
@@ -298,6 +314,7 @@ class RuntimeCustody:
                 if self.active is None:
                     raise JournalDenied("no runtime acquisition")
                 self.runtime.owner_for({"operation": self.active.operation})
+                self._before_redeem(self.active, value)
                 self.active.dispatch(role, action, value)
                 return {"authorized": True, "binding": self.active.binding}
             if role != "broker" or action not in ("begin", "complete"):
@@ -305,7 +322,9 @@ class RuntimeCustody:
             if action == "begin":
                 if self.active is not None:
                     raise JournalDenied("runtime acquisition already pending")
-                self.active = self.runtime.owner_for(value)
+                owner = self.runtime.owner_for(value)
+                self._before_begin(owner, value)
+                self.active = owner
             if self.active is None:
                 raise JournalDenied("no runtime acquisition")
             owner = self.active
@@ -314,6 +333,6 @@ class RuntimeCustody:
         result = owner.dispatch(role, action, value)
         if result.get("status") != "offered":
             with self.lock:
-                result = self.runtime.accept(owner, result)
+                result = self._accepted(owner, result)
                 self.active = None
         return result

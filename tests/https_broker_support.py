@@ -21,6 +21,7 @@ from orion.pilot.broker_contract import (
     exact,
     private_bytes,
 )
+from orion.pilot.gateway import response_length
 
 HOST = "127.0.0.1"
 TARGET = "/fixture"
@@ -102,24 +103,7 @@ class LocalPolicy:
 
 def bounded_body(response, limit):
     """No redirects, transfer coding, compression or ambiguous response framing."""
-    if type(limit) is not int or not 1 <= limit <= MAX_FRAME // 2:
-        raise ValueError("bounded local response required")
-    headers = response.getheaders()
-    lengths = [v for k, v in headers if k.lower() == "content-length"]
-    if (
-        response.status != 200
-        or len(lengths) != 1
-        or not lengths[0].isascii()
-        or not lengths[0].isdecimal()
-        or len(lengths[0]) > 6
-        or any(
-            k.lower() in ("transfer-encoding", "content-encoding", "location") for k, _ in headers
-        )
-    ):
-        raise ValueError("response policy denied")
-    size = int(lengths[0])
-    if not 1 <= size <= limit:
-        raise ValueError("response size denied")
+    size = response_length(response.status, response.getheaders(), limit)
     data = response.read(size + 1)
     if type(data) is not bytes or len(data) != size:
         raise ValueError("partial or oversized response")

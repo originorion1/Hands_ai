@@ -1,149 +1,184 @@
-# One supervised read-only pilot runtime
+# One packaged, supervised read-only runtime
 
-Issue #161, based on PR #160 head `7b86e6366159911352f0def5c6253016b69f679d`.
-This is one integrated runtime candidate with an executable synthetic acceptance
-deployment, **not a customer-ready release or activation authorization**.
-`LIVE_PILOT_READY=false`; all existing release gates remain unchanged.
+Issue #163 continues PR #162 exact head
+`0816e735feae8304f140326a20ec990da22d0b54`. This is a deployable synthetic-only
+candidate, not customer authorization or a production release.
+`LIVE_PILOT_READY=false`, `execution_allowed=false`. Every release category and
+critical status is retained; scanners and live-startup denial are unchanged.
 
-## Minimum acceptance and scope
+## Minimum acceptance and existing contracts
 
-Essential safety requirements for this bounded runtime are governed metadata
-discovery, an independently issued exact record grant, mandatory kernel egress
-confinement, independent credential/grant/audit custody, tenant/company/source
-binding, canonical admission/provenance, bounded requests and durable limits,
-expiry/revocation/stop, restart unarmed, and fail-closed health/startup.
+Essential bounded-runtime safety is metadata-first governed discovery, a separate
+exact record grant, kernel destination confinement, protected credential/grant/
+audit/evidence custody, tenant/company/source binding, canonical admission and
+provenance, bounded requests and durable budgets, expiry/revocation/stop, restart
+unarmed, tamper detection, supervised health and fail-closed startup.
 
-Prediction, forecasting, autonomous actions, additional commercial roles,
-multi-source product features and richer business interpretation are not needed
-to exercise one read-only acquisition. This distinction **does not** make any
-existing critical release gate optional, NOT_APPLICABLE or passed. Two synthetic
-record encodings remain two local encodings, not two verified ERP protocols.
+Forecasting, autonomous actions, richer commercial interpretation and multi-source
+product features are not needed for a synthetic acquisition. This does not make
+their existing critical requirements optional or passed. Local rows/columns are
+not verified ERP protocols. Admitted-evidence revisions are not a completed
+world-model revision store.
 
-## One state owner, existing semantic contracts
+`SupervisedReadOnlyRuntime`, canonical grants/admission, `AttemptJournal`,
+`AuthorizationCustody`, `AuditCustody` and canonical observation serialization
+remain authoritative. Trusted constructor-only normalization/installed-worker and
+archive hooks compose them: no wire-selected plugin, new grant engine, alternate
+attempt ledger or source-system write path.
 
-`pilot.runtime.SupervisedReadOnlyRuntime` composes the existing metadata and record
-supervisors. Grants, requests, admission, observations, classifications and
-provenance retain their canonical contracts. A new runtime starts with neither
-discovery completion nor armed record authority. Canonically admitted metadata
-must complete this start before record arming/acquisition; discovery itself never
-issues a record grant. Metadata and records have separately bound journals and
-budgets. Acquisition produces observations and explicit UNKNOWN commercial
-interpretation, never prediction, permission, knowledge promotion or execution.
+## Installed artifact and startup
 
-`pilot.custody.AuthorizationCustody` retains the existing Broker as authorization
-and admission supervisor **outside** the acquisition broker. The fixed sealed
-worker still normalizes the exact pinned response. The only Broker constructor
-seam is a trusted Python `journal_factory`, never selectable by configuration or
-application messages. Stop is now durable before its lifecycle event, permitting
-independent denial of a pending source redemption.
-
-`AuditCustody` is the single writer of canonical `AttemptJournal` history. It has
-an independent audit key, verifies fixed binding/caller references and permits
-only the existing journal operations for its authenticated supervisor role. The
-latest acknowledged tip is fsync-pinned in its private custody directory before
-any successful RPC acknowledgement. This tip is an anchor, not a second history
-store. A crash between ledger commit and anchor commit blocks restart; it does
-not silently repair, reset, refund or reconstruct accepted history.
-
-`RuntimeCustody` exposes one integrated endpoint with broker/source/owner roles.
-The acquisition process can request only bounded begin/complete operations using
-a requester capability. It cannot sign grants, widen scope, impersonate the
-source/operator, or invoke audit operations. Fresh RPC challenges bind requests
-and responses; they confer no grant-issuer signing authority.
-
-## Actual synthetic deployment path
-
-Run from the reviewed checkout and its development environment:
+The `orion-core` wheel contains the CLI and all runtime process entrypoints, not
+tests or tools. Provision Python 3.12 and hatchling, then build/install offline:
 
 ```sh
-PYTHONPATH=src:tools python3 tools/pilot_runtime.py --verify-synthetic
-PYTHONPATH=src:tools python3 tools/pilot_runtime.py --health
-PYTHONPATH=src:tools python3 tools/pilot_runtime.py --start
-PYTHONPATH=src python3 -m orion.pilot.readiness
+python3.12 -m pip wheel --no-index --no-deps --no-build-isolation \
+  --wheel-dir /operator/artifacts .
+sha256sum /operator/artifacts/orion_core-0.1.0-py3-none-any.whl
+python3.12 -m venv /operator/runtime
+/operator/runtime/bin/python -m pip install --no-index --no-deps \
+  /operator/artifacts/orion_core-0.1.0-py3-none-any.whl
+/operator/runtime/bin/orion-runtime --artifact
+/operator/runtime/bin/orion-runtime --health
 ```
 
-Only the first command exercises disposable synthetic infrastructure. The other
-commands return exit 2 and retain startup/readiness denial. There is no force
-flag, endpoint/proxy selector, live transport, customer configuration, or gate
-override. Verification requires bubblewrap, unshare/nsenter, ip, nft, openssl and
-working WSL kernel namespace capabilities. Missing capabilities report BLOCKED,
-not a substituted application check or unreachable destination.
+The last command returns exit 2: release not ready. Neither it nor `--start`
+activates access. `--artifact` validates installed RECORD hashes/sizes, including
+the console entrypoint; integrity checking is not publisher-signature attestation.
 
-The acceptance deployment mounts the runtime package read-only into independently
-isolated processes and reuses the existing TLS/fabric/namespace mechanisms:
+For synthetic deployment only, the trusted unprivileged operator provides a
+private manifest, existing canonical separately approved metadata/read configs,
+private keys/state, pinned TLS certificate, installed RECORD digest and bounded
+archive policy. Mode must be `synthetic_read_only`; host must be the fixed approved
+documentation IPv4 or private IPv6 address. No arbitrary hostname/port, proxy,
+redirect, executable or force-live selector exists.
 
-| Process | Network / custody |
+```sh
+/operator/runtime/bin/orion-runtime --serve /operator/private/runtime-manifest.json
+```
+
+Startup creates its own rootless user/network fabric, without PYTHONPATH, checkout,
+tests, source fixture or host-network join. Bubblewrap, unshare/nsenter, ip, nft,
+curl and working kernel namespaces are mandatory. Missing capability, invalid
+private input, changed artifact/trust, tampered custody or pending reservations
+denies startup. Real kernel baseline descriptors close before keys are loaded.
+
+Initial output is `unarmed`: private source/control/gateway PIDs, artifact identity
+and authenticated custody health. The synthetic operator places an ordinary HTTPS
+service in that separate source namespace. The external source is a deployment
+input, not a runtime test dependency; it understands only normal GET/Bearer and
+ordinary JSON, with no ORION code, grants, receipts, IPC or custody. No route/NAT
+to production or host network is created.
+
+| Process | Network / selectively mounted custody |
 | --- | --- |
-| Authorization/admission runtime | Zero-network jail; issuer key and source credential; authenticated audit IPC only |
-| Audit custody | Separate zero-network jail; independent key, writable journal and private tip |
-| Acquisition broker | PR #160 private netns, exactly one HTTPS tuple; requester capability/one-use receipt; no issuer/audit/source keys, source files or writable history |
-| Synthetic source | Outside broker netns; TLS key; source-role IPC capability; independently redeems before fixture file I/O |
-| Reasoning consumer | Existing separate zero-network jail; ordinary request and admitted observations only; no control keys/storage |
+| Trusted operator supervisor | Private control fabric; operator/issuer inputs and fresh role capabilities |
+| Authorization/admission | Zero-network jail; issuer material, opaque normalizer secret, audit/archive IPC; no source credential |
+| Audit custody | Separate zero-network jail; independent key, canonical writable journal and fsync accepted tip |
+| Evidence custody | Separate zero-network jail; independent key, bounded archive/revision index and fsync accepted tip |
+| Credential-use gateway | Private netns, one approved HTTPS tuple, capabilities zero; source credential and source-role authorization IPC only |
+| Acquisition broker | Zero-network jail; requester/gateway capabilities, ordinary configs; no source credential, issuer/audit/archive keys or writable custody |
+| One-shot reasoning | Separate zero-network jail; ordinary request and reasoner capability only; no control keys/storage |
+| Ordinary synthetic source | Outside gateway netns; normal TLS key/credential/data, no ORION authorization protocol |
 
-No process joins host networking. No control helper performs HTTP, proxies,
-relays or unrestricted networking. The source issues no data on forged, replayed,
-stopped or unavailable-custody receipts. Redemption is the authorization
-linearization point; a later stop also prevents post-response admission. There
-is at most one outstanding operation, with bounded deadlines and no retries.
+IPC is filesystem AF_UNIX, bounded JSON bytes and purpose-bound fresh HMAC
+challenges with fixed role/action/scope enforcement, never pickle or TCP. Pinned
+directory descriptors support long deployment paths without a network fallback.
+Callers, handlers, frames and deadlines are bounded.
 
-Approved and unapproved listeners are positively reachable from the fabric
-control environment. Direct broker sockets bypass application validation and
-must increment matching nft rejection counters for IPv4/IPv6 where enabled,
-alternate ports, proxy tuples and mapped addresses. Existing PR #160 redirect
-and all other adversarial checks remain required; none is replaced here.
+Only the confined gateway launches native curl, after online redemption of the
+existing durable one-use reservation. Fixed numeric HTTPS destination/GET paths,
+pinned TLS trust, bounded response and one-second source deadline are mandatory.
+Credential travels on anonymous stdin, never argv/environment. No curlrc,
+redirect following, caller headers or proxies; shared strict framing rejects
+redirects, duplicate/missing/oversized lengths, coding and partial responses.
+Native networking is explicitly declared, not hidden behind a scanner exemption.
 
-Five deployment scenarios cover metadata-first record acquisition, both local
-encodings/IPv6, restart of both custodians, budget continuity, replay, revocation,
-durable emergency stop, loss of either custodian with a valid unused receipt,
-and stop before source redemption. The emergency procedure also removes the
-only accepted route in the broker's private namespace and terminates acquisition.
-The public validator rejects incomplete witnesses rather than trusting a PASS
-label. Focused tests cover canonical scope, expiry, RPC replay, unauthorized
-roles, protected-tip corruption/rollback and source-side denial.
+Redemption is the source-use linearization point. Stop/revocation/expiry are
+checked again before admission. An approved in-flight GET cannot be retrospectively
+unauthorized; emergency kernel cutoff/termination removes further I/O and prevents
+post-stop admission. No retries, arbitrary relays or source writes exist.
 
-## Proven, trusted, blocked
+## Persistence, recovery and operational behavior
 
-Verification evidence is reported against the exact published tree in the draft
-PR. WSL acceptance demonstrates the synthetic deployment boundaries, not a
-production identity provider, immutable-host guarantee or isolation certification.
+`EvidenceCustody` retains canonical admitted observations/checkpoints with exact
+tenant/company/source/grant binding, journal/request references and cumulative
+per-record revisions. The historical batch deliberately rejects admitted
+provenance payloads; the necessary admission-specific index reuses serialization
+and canonical re-admission instead of weakening that contract. Persistence and
+its authenticated private tip finish before admitted output. Custody, capacity and
+accepted-request replay checks precede reservation/redemption, including after
+restart and content expiry.
 
-Trusted: reviewed host/kernel/setup, authorization and audit custody processes,
-private role capabilities and operator/issuer keys, pinned source fixtures and
-classification truth, clock, canonical admission/semantic implementations, and
-the verifier. Compromise of custody or its trusted OS owner is not contained by
-an HMAC. Source receipts require the independent source participation exercised
-here; an ordinary ERP does not implement this synthetic source-side protocol.
+Policy bounds lifetime checkpoints (maximum 1,000), retained bytes (maximum
+20 MiB) and payload TTL (maximum 24 hours). Full capacity denies acquisition, never
+resetting/refunding history. Retention runs on append/load/health and supervision.
+SQLite secure deletion removes expired payloads; authenticated provenance/revision
+references and tombstones remain. Missing content is UNKNOWN. This is logical
+expiry, not forensic media, backup or export erasure proof.
 
-Blocked: reviewed production packaging/service lifecycle and IPC identity,
-operator identity/approval ledger, production ERP credential-use mediation and
-metadata/pagination lifecycle, protected admission/archive/checkpoint index,
-sensitivity/retention/erasure/export policy, production monitoring/alerts, and
-independent exact-artifact security/release review. The current installed wheel
-does not include the synthetic source/test fixtures. The verified acceptance
-deployment is a reviewed-checkout path, not a claim that the wheel alone deploys
-a live runtime. Production source capability policy still forbids raw openers;
-this increment neither weakens that scanner nor creates an unconfined opener.
+Private stdin/stdout supports bounded health, arm, read, restart, revoke and stop.
+Canonical nonce/head authentication governs controls. Health exposes budgets,
+discovery this start, process count and archive availability/bytes. `healthy` means
+custody health, not live readiness. Source status remains UNKNOWN: an unauthorized
+health GET/TCP probe is not substituted for governed access.
+
+A separate bounded monitor continues during blocking reads. Child death,
+custody/index failure and expiry drive actual private nft allow-rule removal
+(default DROP remains) and gateway/acquisition termination. Poll interval is
+0.5 seconds; IPC deadlines are eight seconds, not a certified subsecond SLO.
+Emergency stop removes egress first, then attempts durable controls for both
+journals. Failed nft commands or missing acknowledgements report BLOCKED without
+skipping termination/controls or claiming successful kernel/durability proof.
+
+Restart revalidates the artifact and reconstructs protected journal/archive owners;
+attempts, bytes, stop/revocation and revisions remain. Armed authority and discovery
+completion never restore. Tip/database/config/key/scope/payload mismatch denies
+recovery; orphaned pending reservations are not repaired, retried or refunded.
+
+## Exact-artifact evidence, trust and remaining gates
+
+`tests/test_packaged_runtime.py` builds/installs the actual wheel offline into a
+clean environment and drives the packaged CLI against an external unmodified
+source. This is verification infrastructure, not another runtime or startup
+dependency. Actual WSL scenarios exercise discovery, separate reads, admission,
+archive/revisions, restart/replay/budgets, retention, revocation, spontaneous
+audit/authorization/evidence loss and emergency stop. Controls positively reach
+approved and unapproved targets. Raw capability-zero sockets bypass URL validation
+and must increment named nft counters for enabled IPv4/IPv6, mapped IPv4, other
+family, alternate ports and proxies. All existing probes remain required.
+
+Trusted: reviewed kernel/host/setup and operator, private key custody,
+authorization/admission and its sealed normalizer, gateway/audit/archive owners,
+interpreter/native tools, TLS/source-body/classification truth, clock and verifier.
+The normalizer's opaque seal is not the source credential. A hostile privileged
+host/custody owner is not contained by HMAC. Simultaneous rollback/deletion of a
+database and protected accepted tip needs an external monotonic witness.
+
+All 19 release categories stay critical. SECURITY/SECRETS remain FAIL for legacy
+same-process APIs. Others stay BLOCKED for independent issuer/operator/IPC identity
+and artifact review; production discovery/ERP/pagination/protocol lifecycle;
+semantics/world model; collector-root/archive/recovery attestation; tenant legacy
+storage; audit/failure lifecycle; alert delivery/SLOs; sensitive retention/erasure
+policy; production OS/mount/key policy; full release simulation and epistemic
+promotion review. Reasons distinguish implemented synthetic boundaries from
+unattested production requirements. Test totals never satisfy gates by inference.
 
 ## Operator procedure for eventual controlled activation
 
-Current procedure: **do not activate**. Retain the exact SHA and executable gate
-reports; use only the synthetic verification command. Never supply customer
-credentials to this development path, infer approval from test totals, or reset
-audit state to regain budget.
+Now: do not activate or supply customer credentials. Retain exact SHA, wheel hash,
+RECORD and executable reports. Use only the synthetic private manifest. Arm
+independently granted metadata, admit provenance, then separately approve/arm the
+exact record grant and limits. Discovery cannot manufacture record permission;
+output is observations plus explicit UNKNOWN.
 
-Eventual activation requires a separately reviewed production deployment artifact,
-independent satisfaction of every existing release gate, host/mount/netns/key/tip
-validation, production source mediation, operator identity and explicit access
-ledger. Start custody first and deny if either is unavailable, stale or pending.
-Start acquisition and reasoning unarmed. Independently authorize metadata-only
-discovery, verify admitted provenance, then independently approve exact technical
-record scope and bounded limits. Fresh nonce/head controls arm that grant only;
-metadata interpretation must never manufacture the grant. No business mapping or
-schema names are requested from the user by this implementation.
+Incident: private `stop`/`revoke` or SIGTERM; retain both durable acknowledgements
+and kernel/termination results. Missing witnesses are BLOCKED. Preserve history,
+restart unarmed with retained budgets, and independently reconcile pending/tampered
+state; never delete/reset it to regain authority.
 
-On incident: authenticate stop/revocation at custody; retain its durable audit
-acknowledgement, remove acquisition egress at the private kernel boundary and
-terminate acquisition/reasoning. Restart never restores authority or refunds
-attempts. A pending or mismatched tip requires independent reconciliation and
-review, not automatic retry or a new empty ledger. These are conditional future
-requirements, **not an available live activation procedure in this release**.
+Eventual customer activation needs a separate access ledger, independently
+reviewed production artifact/host/key/identity policy, source lifecycle validation
+and satisfaction of every critical gate. Human maintainers alone may authorize it.
+Readiness never authorizes customer access, writes, merge or activation. There is
+no available live activation override or customer activation procedure in this tree.

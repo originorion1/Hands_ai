@@ -217,6 +217,9 @@ class Broker:
         source = str(Path(__file__).resolve().parents[2])
         command = 'import sys;sys.path.insert(0,' + repr(source) + ');' + (
             'from orion.pilot.broker_worker import main;raise SystemExit(main())')
+        worker_command = ([sys.executable, '-I', '-m', 'orion.pilot.broker_worker']
+                          if getattr(self, 'installed_worker', False)
+                          else [sys.executable, '-I', '-c', command])
         seal = secrets.token_bytes(32)
         envelope = {'bootstrap': bootstrap,
                     'mac': authenticate(seal, 'worker_bootstrap', bootstrap)}
@@ -230,7 +233,7 @@ class Broker:
         finally:
             os.close(write_fd)
         try:
-            result = subprocess.run([sys.executable, '-I', '-c', command,
+            result = subprocess.run([*worker_command,
                 '--seal-fd', str(read_fd)], input=sealed_input, capture_output=True,
                 timeout=timeout, check=False, env={'PATH': os.defpath, 'LANG': 'C.UTF-8'},
                 close_fds=True, pass_fds=(read_fd,))
