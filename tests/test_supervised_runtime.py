@@ -2,7 +2,9 @@
 
 import copy
 import sqlite3
+import sys
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from protected_custody_support import Endpoint, rpc
@@ -14,6 +16,8 @@ from orion.pilot.broker_contract import authenticate, digest, observations_from
 from orion.pilot.custody import AuditCustody, AuthorizationCustody, RemoteJournal, RuntimeCustody
 from orion.pilot.journal import JournalDenied
 from orion.pilot.runtime import SupervisedReadOnlyRuntime
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
 
 @pytest.fixture
@@ -250,10 +254,6 @@ def test_fresh_rpc_challenges_authenticate_callers_and_reject_captured_replay(tm
 
 
 def test_runtime_report_tampering_cannot_relabel_deployment_as_pass():
-    import sys
-    from pathlib import Path
-
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
     from pilot_runtime import main, valid_report
 
     report = {
