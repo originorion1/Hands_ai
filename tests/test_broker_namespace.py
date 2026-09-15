@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 import broker_namespace_lab as lab
+import isolation_lab
 import pytest
 
 
@@ -42,6 +43,10 @@ def test_witness_cannot_omit_or_forge_denial(mutation):
 def test_fixed_profile_retains_network_namespace_and_only_state_is_writable(monkeypatch, tmp_path):
     monkeypatch.setattr(lab.os, 'getuid', lambda: 1000)
     monkeypatch.setattr(lab.os, 'getgid', lambda: 1000)
+    # This is a pure command-shape assertion, independent of the CI host runtime.
+    monkeypatch.setattr(isolation_lab.shutil, 'which', lambda name: '/usr/bin/bwrap')
+    monkeypatch.setattr(isolation_lab.sys, 'executable', '/opt/python/bin/python')
+    monkeypatch.setattr(isolation_lab.sys, 'base_prefix', '/opt/python')
     config, source, state = (tmp_path / n for n in ('config', 'source', 'state'))
     command = lab.broker_command(config, source, state)
     assert '--unshare-all' in command and '--share-net' not in command

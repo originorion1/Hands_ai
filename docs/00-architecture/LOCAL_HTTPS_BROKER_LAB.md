@@ -74,6 +74,9 @@ compose into this HTTPS profile. Production destinations, protected credential
 custody, mandatory OS egress policy, real certificate lifecycle, protected audit,
 interruptible revocation and complete deployed supervision remain unproven.
 
+Issue #157 separately composes this test transport with a private broker/source
+network namespace. This profile itself remains an unconfined TLS laboratory.
+
 PASS means only the fixed local HTTPS experiment completed. All release gates
 remain closed: `execution_allowed=false`, `allow_live_customer_access=false`,
 `live_ready=false`, `production_containment=NOT PROVEN`. No customer connection,
