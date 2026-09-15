@@ -11,6 +11,7 @@ import os
 import secrets
 import signal
 import socket
+import sqlite3
 import ssl
 import subprocess
 import sys
@@ -299,6 +300,17 @@ def controller(value):
             "ttl_seconds": 1 if value["case"] == "retention" else 3600,
         },
     }
+    semantic_case = value["case"].startswith("semantic")
+    if semantic_case:
+        from orion.pilot.semantic_runtime import semantic_policy_sha256
+        from orion.understanding.semantic_study import SEMANTIC_EVALUATOR_VERSION
+
+        manifest.update(version=2, semantic={
+            "version": 1, "study_id": "synthetic-installed-study",
+            "evaluator_version": SEMANTIC_EVALUATOR_VERSION,
+            "policy_sha256": semantic_policy_sha256(),
+        })
+        manifest["policy"]["ttl_seconds"] = 8 if value["case"] == "semantic_retention" else 3600
     manifest_path = root / "manifest.json"
     manifest_path.write_text(json.dumps(manifest))
     manifest_path.chmod(0o600)
@@ -326,6 +338,23 @@ def controller(value):
         )
     baseline_fds = []
     runtime_command = [sys.executable, "-I", "-m", "orion.pilot.deployment", "--serve", str(manifest_path)]
+    if semantic_case:
+        runtime_command = [str(Path(sys.executable).with_name("orion-runtime")),
+                           "--serve", str(manifest_path)]
+        for field, invalid in (("evaluator_version", "unreviewed"),
+                               ("policy_sha256", "0" * 64)):
+            invalid_manifest = dict(manifest, semantic=dict(manifest["semantic"], **{field: invalid}))
+            invalid_path = root / ("invalid-semantic-" + field + ".json")
+            invalid_path.write_text(json.dumps(invalid_manifest))
+            invalid_path.chmod(0o600)
+            rejected = subprocess.run(
+                [runtime_command[0], "--serve", str(invalid_path)],
+                capture_output=True, text=True, env={"PATH": os.defpath},
+                timeout=10, check=False,
+            )
+            rejection = json.loads(rejected.stdout)
+            assert rejected.returncode == 2 and rejection["status"] == "BLOCKED"
+            assert rejection["failure_boundary"] == "validate_semantic_config"
     if value["case"] == "security":
         baseline_fds = [os.open("/proc/self/ns/" + kind, os.O_RDONLY) for kind in ("net", "user")]
         runtime_command = [
@@ -588,6 +617,12 @@ def controller(value):
             acquire("read", "unarmed-read")["status"] == "denied"
         )
         assert control("read", "arm")["status"] == "arm"
+        if value["case"] == "semantic_failure":
+            with sqlite3.connect(state / "evidence/evidence.db") as database:
+                database.execute("""
+                    CREATE TRIGGER fail_semantic AFTER INSERT ON orion_semantic_checkpoints
+                    BEGIN SELECT RAISE(ABORT, 'synthetic storage failure'); END
+                """)
         if value["case"] == "redirect":
             before_connection = command(server, {"command": "connections"})
             before_kernel = counters()
@@ -651,6 +686,111 @@ def controller(value):
             and loaded["checkpoints"][0]["references"][0]["revision"] == 1
             and loaded["authority_restored"] is False
         )
+
+        if semantic_case:
+            assessment = admitted["semantic_assessment"]
+            io_before = command(server, {"command": "stats"})
+            budget_before = status("read")["budget"]
+            if value["case"] == "semantic_failure":
+                checks["failed_append_not_durable_publication"] = (
+                    assessment["status"] == "UNAVAILABLE" and assessment["durable"] is False
+                    and "world_model" not in assessment
+                )
+                with sqlite3.connect(state / "evidence/evidence.db") as database:
+                    checks["failed_append_no_partial_index"] = database.execute(
+                        "SELECT COUNT(*) FROM orion_semantic_checkpoints"
+                    ).fetchone()[0] == 0
+                    database.execute("DROP TRIGGER fail_semantic")
+                assessment = command(runtime, {"command": "semantic", "mode": "evaluate"})
+            checks["installed_canonical_unknown_is_persisted"] = (
+                assessment["status"] == "AVAILABLE"
+                and assessment["epistemic_status"] == "UNKNOWN"
+                and assessment["durable"] is True
+                and assessment["authority_restored"] is False
+                and assessment["execution_allowed"] is False
+                and assessment["semantic_revision_ids"] == []
+            )
+            checks["independent_evidence_explicitly_blocked"] = assessment[
+                "independent_grounding"
+            ].startswith("BLOCKED:")
+            replay = command(runtime, {"command": "semantic", "mode": "evaluate"})
+            checks["semantic_replay_identical_no_source_io"] = (
+                replay == assessment and status("read")["budget"] == budget_before
+                and command(server, {"command": "stats"}) == io_before
+            )
+            with sqlite3.connect(state / "evidence/evidence.db") as database:
+                checks["one_append_only_semantic_checkpoint"] = database.execute(
+                    "SELECT COUNT(*) FROM orion_semantic_checkpoints"
+                ).fetchone()[0] == 1
+            if value["case"] == "semantic_retention":
+                time.sleep(8.2)
+                unavailable = command(runtime, {"command": "semantic", "mode": "restore"})
+                checks["expired_evidence_no_cached_assessment"] = (
+                    unavailable["status"] == "UNAVAILABLE" and "world_model" not in unavailable
+                    and archive("load")["observations"] == []
+                    and len(archive("inspect")["checkpoints"]) == 1
+                )
+                with sqlite3.connect(state / "evidence/evidence.db") as database:
+                    checks["expired_archive_keeps_semantic_history"] = database.execute(
+                        "SELECT COUNT(*) FROM orion_semantic_checkpoints"
+                    ).fetchone()[0] == 1
+                return runtime_report(value, checks, identity, ready, named_denials)
+            if value["case"] in ("semantic_changed", "semantic_missing"):
+                # Ordinary offline integrity mutation of synthetic archive data;
+                # no key access, extraction or containment experiment.
+                with sqlite3.connect(state / "evidence/evidence.db") as database:
+                    if value["case"] == "semantic_missing":
+                        database.execute("DELETE FROM payloads")
+                    else:
+                        database.execute("UPDATE payloads SET body = '[]'")
+                unavailable = command(runtime, {"command": "semantic", "mode": "restore"})
+                checks["changed_archive_no_cached_assessment"] = (
+                    unavailable["status"] == "UNAVAILABLE" and "world_model" not in unavailable
+                )
+                return runtime_report(value, checks, identity, ready, named_denials)
+            stopped_server = server
+            os.kill(ready["control_pid"], signal.SIGKILL)
+            runtime.wait(timeout=10)
+            stopped_server.kill()
+            stopped_server.wait(timeout=5)
+            server = None
+            runtime = subprocess.Popen(
+                runtime_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, env={"PATH": os.defpath}, close_fds=True,
+            )
+            restored_start = read_frame(runtime.stdout)
+            checks["actual_entrypoint_process_restart_recovers_graph"] = (
+                restored_start["status"] == "unarmed"
+                and restored_start["semantic_assessment"] == assessment
+                and restored_start["health"]["budgets"]["read"]["attempts"] == 1
+                and restored_start["health"]["metadata_admitted_this_start"] is False
+                and restored_start["health"]["record_authority_armed"] is False
+            )
+            restart_denial = command(runtime, {
+                "command": "read", "message": message("read", "post-crash")})
+            checks["restart_recovery_no_authority_or_source_io"] = (
+                restart_denial.get("response", restart_denial)["status"] == "denied"
+                and command(runtime, {"command": "health"})["budgets"]["read"]["attempts"] == 1
+            )
+            checks["semantic_revocation_preserves_only_historical_knowledge"] = (
+                command(runtime, {"command": "revoke"})["status"] == "revoked"
+                and command(runtime, {"command": "semantic", "mode": "restore"}) == assessment
+                and command(runtime, {"command": "arm", "operation": "read"})["status"] == "denied"
+            )
+            checks["semantic_stop_durable"] = command(runtime, {"command": "stop"})["status"] == "stopped"
+            checks["stopped_semantic_restore_not_authority"] = (
+                command(runtime, {"command": "semantic", "mode": "restore"}) == assessment
+                and command(runtime, {"command": "arm", "operation": "read"})["status"] == "denied"
+            )
+            command(runtime, {"command": "fail", "role": "evidence"})
+            lost = command(runtime, {"command": "semantic", "mode": "restore"})
+            checks["lost_custody_never_publishes_cached_graph"] = (
+                lost["status"] == "UNAVAILABLE" and lost["durable"] is False
+                and "world_model" not in lost
+            )
+            checks["durable_stop_restart_still_denied"] = command(
+                runtime, {"command": "restart"})["status"] == "blocked"
+            return runtime_report(value, checks, identity, ready, named_denials)
 
         if value["case"] == "security":
             before_io = command(server, {"command": "stats"})

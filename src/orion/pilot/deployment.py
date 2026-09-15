@@ -47,6 +47,7 @@ from .isolation import (
 )
 from .journal import JournalDenied
 from .readiness import release_report
+from .semantic_runtime import validate_semantic_config
 
 MODULE = "orion.pilot.services"
 
@@ -100,8 +101,9 @@ def load_manifest(path):
         for tool in ("unshare", "nsenter", "ip", "nft", "bwrap", "curl")
     ):
         raise KernelUnavailable("required installed runtime tools unavailable")
+    raw = decode(private_bytes(path))
     value = exact(
-        decode(private_bytes(path)),
+        raw,
         (
             "version",
             "mode",
@@ -113,10 +115,12 @@ def load_manifest(path):
             "artifact_record_sha256",
             "host",
             "policy",
-        ),
+        ) + (("semantic",) if type(raw) is dict and raw.get("version") == 2 else ()),
     )
-    if value["version"] != 1 or value["mode"] != "synthetic_read_only":
+    if type(value["version"]) is not int or value["version"] not in (1, 2) or value["mode"] != "synthetic_read_only":
         raise ValueError("explicit synthetic deployment only")
+    if value["version"] == 2:
+        validate_semantic_config(value["semantic"])
     if value["host"] not in (V4_APPROVED, V6_APPROVED):
         raise ValueError("fixed approved synthetic destination required")
     if type(value["configs"]) is not list or len(value["configs"]) != 2:
@@ -253,6 +257,8 @@ class Deployment:
             role_keys = {"supervisor": self.caps["evidence"], "owner": self.caps["owner"]}
             readonly.append((self.keys / "evidence-signing", "/private/signing-key"))
             writable.append((self.root / "evidence", "/state"))
+            if self.manifest.get("version") == 2:
+                boot["semantic"] = validate_semantic_config(self.manifest["semantic"])
         elif role == "authorization":
             role_keys = {
                 "owner": self.caps["owner"],
@@ -337,7 +343,7 @@ class Deployment:
                 raise failure
             self.monitor = threading.Thread(target=self.supervise, daemon=True)
             self.monitor.start()
-            return {
+            result = {
                 "status": "unarmed",
                 "source_pid": self.source.pid,
                 "control_pid": os.getpid(),
@@ -355,6 +361,9 @@ class Deployment:
                 "LIVE_PILOT_READY": False,
                 "execution_allowed": False,
             }
+            if self.manifest.get("version") == 2:
+                result["semantic_assessment"] = self.semantic("restore")
+            return result
         except Exception:
             self.close()
             raise
@@ -533,7 +542,10 @@ class Deployment:
             health = self.health()
             if health["status"] == "blocked":
                 return self._cutoff()
-            return {"status": "unarmed", "health": health, "LIVE_PILOT_READY": False}
+            result = {"status": "unarmed", "health": health, "LIVE_PILOT_READY": False}
+            if self.manifest.get("version") == 2:
+                result["semantic_assessment"] = self.semantic("restore")
+            return result
         except Exception:  # noqa: BLE001 - pending/tampered recovery has no reset path
             return self.cutoff()
 
@@ -620,12 +632,29 @@ class Deployment:
             or self.health()["status"] == "blocked"
         ):
             raise JournalDenied("independent admitted output verification denied")
-        return {"reasoner_checks": checks, "response": {
+        result = {"reasoner_checks": checks, "response": {
             "status": "admitted", "head": resolved["journal_head"], "checkpoint": checkpoint,
             "observations": resolved["observations"], "interpretation": "UNKNOWN",
             "interpretation_reason": "business_semantics_not_validated",
             "execution_allowed": False, "allow_live_customer_access": False,
         }}
+        if getattr(self, "manifest", {}).get("version") == 2:
+            # A distinct, protected assessment; admitted transport remains admitted
+            # even if semantic evaluation/storage is unavailable. No reasoner claims
+            # or user-supplied archive/policy are forwarded to the evidence owner.
+            result["response"]["semantic_assessment"] = self.semantic("evaluate")
+        return result
+
+    def semantic(self, mode):
+        if self.manifest.get("version") != 2 or mode not in ("evaluate", "restore"):
+            raise JournalDenied("fixed semantic deployment required")
+        try:
+            return rpc(self.endpoints["evidence"], "owner", self.caps["owner"],
+                       "semantic", {"mode": mode})
+        except Exception:  # noqa: BLE001 - never publish cached durable conclusions
+            return {"status": "UNAVAILABLE", "epistemic_status": "UNKNOWN", "durable": False,
+                    "reason": "semantic_custody_unavailable", "authority_restored": False,
+                    "execution_allowed": False, "LIVE_PILOT_READY": False}
 
     def dispatch(self, value):
         command = value.get("command")
@@ -635,6 +664,9 @@ class Deployment:
             return self.control(value["operation"], "arm")
         if command == "read":
             return self.reason(value["message"])
+        if command == "semantic":
+            exact(value, ("command", "mode"))
+            return self.semantic(value["mode"])
         if command == "restart":
             return self.restart()
         if command in ("stop", "revoke"):

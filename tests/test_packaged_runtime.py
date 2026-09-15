@@ -156,6 +156,11 @@ def test_installed_artifact_tampering_denies_identity_and_startup(clean_artifact
         "authorization",
         "evidence",
         "security",
+        "semantic",
+        "semantic_failure",
+        "semantic_retention",
+        "semantic_changed",
+        "semantic_missing",
     ),
 )
 def test_installed_runtime_against_unmodified_private_https_source(clean_artifact, tmp_path, case):
