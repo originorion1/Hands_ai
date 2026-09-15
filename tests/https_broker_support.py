@@ -203,13 +203,14 @@ class HTTPSBroker(Broker):
 
 class FixtureServer:
     def __init__(self, cert, key, body, secret, behavior="ok", *, port=0, host=HOST,
-                 redirect="https://attacker.invalid/"):
+                 redirect="https://attacker.invalid/", source_authorizer=None):
         if type(port) is not int or not 0 <= port <= 65535:
             raise ValueError("invalid fixture listener")
         address = ipaddress.ip_address(host)
         if not redirect.isascii() or "\r" in redirect or "\n" in redirect:
             raise ValueError("invalid synthetic redirect")
         self.body, self.secret, self.behavior = body, secret, behavior
+        self.source_authorizer = source_authorizer
         self.redirect = redirect
         self.requests = []
         self.listener = socket.socket(socket.AF_INET if address.version == 4 else socket.AF_INET6,
@@ -245,6 +246,19 @@ class FixtureServer:
                     authorized = (
                         b"Authorization: Bearer " + self.secret.encode() + b"\r\n" in request
                     )
+                    body = self.body
+                    if self.source_authorizer is not None:
+                        try:
+                            # Independent source boundary, before fixture data I/O.
+                            headers = [line for line in request.split(b'\r\n')
+                                       if line.startswith(b'Authorization: Bearer ')]
+                            if len(headers) != 1 or not request.startswith(
+                                    b'GET /fixture HTTP/1.1\r\n'):
+                                raise ValueError('fixed source request required')
+                            body = self.source_authorizer(headers[0][22:].decode('ascii'))
+                            authorized = type(body) is bytes
+                        except Exception:  # noqa: BLE001 - custody loss releases no data
+                            authorized = False
                     self.requests.append(
                         {
                             "get": request.startswith(b"GET /fixture HTTP/1.1\r\n"),
@@ -267,9 +281,9 @@ class FixtureServer:
                     else:
                         peer.sendall(
                             b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
-                            + str(len(self.body)).encode()
+                            + str(len(body)).encode()
                             + b"\r\n\r\n"
-                            + self.body
+                            + body
                         )
             except (OSError, ssl.SSLError):
                 connection.close()

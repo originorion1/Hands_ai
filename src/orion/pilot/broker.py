@@ -45,7 +45,7 @@ from .journal import AttemptJournal, JournalDenied, TransportLimits
 class Broker:
     """Trusted supervisor component; never instantiate inside an untrusted agent."""
 
-    def __init__(self, config, directory, *, expected_head=None):
+    def __init__(self, config, directory, *, expected_head=None, journal_factory=AttemptJournal):
         exact(config, ('version', 'mode', 'caller', 'grant', 'limits', 'protocol',
             'secret_reference', 'auth_reference', 'source_path', 'source_digest',
             'field_classifications', 'operation'))
@@ -95,7 +95,9 @@ class Broker:
             raise ValueError('bounded broker credentials unavailable')
         self.config = config
         self.binding = digest(config)
-        self.journal = AttemptJournal(Path(directory) / 'broker.db', key=self.key,
+        # Trusted composition seam only: never selectable by config or application
+        # messages. External custody can retain the journal key, storage and tip.
+        self.journal = journal_factory(Path(directory) / 'broker.db', key=self.key,
             binding=self.binding, limits=self.limits, expected_head=expected_head)
         self.armed = False
         self.phase = 'startup'
@@ -138,8 +140,8 @@ class Broker:
             self._event('broker_arm')
             self.armed = True
         else:
-            self._event('broker_' + value['control'])
             self.journal.stop()
+            self._event('broker_' + value['control'])
             self.armed = False
         self.nonce = secrets.token_hex(32)
         return self.status(value['control'])
