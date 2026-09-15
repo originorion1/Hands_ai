@@ -199,9 +199,9 @@ class EvidenceCustody:
             raise JournalDenied("oversized evidence storage entry")
         rows = db.execute(
             "SELECT sequence,body,mac FROM events ORDER BY sequence LIMIT ?",
-            (2 * self.policy["max_entries"] + 2,),
+            (2 * self.policy["max_entries"] + 3,),
         ).fetchall()
-        if not rows or len(rows) > 2 * self.policy["max_entries"] + 1:
+        if not rows or len(rows) > 2 * self.policy["max_entries"] + 2:
             raise JournalDenied("evidence checkpoint bound invalid")
         events, previous, expired = [], "0" * 64, set()
         for sequence, encoded, mac in rows:
@@ -219,10 +219,12 @@ class EvidenceCustody:
                 if body["checkpoint"] in expired:
                     raise JournalDenied("duplicate retention tombstone")
                 expired.add(body["checkpoint"])
-            elif body["event"] not in ("configure", "append"):
+            elif body["event"] not in ("configure", "append", "semantic_checkpoint"):
                 raise JournalDenied("evidence checkpoint event denied")
             events.append(body)
             previous = mac
+        if sum(e["event"] == "semantic_checkpoint" for e in events) > 1:
+            raise JournalDenied("bounded semantic custody pin required")
         if previous != self.head:
             raise JournalDenied("evidence history rollback detected")
         if (
@@ -436,7 +438,7 @@ class EvidenceCustody:
             _reference(args["request_reference"])
             if (
                 type(args["checkpoint"]) is not int
-                or not 2 <= args["checkpoint"] <= 2 * self.policy["max_entries"] + 1
+                or not 2 <= args["checkpoint"] <= 2 * self.policy["max_entries"] + 2
             ):
                 raise JournalDenied("bounded accepted checkpoint reference required")
         with self.lock:

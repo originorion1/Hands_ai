@@ -19,6 +19,7 @@ from .ipc import Endpoint, rpc
 from .isolation import net_child
 from .journal import JournalDenied
 from .runtime import SupervisedReadOnlyRuntime
+from .semantic_runtime import RuntimeSemanticCustody
 
 
 def frame():
@@ -132,7 +133,15 @@ def serve(value):
         owner = EvidenceCustody(
             "/state", private_bytes("/private/signing-key"), configs, policy=value["policy"]
         )
-        dispatch = owner.dispatch
+        if "semantic" in value:
+            semantic_owner = RuntimeSemanticCustody(owner, value["semantic"])
+
+            def dispatch(role, action, arguments):
+                if action == "semantic":
+                    return semantic_owner.dispatch(role, action, arguments)
+                return owner.dispatch(role, action, arguments)
+        else:
+            dispatch = owner.dispatch
     elif role == "authorization":
         os.environ["BROKER_AUTH_KEY"] = private_bytes("/private/issuer").decode()
         os.environ["BROKER_SOURCE_SECRET"] = private_bytes("/private/worker-secret").decode()
