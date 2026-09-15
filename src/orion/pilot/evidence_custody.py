@@ -67,7 +67,10 @@ class EvidenceCustody:
     dispatch uses {'binding': config digest, 'arguments': {...}}. Supervisor may
     append/availability; availability accepts {} or a digest request_reference
     to reject accepted request replay before credential use. Owner may
-    inspect/load/prune. The caller's capability is
+    inspect/load/prune/resolve. Resolve binds one accepted checkpoint to its
+    expected scope and request reference, never merely the latest reply. Append
+    may additionally authenticate request_sha256 for exact-message validation;
+    legacy checkpoints without it are not exact-message proof. Caller's capability is
     authenticated by the private IPC owner, never by trusting a JSON role field.
     Checkpoints are never removed or overwritten; capacity exhaustion denies new
     acquisition even after content expires. Clock and policy are trusted inputs.
@@ -407,6 +410,7 @@ class EvidenceCustody:
             ("owner", "inspect"),
             ("owner", "load"),
             ("owner", "prune"),
+            ("owner", "resolve"),
         }:
             raise JournalDenied("evidence caller or operation denied")
         exact(value, ("binding", "arguments"))
@@ -416,13 +420,25 @@ class EvidenceCustody:
         exact(
             args,
             ("observations", "journal_head", "request_reference")
+            + (("request_sha256",) if type(args) is dict and "request_sha256" in args else ())
             if action == "append"
+            else ("checkpoint", "request_reference")
+            if action == "resolve"
             else ("request_reference",)
             if action == "availability" and args != {}
             else (),
         )
         if action == "availability" and args:
             _reference(args["request_reference"])
+        if action == "append" and "request_sha256" in args:
+            _reference(args["request_sha256"])
+        if action == "resolve":
+            _reference(args["request_reference"])
+            if (
+                type(args["checkpoint"]) is not int
+                or not 2 <= args["checkpoint"] <= 2 * self.policy["max_entries"] + 1
+            ):
+                raise JournalDenied("bounded accepted checkpoint reference required")
         with self.lock:
             with self._connect() as db:
                 db.execute("BEGIN IMMEDIATE")
@@ -494,6 +510,11 @@ class EvidenceCustody:
                             "expires_at": (
                                 now + timedelta(seconds=self.policy["ttl_seconds"])
                             ).isoformat(),
+                            **(
+                                {"request_sha256": args["request_sha256"]}
+                                if "request_sha256" in args
+                                else {}
+                            ),
                         },
                     )
                     db.execute("INSERT INTO payloads VALUES (?,?)", (sequence, encoded))
@@ -501,6 +522,29 @@ class EvidenceCustody:
                         "checkpoint": sequence,
                         "head": self.head,
                         "payload_sha256": digest(args["observations"]),
+                    }
+                elif action == "resolve":
+                    checkpoint = checkpoints.get(args["checkpoint"])
+                    if (
+                        checkpoint is None
+                        or checkpoint["binding"] != binding
+                        or checkpoint["request_reference"] != args["request_reference"]
+                        or args["checkpoint"] in expired
+                    ):
+                        raise JournalDenied("accepted retained checkpoint unavailable")
+                    result = {
+                        "checkpoint": args["checkpoint"],
+                        "head": authenticate(self.key, "admitted_evidence_checkpoint", checkpoint),
+                        "custody_head": self.head,
+                        "binding": binding,
+                        "operation": self.configs[binding]["operation"],
+                        "request_reference": checkpoint["request_reference"],
+                        "request_sha256": checkpoint.get("request_sha256"),
+                        "journal_head": checkpoint["journal_head"],
+                        "payload_sha256": checkpoint["payload_sha256"],
+                        "references": checkpoint["references"],
+                        "observations": json.loads(payloads[args["checkpoint"]]),
+                        "authority_restored": False,
                     }
                 else:
                     if (
