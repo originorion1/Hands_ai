@@ -76,9 +76,11 @@ class PersistedRuntimeCustody(RuntimeCustody):
         super().__init__(runtime)
         self.archive = archive
         self.request_reference = None
+        self.request_sha256 = None
 
     def _before_begin(self, owner, value):
         self.request_reference = digest((owner.config["caller"], value.get("request_id")))
+        self.request_sha256 = digest(value)
         self.archive(
             "availability",
             {"binding": owner.binding, "arguments": {"request_reference": self.request_reference}},
@@ -100,6 +102,7 @@ class PersistedRuntimeCustody(RuntimeCustody):
                         "observations": result["observations"],
                         "journal_head": result["head"],
                         "request_reference": self.request_reference,
+                        "request_sha256": self.request_sha256,
                     },
                 },
             )

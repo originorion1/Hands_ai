@@ -20,10 +20,52 @@ V6_APPROVED = "fd42:6f72:696f::2"
 V6_UNAPPROVED = "fd42:6f72:696f::3"
 PORT = 44443
 LAB_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"
+_SYSTEM_MOUNTS = tuple(Path(p) for p in ("/usr", "/lib", "/lib64", "/bin"))
 
 
 class KernelUnavailable(Exception):
     """A missing kernel prerequisite cannot become an application-level proof."""
+
+
+def ambient_mount_roots():
+    """The exact read-only runtime trees exposed to every process role.
+
+    Preserve lexical mount targets such as /lib, while protected-path checks
+    compare their resolved locations. No caller-provided mount selectors.
+    """
+    roots = [directory for directory in _SYSTEM_MOUNTS if directory.exists()]
+    for location in (Path(sys.base_prefix).resolve(), Path(sys.prefix).absolute()):
+        if location == Path("/"):
+            raise KernelUnavailable("whole filesystem runtime mount denied")
+        if not location.is_relative_to(Path("/usr")) and location not in roots:
+            roots.append(location)
+    return tuple(roots)
+
+
+def validate_protected_paths(*paths):
+    """Deny custody roots exposed through any ambient interpreter/system tree.
+
+    Both containment directions are unsafe: a private root cannot live inside an
+    exposed tree or contain one. Reject symlink traversal before resolution so
+    safe-looking lexical paths cannot alias an exposed location or be retargeted.
+    Ownership and directory permissions remain the deployment owner's contract.
+    """
+    try:
+        exposed = tuple(root.resolve(strict=True) for root in ambient_mount_roots())
+        protected = []
+        for value in paths:
+            path = Path(value).absolute()
+            if any(parent.is_symlink() for parent in (path, *path.parents)):
+                raise KernelUnavailable("symlink custody placement denied")
+            actual = path.resolve(strict=True)
+            if not actual.is_dir() or any(
+                actual.is_relative_to(root) or root.is_relative_to(actual) for root in exposed
+            ):
+                raise KernelUnavailable("ambient custody exposure denied")
+            protected.append(actual)
+        return tuple(protected)
+    except OSError:
+        raise KernelUnavailable("protected custody placement unavailable") from None
 
 
 def checked(argv, *, input=None):
@@ -330,15 +372,16 @@ def process_command(module, *, readonly=(), writable=(), network=False):
             "--unshare-uts",
             "--unshare-cgroup-try",
         ]
-    for directory in ("/usr", "/lib", "/lib64", "/bin"):
-        if Path(directory).exists():
-            command.extend(("--ro-bind", directory, directory))
+    ambient = ambient_mount_roots()
+    for directory in ambient:
+        if directory in _SYSTEM_MOUNTS:
+            command.extend(("--ro-bind", str(directory), str(directory)))
     # The artifact may be installed below /tmp. Mount private tmpfs first so
     # the subsequent read-only venv mount is not hidden by that filesystem.
     command.extend(("--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--dir", "/work"))
-    for location in dict.fromkeys((str(base), str(prefix))):
-        if not Path(location).is_relative_to(Path("/usr")):
-            command.extend(("--ro-bind", location, location))
+    for location in ambient:
+        if location not in _SYSTEM_MOUNTS:
+            command.extend(("--ro-bind", str(location), str(location)))
     targets_seen = set()
     for option, mounts in (("--ro-bind", readonly), ("--bind", writable)):
         for source, target in mounts:

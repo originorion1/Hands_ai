@@ -53,7 +53,7 @@ def read_frame(stream):
 def source(value):
     """Ordinary HTTPS/Bearer fixture: no ORION imports, grants, receipts or IPC."""
     io = {"metadata": 0, "read": 0}
-    connections = {"canary": 0}
+    connections = {"canary": 0, "approved": 0}
     lock = threading.Lock()
     credential = value["source_credential"]
     bodies = {
@@ -100,10 +100,21 @@ def source(value):
         class Server(http.server.ThreadingHTTPServer):
             address_family = socket.AF_INET6 if ":" in approved else socket.AF_INET
 
+            def get_request(self):
+                peer, address = self.socket.accept()
+                with lock:
+                    connections["approved"] += 1
+                peer.settimeout(1)
+                try:
+                    return self.tls.wrap_socket(peer, server_side=True), address
+                except OSError:
+                    peer.close()
+                    raise
+
         server = Server((approved, 44443), Handler)
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(value["certificate"], value["source_key"])
-        server.socket = context.wrap_socket(server.socket, server_side=True)
+        server.tls = context
         threading.Thread(target=server.serve_forever, daemon=True).start()
         servers.append(server)
         for host, port in ((unapproved, 44443), (approved, 44444), (unapproved, 44445)):
@@ -291,15 +302,49 @@ def controller(value):
     manifest_path = root / "manifest.json"
     manifest_path.write_text(json.dumps(manifest))
     manifest_path.chmod(0o600)
+    misplaced_denied = None
+    if value["case"] == "security":
+        misplaced = Path(sys.prefix) / ("invalid-custody-" + root.name)
+        misplaced.mkdir(mode=0o700)
+        for name in ("keys", "state"):
+            (misplaced / name).mkdir(mode=0o700)
+        invalid_manifest = dict(manifest, keys_directory=str(misplaced / "keys"),
+                                state_directory=str(misplaced / "state"))
+        invalid_path = root / "invalid-placement.json"
+        invalid_path.write_text(json.dumps(invalid_manifest))
+        invalid_path.chmod(0o600)
+        rejected = subprocess.run(
+            [sys.executable, "-I", "-m", "orion.pilot.deployment", "--serve", str(invalid_path)],
+            capture_output=True, text=True, env={"PATH": os.defpath}, timeout=10, check=False,
+        )
+        placement_result = json.loads(rejected.stdout)
+        misplaced_denied = (
+            rejected.returncode == 2
+            and placement_result["status"] == "BLOCKED"
+            and placement_result.get("failure_type") == "KernelUnavailable"
+            and placement_result.get("failure_boundary") == "validate_protected_paths"
+        )
+    baseline_fds = []
+    runtime_command = [sys.executable, "-I", "-m", "orion.pilot.deployment", "--serve", str(manifest_path)]
+    if value["case"] == "security":
+        baseline_fds = [os.open("/proc/self/ns/" + kind, os.O_RDONLY) for kind in ("net", "user")]
+        runtime_command = [
+            "/usr/bin/unshare", "--user", "--map-root-user", "--net", sys.executable,
+            "-I", value["attacker_script"], "--supervisor", str(manifest_path),
+            *(str(fd) for fd in baseline_fds),
+        ]
     runtime = subprocess.Popen(
-        [sys.executable, "-I", "-m", "orion.pilot.deployment", "--serve", str(manifest_path)],
+        runtime_command,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
         env={"PATH": os.defpath},
         close_fds=True,
+        pass_fds=baseline_fds,
     )
+    for descriptor in baseline_fds:
+        os.close(descriptor)
     server = None
     try:
         ready = read_frame(runtime.stdout)
@@ -368,6 +413,8 @@ def controller(value):
             for name, passed in items.items()
         }
         checks["ordinary_source_has_no_orion_dependency"] = source_ready["orion_imports"] == []
+        if value["case"] == "security":
+            checks["installed_prefix_original_path_custody_denied_at_startup"] = misplaced_denied
         checks["source_outside_gateway_namespace"] = source_ready["net"] != os.readlink(
             "/proc/" + str(ready["gateway_pid"]) + "/ns/net"
         )
@@ -559,7 +606,10 @@ def controller(value):
                 and command(server, {"command": "stats"}) == {"metadata": 2, "read": 1}
             )
             checks["native_gateway_does_not_follow_redirect"] = (
-                command(server, {"command": "connections"}) == before_connection
+                command(server, {"command": "connections"}) == {
+                    "canary": before_connection["canary"],
+                    "approved": before_connection["approved"] + 1,
+                }
                 and counters()[counter_for("ipv4-unapproved")]
                 == before_kernel[counter_for("ipv4-unapproved")]
             )
@@ -601,6 +651,27 @@ def controller(value):
             and loaded["checkpoints"][0]["references"][0]["revision"] == 1
             and loaded["authority_restored"] is False
         )
+
+        if value["case"] == "security":
+            before_io = command(server, {"command": "stats"})
+            # Allow positive-control TLS failures to finish before the baseline.
+            time.sleep(0.1)
+            before_connections = command(server, {"command": "connections"})
+            attacks = command(runtime, {"command": "attack", "message": message("read", "attacker-forgery"),
+                                        "ipv6": ready["ipv6_enabled"]})
+            checks.update(attacks["checks"])
+            checks["compromise_no_source_io_or_connections"] = (
+                command(server, {"command": "stats"}) == before_io
+                and command(server, {"command": "connections"}) == before_connections
+            )
+            checks["compromise_archive_and_audit_history_intact"] = (
+                archive("load") == loaded
+                and attacks["audit_prefix_intact"] is True
+            )
+            checks["compromise_supervised_runtime_remains_healthy"] = (
+                command(runtime, {"command": "health"})["status"] == "healthy"
+            )
+            return runtime_report(value, checks, identity, ready, named_denials)
 
         def report():
             return runtime_report(value, checks, identity, ready, named_denials)

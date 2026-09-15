@@ -1,10 +1,12 @@
 """Installed local IPC authentication and canonical namespace composition."""
 
 import ctypes
+import hashlib
 import json
 import multiprocessing
 import os
 import select
+import shutil
 import signal
 import stat
 import subprocess
@@ -18,10 +20,36 @@ import pytest
 
 from orion.pilot.broker_contract import MAX_FRAME
 from orion.pilot.ipc import Endpoint, receive, rpc, send
-from orion.pilot.isolation import PORT, V4_APPROVED, Fabric, firewall, net_child, process_command
+from orion.pilot.isolation import (
+    LAB_PATH,
+    PORT,
+    V4_APPROVED,
+    Fabric,
+    KernelUnavailable,
+    ambient_mount_roots,
+    firewall,
+    net_child,
+    process_command,
+    validate_protected_paths,
+)
 from orion.pilot.journal import JournalDenied
 
 KEY = b"synthetic-capability-0000000000000"
+
+
+@pytest.fixture
+def mock_bwrap_composition(monkeypatch):
+    from orion.pilot import isolation
+
+    monkeypatch.setattr(isolation.shutil, "which", lambda *args, **kwargs: "/usr/bin/bwrap")
+
+
+@pytest.fixture
+def available_bubblewrap():
+    executable = shutil.which("bwrap", path=LAB_PATH)
+    if executable is None:
+        pytest.skip("bubblewrap tool unavailable; kernel isolation NOT PROVEN")
+    return executable
 
 
 def test_installed_ipc_authenticated_call_and_private_endpoint(tmp_path):
@@ -254,7 +282,7 @@ def test_promoted_kernel_policy_is_legacy_semantic_owner():
     assert "established" not in policy
 
 
-def test_installed_process_uses_artifact_interpreter_without_pythonpath():
+def test_installed_process_uses_artifact_interpreter_without_pythonpath(mock_bwrap_composition):
     import sys
 
     command = process_command("orion.pilot.services")
@@ -278,13 +306,16 @@ def test_fabric_requires_exactly_one_trusted_child_entrypoint():
         Fabric("legacy.py", module="orion.pilot.services")
 
 
-def test_artifact_prefix_below_tmp_survives_private_tmpfs(tmp_path, monkeypatch):
+def test_artifact_prefix_below_tmp_survives_private_tmpfs(
+    tmp_path, monkeypatch, available_bubblewrap
+):
     prefix = tmp_path / "clean-artifact"
     venv.EnvBuilder(with_pip=False, symlinks=True).create(prefix)
     executable = prefix / "bin" / "python"
     monkeypatch.setattr(sys, "prefix", str(prefix))
     monkeypatch.setattr(sys, "executable", str(executable))
     command = process_command("orion.pilot.services")
+    assert command[0] == available_bubblewrap
     mounted = command.index(str(prefix))
     assert command[mounted - 1] == "--ro-bind"
     assert command.index("--tmpfs") < mounted
@@ -299,6 +330,74 @@ def test_artifact_prefix_below_tmp_survives_private_tmpfs(tmp_path, monkeypatch)
     completed = subprocess.run(command, capture_output=True, text=True, timeout=10, check=False)
     assert completed.returncode == 0, "artifact interpreter did not start in private namespace"
     assert json.loads(completed.stdout) == str(prefix)
+
+
+@pytest.mark.parametrize("placement", ["inside", "ancestor", "same"])
+def test_protected_roots_must_not_overlap_ambient_mounts(tmp_path, monkeypatch, placement):
+    from orion.pilot import isolation
+
+    ambient = tmp_path / "ambient"
+    inside = ambient / "custody"
+    inside.mkdir(parents=True)
+    monkeypatch.setattr(isolation, "ambient_mount_roots", lambda: (ambient,))
+    path = {"inside": inside, "ancestor": tmp_path, "same": ambient}[placement]
+    with pytest.raises(KernelUnavailable):
+        validate_protected_paths(path)
+
+
+def test_protected_roots_are_resolved_private_siblings_not_symlink_aliases(tmp_path, monkeypatch):
+    from orion.pilot import isolation
+
+    ambient, safe = tmp_path / "ambient", tmp_path / "private"
+    ambient.mkdir()
+    safe.mkdir()
+    nested = safe / "custody"
+    nested.mkdir()
+    monkeypatch.setattr(isolation, "ambient_mount_roots", lambda: (ambient,))
+    assert validate_protected_paths(nested) == (nested.resolve(),)
+    alias = tmp_path / "alias"
+    alias.symlink_to(safe, target_is_directory=True)
+    with pytest.raises(KernelUnavailable):
+        validate_protected_paths(alias)
+    with pytest.raises(KernelUnavailable):
+        validate_protected_paths(alias / "custody")
+    with pytest.raises(KernelUnavailable):
+        validate_protected_paths(tmp_path / "absent")
+
+
+def test_ambient_runtime_mounts_never_include_whole_host_root(monkeypatch):
+    monkeypatch.setattr(sys, "base_prefix", "/")
+    with pytest.raises(KernelUnavailable):
+        ambient_mount_roots()
+
+
+def test_synthetic_key_inside_venv_is_ambiently_readable_and_startup_placement_denied(
+    tmp_path, monkeypatch, available_bubblewrap
+):
+    prefix = tmp_path / "artifact"
+    venv.EnvBuilder(with_pip=False, symlinks=True).create(prefix)
+    private = prefix / "protected-keys"
+    private.mkdir(mode=0o700)
+    key = private / "issuer"
+    key.write_bytes(b"synthetic-private-key-canary")
+    key.chmod(0o600)
+    executable = prefix / "bin" / "python"
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+    monkeypatch.setattr(sys, "executable", str(executable))
+    command = process_command("orion.pilot.services")
+    assert command[0] == available_bubblewrap
+    command[-5:] = [
+        str(executable),
+        "-I",
+        "-c",
+        "import hashlib,pathlib,sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())",
+        str(key),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True, timeout=10, check=False)
+    assert completed.returncode == 0, "ambient synthetic-key reproduction failed"
+    assert completed.stdout.strip() == hashlib.sha256(key.read_bytes()).hexdigest()
+    with pytest.raises(KernelUnavailable):
+        validate_protected_paths(private)
 
 
 def _parent_death_probe(result):

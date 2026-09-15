@@ -155,6 +155,7 @@ def test_installed_artifact_tampering_denies_identity_and_startup(clean_artifact
         "audit",
         "authorization",
         "evidence",
+        "security",
     ),
 )
 def test_installed_runtime_against_unmodified_private_https_source(clean_artifact, tmp_path, case):
@@ -216,6 +217,7 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
         "certificate": str(certificate),
         "source_key": str(key),
         "wheel_sha256": hashlib.sha256(clean_artifact[1].read_bytes()).hexdigest(),
+        "attacker_script": str(Path(__file__).with_name("installed_runtime_attacker.py")),
     }
     root, _, python = clean_artifact
     completed = subprocess.run(

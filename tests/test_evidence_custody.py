@@ -54,7 +54,7 @@ def call(owner, h, action, role=None, **args):
     return owner.dispatch(role, action, {"binding": digest(h.config), "arguments": args})
 
 
-def append(owner, h, observations, request="1" * 64):
+def append(owner, h, observations, request="1" * 64, request_sha256=None):
     return call(
         owner,
         h,
@@ -62,6 +62,7 @@ def append(owner, h, observations, request="1" * 64):
         observations=observations,
         journal_head="a" * 64,
         request_reference=request,
+        **({"request_sha256": request_sha256} if request_sha256 is not None else {}),
     )
 
 
@@ -398,3 +399,149 @@ def test_clock_key_or_policy_changes_do_not_silently_restore_state(archive):
     changed["ttl_seconds"] += 1
     with pytest.raises(JournalDenied):
         EvidenceCustody(directory, KEY, [m.config, r.config], changed)
+
+
+def test_owner_resolves_exact_accepted_checkpoint_from_independent_custody(archive):
+    r, _, _, now, _, owner = archive
+    first = values(r, now[0], "first-checkpoint")
+    accepted = append(owner, r, first, "1" * 64)
+    now[0] += timedelta(seconds=1)
+    append(owner, r, values(r, now[0], "later-checkpoint"), "2" * 64)
+    owner = reopen(archive)
+    resolved = call(
+        owner, r, "resolve", checkpoint=accepted["checkpoint"], request_reference="1" * 64
+    )
+    assert resolved["checkpoint"] == accepted["checkpoint"]
+    assert resolved["head"] == accepted["head"]
+    assert resolved["custody_head"] == owner.head
+    assert resolved["head"] != resolved["custody_head"]
+    assert resolved["observations"] == first
+    assert resolved["payload_sha256"] == accepted["payload_sha256"]
+    assert resolved["binding"] == digest(r.config)
+    assert resolved["operation"] == "read"
+    assert resolved["journal_head"] == "a" * 64
+    assert resolved["request_reference"] == "1" * 64
+    assert resolved["references"][0]["observation_id"] == first[0]["observation_id"]
+    assert resolved["authority_restored"] is False
+    assert resolved["request_sha256"] is None  # Legacy checkpoints are not exact-message proof.
+
+
+def test_exact_original_request_hash_is_authenticated_in_specific_checkpoint(archive):
+    r, _, _, now, _, owner = archive
+    original = r.message()
+    original_hash = digest(original)
+    accepted = append(owner, r, values(r, now[0]), request_sha256=original_hash)
+    resolved = call(
+        reopen(archive), r, "resolve", checkpoint=accepted["checkpoint"], request_reference="1" * 64
+    )
+    assert resolved["request_sha256"] == original_hash
+    substituted = copy.deepcopy(original)
+    substituted["grant_token"] = "0" * 64
+    assert digest(substituted) != resolved["request_sha256"]
+    with sqlite3.connect(owner.path) as db:
+        body = json.loads(
+            db.execute(
+                "SELECT body FROM events WHERE sequence=?", (accepted["checkpoint"],)
+            ).fetchone()[0]
+        )
+        assert body["request_sha256"] == original_hash
+        body["request_sha256"] = digest(substituted)
+        db.execute(
+            "UPDATE events SET body=? WHERE sequence=?", (json.dumps(body), accepted["checkpoint"])
+        )
+    with pytest.raises(JournalDenied):
+        call(owner, r, "resolve", checkpoint=accepted["checkpoint"], request_reference="1" * 64)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"request_sha256": "bad"},
+        {"request_sha256": None},
+        {"request_sha256": "1" * 64, "message": {}},
+        {"request_hash": "1" * 64},
+    ],
+)
+def test_append_optional_request_hash_requires_only_exact_digest_extension(archive, extra):
+    r, _, _, now, _, owner = archive
+    head = owner.head
+    with pytest.raises(ValueError):
+        call(
+            owner,
+            r,
+            "append",
+            observations=values(r, now[0]),
+            journal_head="a" * 64,
+            request_reference="1" * 64,
+            **extra,
+        )
+    assert owner.head == head
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "missing",
+        "wrong_reference",
+        "wrong_scope",
+        "expired",
+        "payload_tamper",
+        "custody_loss",
+        "anchor_tamper",
+    ],
+)
+def test_checkpoint_resolution_denies_unaccepted_expired_or_unverifiable_results(archive, attack):
+    r, m, _, now, _, owner = archive
+    accepted = append(owner, r, values(r, now[0]), "1" * 64)
+    h, checkpoint, request = r, accepted["checkpoint"], "1" * 64
+    if attack == "missing":
+        checkpoint += 1
+    elif attack == "wrong_reference":
+        request = "2" * 64
+    elif attack == "wrong_scope":
+        h = m
+    elif attack == "expired":
+        now[0] += timedelta(seconds=61)
+    elif attack == "payload_tamper":
+        with sqlite3.connect(owner.path) as db:
+            db.execute("UPDATE payloads SET body='[]'")
+    elif attack == "custody_loss":
+        owner.path.unlink()
+    else:
+        owner.anchor.write_text("0" * 64)
+    with pytest.raises((ValueError, OSError)):
+        call(owner, h, "resolve", checkpoint=checkpoint, request_reference=request)
+
+
+@pytest.mark.parametrize(
+    "role", ["supervisor", "broker", "reasoner", "gateway", "source", "anonymous"]
+)
+def test_checkpoint_resolution_requires_independent_owner_role(archive, role):
+    r, _, _, now, _, owner = archive
+    accepted = append(owner, r, values(r, now[0]))
+    with pytest.raises(JournalDenied):
+        call(
+            owner,
+            r,
+            "resolve",
+            role=role,
+            checkpoint=accepted["checkpoint"],
+            request_reference="1" * 64,
+        )
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"checkpoint": True, "request_reference": "1" * 64},
+        {"checkpoint": 0, "request_reference": "1" * 64},
+        {"checkpoint": "2", "request_reference": "1" * 64},
+        {"checkpoint": 2, "request_reference": "bad"},
+        {"checkpoint": 2},
+        {"checkpoint": 2, "request_reference": "1" * 64, "binding": "0" * 64},
+    ],
+)
+def test_checkpoint_resolution_requires_exact_bounded_reference_shape(archive, args):
+    r, _, _, _, _, owner = archive
+    with pytest.raises(ValueError):
+        owner.dispatch("owner", "resolve", {"binding": digest(r.config), "arguments": args})

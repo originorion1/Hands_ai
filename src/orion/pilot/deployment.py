@@ -43,6 +43,7 @@ from .isolation import (
     KernelUnavailable,
     process_command,
     protect_parent,
+    validate_protected_paths,
 )
 from .journal import JournalDenied
 from .readiness import release_report
@@ -124,6 +125,7 @@ def load_manifest(path):
         raise ValueError("metadata-first separate record configuration required")
     private_directory(value["state_directory"])
     private_directory(value["keys_directory"])
+    validate_protected_paths(value["state_directory"], value["keys_directory"])
     if (
         hashlib.sha256(private_bytes(value["certificate"])).hexdigest()
         != value["certificate_sha256"]
@@ -164,6 +166,7 @@ class Deployment:
     def __init__(self, manifest, *, baseline_net, baseline_user):
         self.manifest = manifest
         self.root, self.keys = Path(manifest["state_directory"]), Path(manifest["keys_directory"])
+        validate_protected_paths(self.root, self.keys)
         self.processes, self.checks = {}, {}
         self.blocked = False
         self.egress_removed = False
@@ -535,6 +538,22 @@ class Deployment:
             return self.cutoff()
 
     def reason(self, message):
+        # This supervisor is independent of hostile application code. Existing
+        # accepted request references cannot be republished by fabricating stdout.
+        exact(message, ("operation", "grant_token", "request_id", "request"))
+        config = next((c for c in self.configs if c["operation"] == message["operation"]), None)
+        if config is None or type(message["request_id"]) is not str:
+            raise JournalDenied("reasoning request binding denied")
+        binding = digest(config)
+        reference = digest((config["caller"], message["request_id"]))
+        before = rpc(
+            self.endpoints["evidence"], "owner", self.caps["owner"], "inspect",
+            {"binding": binding, "arguments": {}},
+        )
+        if not before["available"] or any(
+            c["request_reference"] == reference for c in before["checkpoints"]
+        ) or self.health()["status"] == "blocked":
+            raise JournalDenied("reasoning authority or replay denied")
         command = process_command(
             MODULE,
             readonly=[
@@ -555,9 +574,58 @@ class Deployment:
         if process.returncode or process.stderr:
             raise JournalDenied("reasoning process denied")
         value = decode(process.stdout.encode())
-        if not all(value["reasoner_checks"].values()):
-            raise JournalDenied("reasoning isolation failed")
-        return value
+        return self.validate_reasoner_response(message, value)
+
+    def validate_reasoner_response(self, message, value):
+        """Untrusted stdout is not admission, provenance, or custody attestation.
+
+        Process diagnostics remain self-reported; the fixed OS composition is the
+        containment boundary. Only protected, exact-request-bound canonical data
+        can become output. No application-supplied business/control fields survive.
+        """
+        exact(value, ("response", "reasoner_checks"))
+        names = {
+            "user_separated", "pid_separated", "mnt_separated", "capabilities_dropped",
+            "network_confined", "environment_cleared", "issuer_inaccessible",
+            "signing-key_inaccessible", "credential_inaccessible", "worker-secret_inaccessible",
+            "custody_storage_inaccessible",
+        }
+        checks = value["reasoner_checks"]
+        if type(checks) is not dict or set(checks) != names or any(v is not True for v in checks.values()):
+            raise JournalDenied("reasoning diagnostics denied")
+        response = value["response"]
+        if type(response) is not dict:
+            raise JournalDenied("reasoning response denied")
+        if response.get("status") != "admitted":
+            return {"reasoner_checks": checks, "response": {
+                "status": "denied", "execution_allowed": False, "allow_live_customer_access": False,
+            }}
+        config = next((c for c in self.configs if c["operation"] == message.get("operation")), None)
+        if config is None:
+            raise JournalDenied("reasoning operation denied")
+        checkpoint = exact(response.get("checkpoint"), ("checkpoint", "head", "payload_sha256"))
+        resolved = rpc(
+            self.endpoints["evidence"], "owner", self.caps["owner"], "resolve",
+            {"binding": digest(config), "arguments": {
+                "checkpoint": checkpoint["checkpoint"],
+                "request_reference": digest((config["caller"], message.get("request_id"))),
+            }},
+        )
+        if (
+            resolved["request_sha256"] != digest(message)
+            or checkpoint["head"] != resolved["head"]
+            or checkpoint["payload_sha256"] != resolved["payload_sha256"]
+            or response.get("head") != resolved["journal_head"]
+            or response.get("observations") != resolved["observations"]
+            or self.health()["status"] == "blocked"
+        ):
+            raise JournalDenied("independent admitted output verification denied")
+        return {"reasoner_checks": checks, "response": {
+            "status": "admitted", "head": resolved["journal_head"], "checkpoint": checkpoint,
+            "observations": resolved["observations"], "interpretation": "UNKNOWN",
+            "interpretation_reason": "business_semantics_not_validated",
+            "execution_allowed": False, "allow_live_customer_access": False,
+        }}
 
     def dispatch(self, value):
         command = value.get("command")

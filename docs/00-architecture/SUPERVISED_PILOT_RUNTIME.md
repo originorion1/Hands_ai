@@ -182,3 +182,51 @@ reviewed production artifact/host/key/identity policy, source lifecycle validati
 and satisfaction of every critical gate. Human maintainers alone may authorize it.
 Readiness never authorizes customer access, writes, merge or activation. There is
 no available live activation override or customer activation procedure in this tree.
+
+## Installed application compromise boundary (issue #165)
+
+PR #164's installed wheel reproduced two concrete failures: reasoning stdout
+could claim admission with empty self-reported checks, and custody placed beneath
+the interpreter prefix was readable through ambient read-only mounts. Startup now
+rejects keys/state overlapping any exposed interpreter/system tree, in either
+direction, including symlink traversal. The same mount-root owner constructs the
+jails and validates placement, both at manifest loading and supervisor construction.
+
+The protected admission checkpoint optionally authenticates the exact original
+request-message digest in addition to canonical caller/request references. Pilot
+admission always supplies it. The trusted supervisor rejects prior accepted
+request references before reasoning, then independently resolves the exact retained
+checkpoint through owner-authenticated EvidenceCustody. Scope, original message,
+checkpoint/payload pins, journal head and canonical observations must match.
+Custody loss, expired content, fabricated admission, scope/token substitution and
+replayed output deny. Legacy checkpoints without that binding cannot prove pilot
+output. Returned output is reconstructed from protected observations and fixed
+UNKNOWN/read-only fields; arbitrary application-supplied fields are discarded.
+Self-reported namespace checks are diagnostics, not an admission attestation.
+
+`tests/installed_runtime_attacker.py` is an external verifier, not shipped runtime
+code or a public plugin. It captures installed production jail commands and changes
+only their executable suffix to model arbitrary application compromise. Live source
+and custody remain the actual integrated deployment. It also replaces acquisition's
+own disposable socket with a forged response: the unchanged reasoning process and
+independent supervisor deny publication. The ordinary deployment scenarios retain
+the installed public CLI.
+
+Legacy adapters, credential mappings, raw gateway constructors, Python native
+network libraries and alternate installed modules remain callable/importable. They
+are not claimed unreachable or safe in an unconfined host process. In the pilot
+application roles, malicious fetcher/opener/mapping/gateway callbacks execute but
+cannot read real custody, reach source networking or issue independently accepted
+authority. Direct sockets, curl/proxies, namespace entry and nft mutation are
+tested at the OS boundary, with externally reachable positive controls and no source
+I/O or protected-history mutation. Fabricating one's own secret/grant is not access
+to the real issuer or source credential. Imported methods alone are not containment.
+
+Trusted host/operator, interpreter/native tools, kernel and custody services remain
+outside this application-compromise claim. Privileged custody/host compromise,
+external monotonic rollback attestation, production key/operator identity and OS
+CPU/memory quotas are not proven. Request/byte/rate budgets are not CPU quotas.
+SECURITY and SECRETS therefore retain their broader repository FAIL requirements;
+all other seventeen critical release gates remain BLOCKED as enumerated in the
+unchanged executable gate report. Synthetic installed-boundary proof does not
+certify legacy same-process APIs or production readiness. LIVE_PILOT_READY=false.
