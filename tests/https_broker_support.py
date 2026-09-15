@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import http.client
+import ipaddress
 import socket
 import ssl
 import subprocess
@@ -45,7 +46,7 @@ def certificates(root, *, hostname=HOST):
             "-subj",
             "/CN=local-fixture",
             "-addext",
-            "subjectAltName=" + ("IP:" if hostname == HOST else "DNS:") + hostname,
+            "subjectAltName=" + _certificate_name(hostname),
         ],
         check=True,
         capture_output=True,
@@ -56,13 +57,25 @@ def certificates(root, *, hostname=HOST):
     return cert, key
 
 
+def _certificate_name(hostname):
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        return "DNS:" + hostname
+    return "IP:" + hostname
+
+
 @dataclass(frozen=True)
 class LocalPolicy:
     port: int
     certificate: str
     certificate_sha256: str
+    host: str = HOST
 
     def context(self):
+        if type(self.host) is not str or "%" in self.host:
+            raise ValueError("numeric fixture host required")
+        ipaddress.ip_address(self.host)  # Signed numeric fixture route, never DNS.
         if type(self.port) is not int or not 1 <= self.port <= 65535:
             raise ValueError("invalid fixture port")
         pem = private_bytes(self.certificate)
@@ -77,7 +90,7 @@ class LocalPolicy:
 
     def authorize_wire(self, *, host, port, method, target, body):
         if (
-            host != HOST
+            host != self.host
             or type(port) is not int
             or port != self.port
             or method != "GET"
@@ -115,12 +128,12 @@ def bounded_body(response, limit):
 
 def https_read(policy, secret, limit):
     # No URL parsing, DNS name, proxy environment, redirects, caller headers or body.
-    policy.authorize_wire(host=HOST, port=policy.port, method="GET", target=TARGET, body=None)
+    policy.authorize_wire(host=policy.host, port=policy.port, method="GET", target=TARGET, body=None)
     context = policy.context()
     if type(secret) is not str or not secret.isascii() or not secret.isalnum():
         raise ValueError("bounded fixture credential required")
     with closing(
-        http.client.HTTPSConnection(HOST, policy.port, timeout=1, context=context)
+        http.client.HTTPSConnection(policy.host, policy.port, timeout=1, context=context)
     ) as connection:
         connection.request(
             "GET",
@@ -145,9 +158,10 @@ class HTTPSBroker(Broker):
         self.profile_path = Path(self.config["source_path"]).parent / "tls-profile.json"
         self.profile_bytes = private_bytes(self.profile_path)
         envelope = exact(decode(self.profile_bytes), ("profile", "mac"))
-        profile = exact(
-            envelope["profile"], ("binding", "port", "certificate", "certificate_sha256")
-        )
+        fields = ("binding", "port", "certificate", "certificate_sha256")
+        if type(envelope["profile"]) is dict and "host" in envelope["profile"]:
+            fields += ("host",)
+        profile = exact(envelope["profile"], fields)
         if (
             profile["binding"] != self.binding
             or type(envelope["mac"]) is not str
@@ -157,7 +171,7 @@ class HTTPSBroker(Broker):
         ):
             raise ValueError("fixture supervisor route denied")
         self.policy = LocalPolicy(
-            **{k: profile[k] for k in ("port", "certificate", "certificate_sha256")}
+            **{k: profile[k] for k in fields if k != "binding"}
         )
         self.policy.context()
 
@@ -188,13 +202,19 @@ class HTTPSBroker(Broker):
 
 
 class FixtureServer:
-    def __init__(self, cert, key, body, secret, behavior="ok", *, port=0):
+    def __init__(self, cert, key, body, secret, behavior="ok", *, port=0, host=HOST,
+                 redirect="https://attacker.invalid/"):
         if type(port) is not int or not 0 <= port <= 65535:
             raise ValueError("invalid fixture listener")
+        address = ipaddress.ip_address(host)
+        if not redirect.isascii() or "\r" in redirect or "\n" in redirect:
+            raise ValueError("invalid synthetic redirect")
         self.body, self.secret, self.behavior = body, secret, behavior
+        self.redirect = redirect
         self.requests = []
-        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.listener.bind((HOST, port))
+        self.listener = socket.socket(socket.AF_INET if address.version == 4 else socket.AF_INET6,
+                                      socket.SOCK_STREAM)
+        self.listener.bind((host, port))
         self.listener.listen(4)
         self.listener.settimeout(0.1)
         self.port = self.listener.getsockname()[1]
@@ -235,7 +255,8 @@ class FixtureServer:
                         peer.sendall(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
                     elif self.behavior == "redirect":
                         peer.sendall(
-                            b"HTTP/1.1 302 Found\r\nLocation: https://attacker.invalid/\r\nContent-Length: 0\r\n\r\n"
+                            b"HTTP/1.1 302 Found\r\nLocation: " + self.redirect.encode("ascii")
+                            + b"\r\nContent-Length: 0\r\n\r\n"
                         )
                     elif self.behavior == "oversized":
                         peer.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 999999\r\n\r\n")

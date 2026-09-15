@@ -29,7 +29,8 @@ def child():
     if not raw.endswith(b"\n") or len(raw) > MAX_FRAME:
         raise ValueError("reasoner bootstrap denied")
     scope = exact(
-        decode(raw), ("message", "isolation", "denied_paths", "approved_port", "expected")
+        decode(raw), ("message", "isolation", "denied_paths", "approved_port", "approved_host",
+                      "expected")
     )
     denied = exact(scope["denied_paths"], ("configuration", "source", "route", "tls_key"))
     checks = inspect_child(scope["isolation"])
@@ -40,7 +41,8 @@ def child():
         tls_private_key_denied=not readable(denied["tls_key"]),
         broker_environment_denied=not readable(f"/proc/{scope['isolation']['parent']}/environ"),
         broker_direct_tcp_denied=not connectable(
-            socket.AF_INET, ("127.0.0.1", scope["approved_port"])
+            socket.AF_INET6 if ":" in scope["approved_host"] else socket.AF_INET,
+            (scope["approved_host"], scope["approved_port"])
         ),
         broker_variables_cleared=not any(name.startswith("BROKER_") for name in os.environ),
     )

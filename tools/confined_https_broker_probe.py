@@ -74,7 +74,8 @@ def valid_report(value):
     return True
 
 
-def run():
+def _run_fixture(fixture_name, validator, *, timeout=90):
+    """Trusted fixed launchers share framing, deadline and process cleanup only."""
     report = {
         "status": "BLOCKED",
         "reason": "confined_https_probe_unavailable",
@@ -85,7 +86,7 @@ def run():
     }
     process = None
     try:
-        fixture = Path(__file__).resolve().parents[1] / "tests" / "confined_https_broker_lab.py"
+        fixture = Path(__file__).resolve().parents[1] / "tests" / fixture_name
         process = subprocess.Popen(
             [sys.executable, "-I", str(fixture)],
             stdout=subprocess.PIPE,
@@ -96,11 +97,11 @@ def run():
             cwd=fixture.parents[1],
             env={"PATH": os.defpath},
         )
-        stdout, stderr = process.communicate(timeout=90)
+        stdout, stderr = process.communicate(timeout=timeout)
         if process.returncode or stderr or len(stdout) > 65536:
             raise ValueError("invalid probe output")
         value = json.loads(stdout)
-        if not valid_report(value):
+        if not validator(value):
             raise ValueError("invalid probe report")
         report = value
     except (OSError, TypeError, ValueError, subprocess.TimeoutExpired):
@@ -111,6 +112,10 @@ def run():
             process.communicate()
     print(json.dumps(report, sort_keys=True))
     return 0 if report["status"] == "PASS" else 2
+
+
+def run():
+    return _run_fixture("confined_https_broker_lab.py", valid_report)
 
 
 if __name__ == "__main__":

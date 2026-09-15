@@ -49,6 +49,10 @@ reserved-byte accounting remains unchanged.
 
 ## Evidence limits
 
+Issue #159's [kernel destination laboratory](KERNEL_DESTINATION_HTTPS_LAB.md)
+adds the distinct-source-namespace / reachable-control / named kernel-counter
+proof intentionally absent here. This predecessor remains a loopback-only proof.
+
 This is one fixed synthetic loopback destination, not a production egress
 implementation or a general destination firewall. The owner/issuer, fixture
 composition, broker, source server, profile signer and journal key remain trusted.
