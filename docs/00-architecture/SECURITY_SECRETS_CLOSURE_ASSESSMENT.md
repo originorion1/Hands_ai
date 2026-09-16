@@ -65,3 +65,92 @@ single next prerequisite is an independent architecture/operations attestation
 against the complete SECURITY and SECRETS criteria on the exact installed
 artifact, followed by an explicit human reconciliation decision; no customer
 access is authorized by that decision.
+
+## Deployment qualification packet
+
+This packet qualifies a candidate host; it does not approve the host for
+production. The fresh installed-runtime record is retained from the approved
+WSL run (23 passed, zero skipped, wheel SHA-256
+`ac0a039f1d564c73244606973c2d436a2f495e924862254c0d8ae15c367a48fa`). It is
+evidence for the synthetic deployment boundary, not a production attestation.
+
+### Candidate-host inventory
+
+The inspected shell runs as unprivileged `orion` (uid/gid 1000). The kernel is
+WSL2 `6.6.87.2-microsoft-standard-WSL2`; the current user/net/pid/mount
+namespace identities are distinct namespace handles, not host-root authority.
+The retained build interpreter is
+`/tmp/orion-build-163-SuBhYK/bin/python3` (Python 3.12.3, pip 24.0,
+hatchling 1.27.0). The recorded tools are util-linux `unshare`/`nsenter` and
+`setpriv` 2.39.3, bubblewrap 0.9.0, and curl 8.5.0. `orion-runtime` is not a
+global host command; it exists only in the verified installed artifact
+environment. This is desirable for this candidate review, but the eventual
+operator must invoke the artifact's entry point rather than an ambient checkout.
+
+The candidate shell cannot inspect host netlink policy (`ip` and `nft` return
+`Operation not permitted`) and the repository `.git` mount is read-only. The
+approved WSL execution context used for the retained 23-case run supplied the
+required namespace/network operations. Therefore host policy is **not approved
+by this inventory alone** and remains an external deployment check. No key,
+credential, signing material or secret file contents were read or printed.
+
+### Supported launch boundary
+
+The packaged public entry point is `orion-runtime`, mapped to
+`orion.pilot.deployment:main` in `pyproject.toml`; `python -m
+orion.pilot.deployment` is the equivalent public module path. `--artifact` and
+`--health` are inspection-only. `--serve` is the only acquisition startup
+operation. `load_manifest` and `main` require the private manifest, exact
+artifact RECORD, private custody roots, fixed synthetic destination, rootless
+namespace capability and the complete native-tool set before loading keys or
+starting roles. Any missing control returns a blocked result; no fallback launch
+path is selected.
+
+ERPNext adapters, live-session modules, broker/service modules and callable
+laboratory helpers remain importable for development tests. They are not
+console entry points and are outside the deployed application boundary. That
+distinction is enforced by packaging and by the supervisor's role commands,
+not by pretending that importability is impossible. An operator who launches
+an internal module directly from an ambient interpreter would be outside the
+supported deployment contract; preventing that misuse is an operator/host
+configuration requirement, not a new application bypass flag. The complete
+SECURITY gate therefore cannot be promoted on synthetic runtime evidence alone.
+
+### SECURITY qualification procedure
+
+| Item | Required control and existing evidence | What remains unverified | Acceptance procedure | Reviewer / authority | Classification |
+|---|---|---|---|---|---|
+| Kernel/process confinement | `deployment.py:main` creates the mapped user/net supervisor; `isolation.process_command` composes per-role user/pid/mount/net namespaces, cleared environment and dropped capabilities. The fresh 23-case artifact record reports all role namespace/capability checks and all IPv4/IPv6 destination denials. | Candidate-host policy, operator launch discipline and privileged-host behavior. | On the candidate host, verify tool versions and namespace capability; build the exact wheel; run `orion-runtime --artifact`, malformed/missing-manifest startup, and the existing full packaged-runtime suite. Capture namespace descriptors, fixed nft policy, denied alternate ports/proxies/redirect routes, and fail-closed startup. Any unavailable kernel operation is NOT PROVEN. | Independent security reviewer; release/architecture authority must approve the evidence. No named approver or approval has been supplied. | Host configuration plus independent review. |
+| Admission and source egress | `broker.py`, `broker_worker.py`, `custody.py` and `gateway.py` require exact grants/reservations before source I/O; gateway uses fixed routes and no redirect/proxy/caller URL. Fresh cases report unauthorized-before-I/O and source-unmodified checks. | Production gateway/source lifecycle and operator-controlled policy outside the synthetic fabric. | Repeat the existing artifact cases with a fresh manifest and synthetic source; verify source request counters remain unchanged for denied calls, and verify kernel counters for every unapproved destination. | Independent security reviewer; architecture authority adjudicates scope. | Existing code control; production verification remains independent review. |
+| Host launch surface | Only the packaged supervisor is supported. Internal modules are retained laboratory APIs and are denied when attempted from confined application roles. | Whether production operators can invoke ambient internal modules or mount a checkout. | Deployment runbook must permit only the immutable wheel entry point, forbid checkout/PYTHONPATH launches, and record the exact artifact hash. A launch outside that procedure rejects qualification. | Operations owner plus independent security reviewer; human release authority approves the runbook. | Operational procedure / host configuration. |
+
+### SECRETS qualification procedure
+
+| Item | Required role-specific control and existing evidence | What remains unverified | Acceptance procedure | Reviewer / authority | Classification |
+|---|---|---|---|---|---|
+| Source credential | `deployment.py:service` mounts `keys/source-credential` only in the gateway role. `gateway.py` sends it only through the fixed curl child's anonymous stdin. The 23-case record reports no keys in output and authorized ordinary bearer I/O only. | Production secret-store integration, host administrator access and credential rotation/erasure evidence. | Inspect role mount manifests and process file descriptors without reading values; verify acquisition/reasoning namespaces have no credential path; run the installed suite with a synthetic credential and assert it never appears in output, environment, argv or admitted evidence. | Independent secrets/custody reviewer; release authority must accept the custody evidence. | Custody/host configuration plus independent review. |
+| Grant issuer material | `keys/issuer` is mounted only in the authorization owner; acquisition/reasoning receive capability IPC, not issuer material. Existing security case reports issuer-read, forgery and scope-expansion denials. | Independent issuer-key ownership, rotation and backup/rollback controls in production. | Verify the authorization role's mount and owner, deny all other role path reads, perform only the existing non-destructive negative checks, and record custody service identity and key lifecycle policy without printing values. | Independent authorization/custody reviewer; architecture authority approves the control interpretation. | Operational custody evidence / independent review. |
+| Audit/evidence signing and stores | Audit and evidence roles receive their respective signing key and writable store; other roles receive neither. Existing audit/evidence cases report mutation, rollback and custody-loss denial. | Protected production storage, independent monotonic rollback witness and privileged-service compromise. | Inspect ownership/mode/mount policy, perform append/restart/custody-loss acceptance cases, verify history continuity and reject any unavailable custody service. Do not treat MAC integrity as protection from privileged rollback. | Independent audit/custody reviewer; human release authority decides whether production evidence is sufficient. | Protected storage requirement / independent review. |
+| Acquisition/reasoning secrets | Acquisition receives only auth/gateway capabilities and endpoint mounts; reasoning has no private key/store mount. Existing security case reports zero actual capabilities, cleared environments and absent control credentials. | Host-level operator compromise and any unreviewed deployment wrapper. | Start from the immutable wheel, inspect role mounts and environment, run the existing security case, and reject if any source credential, issuer key, signing key or store path is visible. | Independent security reviewer; release authority approves only exact-artifact evidence. | Existing code control; host verification remains required. |
+
+### Finite outstanding decisions
+
+1. A candidate-host administrator must provide a versioned deployment profile
+   proving rootless namespace/netlink/nft capability and exact operator launch
+   restrictions. The current shell inventory is not that approval.
+2. An independent security reviewer must inspect the complete installed launch
+   surface, including the explicit exclusion of laboratory modules and the
+   absence of ambient checkout/PYTHONPATH execution.
+3. An independent secrets/custody reviewer must inspect role-specific mounts,
+   storage ownership, issuer/signing-key lifecycle, rotation and rollback
+   controls without receiving secret values.
+4. The architecture/release authority must adjudicate those review records
+   against the unchanged complete SECURITY and SECRETS criteria. No such
+   external decision is present, so both gates remain unresolved.
+5. Only after items 1–4 are independently satisfied may a human maintainer
+   decide whether the historical FAIL reasons can be reconciled. This packet
+   itself does not promote a gate or authorize customer access.
+
+No additional technical defect was established by this qualification review.
+The remaining deficiencies are host configuration, operational custody and
+independent review requirements, not a missing ORION code change.
