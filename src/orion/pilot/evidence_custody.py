@@ -32,6 +32,7 @@ from .broker_contract import (
     digest,
     exact,
     grant_from,
+    is_record_operation,
     metadata_grant_from,
     observations_from,
     private_bytes,
@@ -76,7 +77,7 @@ class EvidenceCustody:
     acquisition even after content expires. Clock and policy are trusted inputs.
     """
 
-    def __init__(self, directory, key, configs, policy=None, *, clock=utc_now):
+    def __init__(self, directory, key, configs, policy=None, *, clock=utc_now, semantic_limit=1):
         if type(key) is not bytes or len(key) < 32 or not callable(clock):
             raise JournalDenied("protected evidence key and clock required")
         policy = (
@@ -92,12 +93,18 @@ class EvidenceCustody:
         ):
             if type(policy[name]) is not int or not 1 <= policy[name] <= maximum:
                 raise JournalDenied("bounded evidence policy required")
-        if type(configs) not in (tuple, list) or not 1 <= len(configs) <= 2:
+        if type(semantic_limit) is not int or semantic_limit not in (1, 100):
+            raise JournalDenied("fixed semantic checkpoint budget required")
+        if type(configs) not in (tuple, list) or not 1 <= len(configs) <= (2 if semantic_limit == 1 else 10):
             raise JournalDenied("explicit bounded custody scopes required")
+        if any(c.get("operation") != "metadata" and not is_record_operation(c.get("operation"))
+               for c in configs):
+            raise JournalDenied("fixed evidence operations required")
         self.configs = {digest(c): json.loads(_json(c)) for c in configs}
         if len(self.configs) != len(configs):
             raise JournalDenied("duplicate evidence scopes denied")
         self.key, self.clock, self.policy = key, clock, dict(policy)
+        self.semantic_limit = semantic_limit
         self.directory = Path(directory)
         self.path, self.anchor = (
             self.directory / "evidence.db",
@@ -132,6 +139,7 @@ class EvidenceCustody:
                         "scopes": sorted(self.configs),
                         "policy": self.policy,
                         "at": self._now().isoformat(),
+                        **({"semantic_limit": semantic_limit} if semantic_limit != 1 else {}),
                     },
                 )
             else:
@@ -199,9 +207,9 @@ class EvidenceCustody:
             raise JournalDenied("oversized evidence storage entry")
         rows = db.execute(
             "SELECT sequence,body,mac FROM events ORDER BY sequence LIMIT ?",
-            (2 * self.policy["max_entries"] + 3,),
+            (2 * self.policy["max_entries"] + self.semantic_limit + 2,),
         ).fetchall()
-        if not rows or len(rows) > 2 * self.policy["max_entries"] + 2:
+        if not rows or len(rows) > 2 * self.policy["max_entries"] + self.semantic_limit + 1:
             raise JournalDenied("evidence checkpoint bound invalid")
         events, previous, expired = [], "0" * 64, set()
         for sequence, encoded, mac in rows:
@@ -223,7 +231,7 @@ class EvidenceCustody:
                 raise JournalDenied("evidence checkpoint event denied")
             events.append(body)
             previous = mac
-        if sum(e["event"] == "semantic_checkpoint" for e in events) > 1:
+        if sum(e["event"] == "semantic_checkpoint" for e in events) > self.semantic_limit:
             raise JournalDenied("bounded semantic custody pin required")
         if previous != self.head:
             raise JournalDenied("evidence history rollback detected")
@@ -231,6 +239,7 @@ class EvidenceCustody:
             events[0]["event"] != "configure"
             or events[0]["scopes"] != sorted(self.configs)
             or events[0]["policy"] != self.policy
+            or events[0].get("semantic_limit", 1) != self.semantic_limit
         ):
             raise JournalDenied("evidence configuration changed")
         checkpoints = {e["sequence"]: e for e in events if e["event"] == "append"}
@@ -282,7 +291,7 @@ class EvidenceCustody:
         config = self.configs[binding]
         observations = observations_from(values)
         now = self._now()
-        if config["operation"] == "read":
+        if is_record_operation(config["operation"]):
             grant = grant_from(config["grant"])
             w = grant.window
             request = PilotRequest(
@@ -438,7 +447,7 @@ class EvidenceCustody:
             _reference(args["request_reference"])
             if (
                 type(args["checkpoint"]) is not int
-                or not 2 <= args["checkpoint"] <= 2 * self.policy["max_entries"] + 2
+                or not 2 <= args["checkpoint"] <= 2 * self.policy["max_entries"] + self.semantic_limit + 1
             ):
                 raise JournalDenied("bounded accepted checkpoint reference required")
         with self.lock:

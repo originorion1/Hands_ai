@@ -161,6 +161,11 @@ def test_installed_artifact_tampering_denies_identity_and_startup(clean_artifact
         "semantic_retention",
         "semantic_changed",
         "semantic_missing",
+        "independent_convergence",
+        "independent_revision",
+        "independent_unknown",
+        "independent_failure",
+        "independent_expired",
     ),
 )
 def test_installed_runtime_against_unmodified_private_https_source(clean_artifact, tmp_path, case):
@@ -208,6 +213,11 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
             total_response_bytes=524288,
         )
         configs.append(harness.config)
+    semantic = None
+    if case.startswith("independent_"):
+        from independent_evidence_support import build_independent_configs
+
+        configs, bodies, semantic = build_independent_configs(configs, bodies, case)
     host = "fd42:6f72:696f::2" if case == "ipv6" else "192.0.2.2"
     certificate, key = certificates(tmp_path, hostname=host)
     payload = {
@@ -223,6 +233,7 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
         "source_key": str(key),
         "wheel_sha256": hashlib.sha256(clean_artifact[1].read_bytes()).hexdigest(),
         "attacker_script": str(Path(__file__).with_name("installed_runtime_attacker.py")),
+        "semantic": semantic,
     }
     root, _, python = clean_artifact
     completed = subprocess.run(

@@ -19,6 +19,12 @@ from ..understanding.role_checkpoint import _json
 
 VERSION = 'local-broker-v3'
 MAX_FRAME = 65536
+INSTRUMENT_OPERATIONS = tuple('instrument_' + str(n) for n in range(8))
+
+
+def is_record_operation(operation):
+    """Fixed governed record routes; never a caller-selected transport or URL."""
+    return operation == 'read' or operation in INSTRUMENT_OPERATIONS
 
 
 def digest(value):

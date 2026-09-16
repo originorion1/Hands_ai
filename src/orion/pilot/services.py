@@ -131,7 +131,8 @@ def serve(value):
             return owners[data["binding"]].dispatch(caller, action, data)
     elif role == "evidence":
         owner = EvidenceCustody(
-            "/state", private_bytes("/private/signing-key"), configs, policy=value["policy"]
+            "/state", private_bytes("/private/signing-key"), configs, policy=value["policy"],
+            semantic_limit=100 if value.get("semantic", {}).get("version") == 2 else 1,
         )
         if "semantic" in value:
             semantic_owner = RuntimeSemanticCustody(owner, value["semantic"])

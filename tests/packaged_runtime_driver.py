@@ -38,6 +38,7 @@ def runtime_report(value, checks, identity, ready, named_denials):
             "clean_installed_artifact": True,
             "ipv6_enabled": ready["ipv6_enabled"],
             "named_kernel_rejects": named_denials,
+            "semantic_result": value.get("semantic_result"),
             "LIVE_PILOT_READY": False,
         }
     )
@@ -61,6 +62,11 @@ def source(value):
         "/metadata": value["bodies"]["metadata"].encode(),
         "/records": value["bodies"]["read"].encode(),
     }
+    for index in range(8):
+        operation = "instrument_" + str(index)
+        if operation in value["bodies"]:
+            bodies["/instrument/" + str(index)] = value["bodies"][operation].encode()
+            io[operation] = 0
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -76,7 +82,10 @@ def source(value):
                 return
             body = bodies[self.path]
             with lock:
-                io["metadata" if self.path == "/metadata" else "read"] += 1
+                operation = ("metadata" if self.path == "/metadata" else "read"
+                             if self.path == "/records" else
+                             "instrument_" + self.path.rsplit("/", 1)[1])
+                io[operation] += 1
             if self.path == "/records" and value["redirect"]:
                 self.send_response(302)
                 self.send_header("Location", "https://192.0.2.3:44443/records")
@@ -301,6 +310,11 @@ def controller(value):
         },
     }
     semantic_case = value["case"].startswith("semantic")
+    independent_case = value["case"].startswith("independent_")
+    if independent_case:
+        manifest.update(version=3, semantic=value["semantic"])
+        if value["case"] == "independent_expired":
+            manifest["policy"]["ttl_seconds"] = 45
     if semantic_case:
         from orion.pilot.semantic_runtime import semantic_policy_sha256
         from orion.understanding.semantic_study import SEMANTIC_EVALUATOR_VERSION
@@ -338,7 +352,7 @@ def controller(value):
         )
     baseline_fds = []
     runtime_command = [sys.executable, "-I", "-m", "orion.pilot.deployment", "--serve", str(manifest_path)]
-    if semantic_case:
+    if semantic_case or independent_case:
         runtime_command = [str(Path(sys.executable).with_name("orion-runtime")),
                            "--serve", str(manifest_path)]
         for field, invalid in (("evaluator_version", "unreviewed"),
@@ -594,12 +608,15 @@ def controller(value):
             except JournalDenied:
                 return {"status": "denied"}
 
+        def expected_source_io(metadata_count, record_count):
+            counts = {"metadata": metadata_count, "read": record_count}
+            if independent_case:
+                counts.update({config["operation"]: 0 for config in value["configs"][2:]})
+            return counts
+
         checks["metadata_first_denies_record_before_source_io"] = acquire(
             "read", "before-discovery"
-        )["status"] == "denied" and command(server, {"command": "stats"}) == {
-            "metadata": 0,
-            "read": 0,
-        }
+        )["status"] == "denied" and command(server, {"command": "stats"}) == expected_source_io(0, 0)
         assert control("metadata", "arm")["status"] == "arm"
         attack = message("metadata", "wrong-scope")
         attack["request"] = dict(attack["request"], tenant_id="synthetic-unapproved")
@@ -609,10 +626,7 @@ def controller(value):
         )
         metadata = acquire("metadata", "discovery-1")
         assert metadata["status"] == "admitted", metadata
-        checks["metadata_governed_separate_grant"] = command(server, {"command": "stats"}) == {
-            "metadata": 2,
-            "read": 0,
-        }
+        checks["metadata_governed_separate_grant"] = command(server, {"command": "stats"}) == expected_source_io(2, 0)
         checks["records_unarmed_after_discovery"] = (
             acquire("read", "unarmed-read")["status"] == "denied"
         )
@@ -657,14 +671,14 @@ def controller(value):
         assert admitted["status"] == "admitted", admitted
         observations = observations_from(admitted["observations"])
         checks["canonical_provenance_unknown"] = (
-            len(observations) == 1
+            len(observations) == (2 if independent_case else 1)
             and admitted["interpretation"] == "UNKNOWN"
             and observations[0].evidence.payload["provenance"]["authorization_id"]
             == value["configs"][1]["grant"]["authorization_id"]
         )
         checks["only_authorized_ordinary_bearer_source_io"] = command(
             server, {"command": "stats"}
-        ) == {"metadata": 2, "read": 1}
+        ) == expected_source_io(2, 1)
         checks["no_keys_in_admitted_output"] = all(
             content not in json.dumps(admitted) for content in private.values()
         )
@@ -686,6 +700,220 @@ def controller(value):
             and loaded["checkpoints"][0]["references"][0]["revision"] == 1
             and loaded["authority_restored"] is False
         )
+
+        if independent_case:
+            assessment = admitted["semantic_assessment"]
+
+            def budget_state(budget):
+                # Denials and process starts legitimately append authenticated
+                # audit history. They must not consume acquisition counters or
+                # change the durable stop/pending state.
+                return {key: item for key, item in budget.items() if key != "head"}
+
+            def claim_status(current, field, role):
+                return next(claim["hypothesis"]["status"] for claim in current["claims"]
+                            if claim["field"] == field and claim["rule"]["role"] == role)
+
+            checks["installed_initial_competing_unknown"] = (
+                assessment["status"] == "AVAILABLE"
+                and assessment["durable_checkpoint_sequence"] == 1
+                and claim_status(assessment, "f_d", "monetary_measure") == "unknown"
+                and claim_status(assessment, "f_e", "monetary_measure") == "unknown"
+            )
+            initial_references = set(assessment["evidence_references"])
+            if value["case"] == "independent_failure":
+                with sqlite3.connect(state / "evidence/evidence.db") as database:
+                    database.execute("""
+                        CREATE TRIGGER fail_independent AFTER INSERT ON orion_semantic_checkpoints
+                        BEGIN SELECT RAISE(ABORT, 'synthetic revision storage failure'); END
+                    """)
+            operations = [config["operation"] for config in value["configs"][2:]]
+            before_io = command(server, {"command": "stats"})
+            for operation in operations:
+                before_budget = budget_state(status(operation)["budget"])
+                denied = command(runtime, {"command": "read",
+                                           "message": message(operation, "instrument-unarmed")})
+                checks[operation + "_separate_authority_unarmed_denial"] = (
+                    denied.get("response", denied)["status"] == "denied"
+                    and budget_state(status(operation)["budget"]) == before_budget
+                    and command(server, {"command": "stats"}) == before_io
+                )
+            assessments = [assessment]
+            for index, operation in enumerate(operations):
+                armed = command(runtime, {"command": "arm", "operation": operation})
+                assert armed["status"] == "arm", armed
+                before_budget = budget_state(status(operation)["budget"])
+                for donor in ("metadata", "read"):
+                    denied_message = message(operation, "instrument-wrong-grant-" + donor)
+                    denied_message["grant_token"] = message(donor, "unused")["grant_token"]
+                    denied = command(runtime, {"command": "read", "message": denied_message})
+                    checks[operation + "_" + donor + "_grant_denied_before_io"] = (
+                        denied.get("response", denied)["status"] == "denied"
+                        and budget_state(status(operation)["budget"]) == before_budget
+                        and command(server, {"command": "stats"}) == before_io
+                    )
+                if index == 0:
+                    for field, replacement in (("tenant_id", "unapproved-synthetic"),
+                                               ("company", "unapproved-synthetic"),
+                                               ("source_id", "https://unapproved.synthetic.test"),
+                                               ("resource", "unapproved-synthetic"),
+                                               ("fields", ["id", "partition", "on"]),
+                                               ("start", "2024-05-01")):
+                        denied_message = message(operation, "instrument-wrong-" + field)
+                        denied_message["request"][field] = replacement
+                        denied = command(runtime, {"command": "read", "message": denied_message})
+                        checks["instrument_wrong_" + field + "_denied_before_io"] = (
+                            denied.get("response", denied)["status"] == "denied"
+                            and budget_state(status(operation)["budget"]) == before_budget
+                            and command(server, {"command": "stats"}) == before_io
+                        )
+                result = command(runtime, {"command": "read",
+                                           "message": message(operation, "instrument-read-" + str(index))})
+                response = result.get("response", result)
+                assert response["status"] == "admitted", response
+                assert response["interpretation"] == "UNKNOWN"
+                assessment = response["semantic_assessment"]
+                if value["case"] == "independent_failure" and index == 0:
+                    checks["failed_revision_append_never_publishes_success"] = (
+                        assessment["status"] == "UNAVAILABLE" and assessment["durable"] is False
+                        and "world_model" not in assessment
+                    )
+                    with sqlite3.connect(state / "evidence/evidence.db") as database:
+                        checks["failed_revision_no_partial_checkpoint"] = database.execute(
+                            "SELECT COUNT(*) FROM orion_semantic_checkpoints"
+                        ).fetchone()[0] == 1
+                    pending = command(runtime, {"command": "semantic", "mode": "restore"})
+                    checks["pending_revision_no_stale_restore"] = (
+                        pending["status"] == "UNAVAILABLE" and "world_model" not in pending
+                    )
+                    with sqlite3.connect(state / "evidence/evidence.db") as database:
+                        database.execute("DROP TRIGGER fail_independent")
+                    assessment = command(runtime, {"command": "semantic", "mode": "evaluate"})
+                assert assessment["status"] == "AVAILABLE", assessment
+                before_io[operation] += 1
+                checks[operation + "_separately_admitted_exact_io"] = (
+                    command(server, {"command": "stats"}) == before_io
+                    and status(operation)["budget"]["attempts"] == 1
+                    and all(obs.evidence.kind.value == "experiment"
+                            for obs in observations_from(response["observations"]))
+                )
+                checks[operation + "_accepted_successive_checkpoint"] = (
+                    assessment["durable_checkpoint_sequence"] == index + 2
+                    and len(assessment["semantic_revision_ids"]) == index + 1
+                    and initial_references <= set(assessment["evidence_references"])
+                )
+                assessments.append(assessment)
+                replay = command(runtime, {"command": "semantic", "mode": "evaluate"})
+                checks[operation + "_canonical_replay_idempotent_no_io"] = (
+                    replay == assessment and command(server, {"command": "stats"}) == before_io
+                )
+            if value["case"] == "independent_unknown":
+                checks["insufficient_independent_grounding_remains_unknown"] = (
+                    claim_status(assessment, "f_d", "monetary_measure") == "unknown"
+                    and claim_status(assessment, "f_c", "completion_date") == "unknown"
+                    and claim_status(assessment, "f_a", "recipient_reference") == "unknown"
+                )
+                checks["unknown_requires_separate_next_evidence_authorization"] = (
+                    bool(assessment["required_next_evidence"])
+                    and assessment["authorization_required"] == "separate_instrument_read_grant"
+                )
+            else:
+                convergence = assessments[2]
+                checks["distinct_synthetic_roots_canonical_convergence"] = (
+                    claim_status(convergence, "f_d", "monetary_measure") == "validated"
+                    and claim_status(convergence, "f_e", "monetary_measure") == "invalidated"
+                    and claim_status(convergence, "f_d", "physical_measure") == "unknown"
+                    and claim_status(convergence, "f_c", "completion_date") == "unknown"
+                )
+                checks["reviewed_lineage_published_without_truth_certification"] = (
+                    len(convergence["lineage"]) == 4
+                    and len({root[0] for entry in convergence["lineage"]
+                             for root in entry["origin"]["roots"]}) == 2
+                )
+                if value["case"] == "independent_revision":
+                    checks["explicit_replacement_changes_current_belief"] = (
+                        claim_status(assessment, "f_d", "monetary_measure") == "invalidated"
+                        and claim_status(assessment, "f_e", "monetary_measure") == "validated"
+                        and set(convergence["evidence_references"]) < set(assessment["evidence_references"])
+                        and assessment["semantic_revision_ids"][:2] == convergence["semantic_revision_ids"]
+                        and assessment["history"][:2] == convergence["history"]
+                    )
+            with sqlite3.connect(state / "evidence/evidence.db") as database:
+                checks["successive_checkpoints_retained"] = database.execute(
+                    "SELECT COUNT(*) FROM orion_semantic_checkpoints"
+                ).fetchone()[0] == len(operations) + 1
+            budget_before = {operation: budget_state(status(operation)["budget"])
+                             for operation in ("metadata", "read", *operations)}
+            if value["case"] == "independent_expired":
+                time.sleep(45.2)
+            os.kill(ready["control_pid"], signal.SIGKILL)
+            runtime.wait(timeout=10)
+            runtime = subprocess.Popen(
+                runtime_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, env={"PATH": os.defpath}, close_fds=True,
+            )
+            restored_start = read_frame(runtime.stdout)
+            checks["fresh_process_restore_zero_source_io"] = (
+                server.poll() is None and command(server, {"command": "stats"}) == before_io
+            )
+            checks["fresh_installed_process_identical_current_and_history"] = (
+                restored_start["status"] == "unarmed"
+                and (restored_start["semantic_assessment"] == assessment
+                     if value["case"] != "independent_expired" else
+                     restored_start["semantic_assessment"]["status"] == "UNAVAILABLE"
+                     and "world_model" not in restored_start["semantic_assessment"])
+                and restored_start["health"]["metadata_admitted_this_start"] is False
+                and restored_start["health"]["record_authority_armed"] is False
+                and all(budget_state(restored_start["health"]["budgets"][operation]) == budget
+                        for operation, budget in budget_before.items())
+                and restored_start["health"]["instrument_authority_armed"]
+                == dict.fromkeys(operations, False)
+            )
+            for operation in operations:
+                denied = command(runtime, {"command": "read",
+                                           "message": message(operation, "post-restart")})
+                checks[operation + "_restart_does_not_restore_authority"] = (
+                    denied.get("response", denied)["status"] == "denied"
+                    and budget_state(command(runtime, {"command": "health"})["budgets"][operation])
+                    == budget_before[operation]
+                    and command(server, {"command": "stats"}) == before_io
+                )
+            restored_assessment = command(runtime, {"command": "semantic", "mode": "restore"})
+            checks["explicit_semantic_restore_zero_source_io"] = (
+                restored_assessment == restored_start["semantic_assessment"]
+                and command(server, {"command": "stats"}) == before_io
+            )
+            checks["semantic_recovery_is_not_execution_authority"] = (
+                assessment["authority_restored"] is False and assessment["execution_allowed"] is False
+            )
+            checks["instrument_durable_stop"] = (
+                command(runtime, {"command": "stop"})["status"] == "stopped"
+                and command(server, {"command": "stats"}) == before_io
+            )
+            for operation in operations:
+                checks[operation + "_stop_denies_rearm"] = command(
+                    runtime, {"command": "arm", "operation": operation})["status"] == "denied"
+            stopped_assessment = command(runtime, {"command": "semantic", "mode": "restore"})
+            checks["stopped_runtime_retains_only_knowledge"] = (
+                stopped_assessment == assessment if value["case"] != "independent_expired" else
+                stopped_assessment["status"] == "UNAVAILABLE" and "world_model" not in stopped_assessment
+            )
+            checks["stop_and_recovery_zero_source_io"] = (
+                server.poll() is None and command(server, {"command": "stats"}) == before_io
+            )
+            value["semantic_result"] = {
+                "sampled_monetary_f_d": claim_status(assessment, "f_d", "monetary_measure"),
+                "sampled_monetary_f_e": claim_status(assessment, "f_e", "monetary_measure"),
+                "completion_date": claim_status(assessment, "f_c", "completion_date"),
+                "checkpoint_sequence": assessment["durable_checkpoint_sequence"],
+                "revision_count": len(assessment["semantic_revision_ids"]),
+                "historical_claim_batches": len(assessment["history"]),
+                "lineage_observations": len(assessment["lineage"]),
+                "fresh_process_recovery": checks["fresh_installed_process_identical_current_and_history"],
+                "registry_trust": "separately reviewed synthetic registry; not collector truth certification",
+                "next_authorization": assessment["authorization_required"],
+            }
+            return runtime_report(value, checks, identity, ready, named_denials)
 
         if semantic_case:
             assessment = admitted["semantic_assessment"]
