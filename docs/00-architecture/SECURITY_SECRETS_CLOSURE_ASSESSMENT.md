@@ -1,156 +1,139 @@
 # SECURITY and SECRETS closure assessment (#172)
 
-This review is scoped to the supported installed pilot artifact at PR #173
-(`9778ed322151d6033518190c355e3e3ce6e2cf21`).
-It does not change release statuses, activate access, or certify production.
+## Reassessment target and verdict
 
-## Supported boundary
+This reassessment is for draft PR #175 at commit
+`b3a90e8bdcd363443371668ce0c59f0a62dd9297`, tree
+`dcd8882aa03f5b0481b11f9ace00a62139349b22`. The head was checked before this
+review. The corrected code closes the previously identified restart-revalidation
+and installed credential-rotation defects. No remaining implementation defect is
+established for the supported installed synthetic deployment boundary.
 
-The only installed console entry point is `orion-runtime`, declared in
-`pyproject.toml` as `orion.pilot.deployment:main`.  The public module entry
-point is equivalent (`python -m orion.pilot.deployment`).  `--artifact` and
-`--health` are inspection-only; `--serve` is the only deployment path and
-requires a private manifest.  The supervisor validates the artifact RECORD,
-private state/key directories, pinned synthetic certificate, fixed synthetic
-host, and the required rootless WSL tools in
-`src/orion/pilot/deployment.py:load_manifest`.  It then enters a fresh mapped
-user/network namespace before loading deployment keys or starting services
-(`deployment.py:main` and `isolation.py`). Missing capability denies startup;
-there is no unconfined fallback.
+The complete release requirements remain unchanged in
+`src/orion/pilot/readiness.py:GATES`:
 
-The supervisor creates distinct audit, evidence, authorization, gateway and
-acquisition services.  `deployment.py:service` mounts only the role's
-capability file and required private material.  The source credential is
-mounted only in the gateway role; the issuer and custody signing material are
-mounted only in their respective owners.  Acquisition receives a bounded RPC
-receipt, not the credential or issuer key.  The reasoner receives no private
-state/key mount.  The gateway uses fixed HTTPS routes and disables redirects,
-proxying and caller-selected URLs (`src/orion/pilot/gateway.py`).  Source I/O
-is performed only after the existing grant, reservation and gateway redemption
-checks (`src/orion/pilot/broker.py`, `broker_worker.py`, `custody.py`).
+| Requirement | Implementation decision | Qualification decision | Reason |
+|---|---|---|---|
+| SECURITY — `same_process_injection_bypass` | **ACCEPT** for the supported installed `orion-runtime --serve` boundary. | **REJECT gate promotion.** | The corrected artifact has executable confinement, admission and egress controls, but the qualification record does not yet contain a retained corrected-wheel identity, candidate-host namespace/mount/nft observations, a wheel-only launch configuration, or independent security approval. |
+| SECRETS — `legacy_same_process_credential_surface` | **ACCEPT** for role-specific custody in the supported installed boundary, including restart revalidation and cutoff-first source-credential rotation. | **REJECT gate promotion.** | The qualification record does not yet contain candidate-host process/mount/file-descriptor evidence, deployed custody/storage lifecycle controls, or independent custody approval. Pending acquisitions also have no recovery contract; that limitation must be accepted as a constrained-pilot operating invariant or resolved by a separate architecture decision. |
 
-The ERPNext adapters, live-session modules and callable laboratory APIs remain
-importable for development compatibility.  They are not packaged console
-entry points.  Their default opener is explicitly disabled
-(`src/orion/discovery/erpnext_adapter.py:_default_opener`), and direct adapter
-tests verify that no built-in network read occurs.  Importability is therefore
-not treated as containment; the release criterion below intentionally covers
-the broader legacy surface.
+These decisions do not alter the fixed gate values. `LIVE_PILOT_READY=false` and
+`execution_allowed=false` remain mandatory.
 
-## Requirement-to-evidence matrix
+## Evidence provenance
 
-| Requirement | Actual implementation and location | Existing executable evidence | Supported path | Remaining gap and classification | Closure criterion |
+No successful test was repeated for this reassessment.
+
+### Fresh checks for this reassessment
+
+- Read-only head verification established commit
+  `b3a90e8bdcd363443371668ce0c59f0a62dd9297` and tree
+  `dcd8882aa03f5b0481b11f9ace00a62139349b22`.
+- Exact-head source inspection covered `pyproject.toml`,
+  `deployment.py:validate_deployment_inputs`, `deployment.py:_restart`,
+  `deployment_profile.py`, `isolation.py:process_command`, `gateway.py`, and the
+  corrected lifecycle tests.
+- GitHub Actions metadata was refreshed without rerunning work: run `35107111054`
+  is successful at the exact corrected head; its workflow installed the project
+  and ran the full pytest suite.
+
+### Retained corrected-head execution evidence (not rerun)
+
+- Retained focused installed execution `job-mu430z3r-700ac074` ran only the
+  `restart_revalidation` and `rotation` cases through a built and installed wheel:
+  **2 passed** in 54.69 seconds.
+- Retained corrected-tree verification `job-mu43a7m2-b280432f` recorded
+  **1866 passed**; Ruff, `py_compile`, demo, diff check and source/capability scan
+  passed. The demo retained `execution_allowed=false`.
+- The focused profile/restart regression retained from the correction run recorded
+  **13 passed**, including profile mutation, stored-profile-digest mismatch and
+  secret-metadata drift before reconstruction.
+
+The installed test internally verifies the built wheel `RECORD` before startup,
+but its quiet result did not retain the corrected wheel SHA-256, runtime
+`record_sha256`, or exercised profile SHA-256 as qualification artifacts. The PR
+description still identifies the superseded initial head and must not be used as
+identity evidence for this corrected commit.
+
+### Inherited unchanged-boundary evidence
+
+The PR #173 WSL packet at `9778ed322151d6033518190c355e3e3ce6e2cf21`
+recorded 23 installed-runtime cases with zero skips and wheel SHA-256
+`ac0a039f1d564c73244606973c2d436a2f495e924862254c0d8ae15c367a48fa`.
+It remains relevant only to unchanged isolation, gateway, authorization, audit,
+evidence and legacy-adapter behavior. It is not artifact identity evidence for
+PR #175. PR #174 at `e405a614658e41c2ac4c314d9de48f0926510281`
+changed the assessment only, so its review adds no new runtime evidence.
+
+## Supported artifact and trust boundary
+
+`pyproject.toml` exposes one installed console entry point, `orion-runtime`, at
+`orion.pilot.deployment:main`. `python -I -m orion.pilot.deployment` is the
+equivalent module entry point. `--artifact` and `--health` inspect; `--serve` is
+the only supported acquisition deployment path. `load_manifest` requires the
+closed deployment profile, exact installed `RECORD`, private state/key roots,
+protected custody placement, pinned certificate, fixed synthetic destination and
+the required namespace/network tools before services start. Unavailable controls
+deny startup; there is no laboratory fallback.
+
+`deployment_profile.py:ROLE_POLICY` fixes audit, evidence, authorization, gateway,
+acquisition and reasoning identities, mounts, state and network access.
+`isolation.py:process_command` accepts only `orion.pilot.services`, selects the
+installed isolated interpreter, clears the environment, drops all capabilities
+and creates private user/pid/mount/network boundaries. `deployment.py:service`
+maps each secret and writable store only to its owning role. Only the gateway has
+the approved-destination network namespace.
+
+The host/kernel, operator, supervisor, custody services, source truth, certificate
+and clock are trusted. A privileged host/operator or compromised custody owner is
+outside the untrusted application claim. Importable laboratory modules remain a
+development compatibility surface; supported-deployment safety depends on the
+wheel-only launch boundary described below, not on claiming those modules cannot
+be imported.
+
+## SECURITY requirement decisions
+
+| Obligation | Exact implementation and verification evidence | Proposed decision | Exact remaining gap and type | Evidence required to close it | Responsible reviewer |
 |---|---|---|---|---|---|
-| SECURITY: no same-process injection can bypass confinement, authorization, admission or egress | `orion-runtime --serve` enters mapped user/network namespaces; `process_command` uses private role mounts and cleared environment; supervisor rejects missing kernel tools and unverified manifests. Admission binds the accepted request and canonical custody state before publication (`deployment.py`, `isolation.py`, `broker.py`, `evidence_custody.py`). | PR #173 exact-tree WSL evidence: packaged runtime cases, isolation probes and full suite completed; CI run `35038397627` succeeded on the exact head. Existing `tests/test_packaged_primitives.py`, `tests/test_packaged_runtime.py`, and `tests/test_pilot_transport.py` cover startup denial, role mounts, authenticated IPC, admission binding and disabled legacy opener. | Supported installed `orion-runtime --serve` only. | **Missing independent release evidence**, not a reproduced supported-path defect: the complete gate is explicitly about legacy same-process callable injection outside the confined pilot and requires independent deployment/host attestation. Restricted kernel verification on an unavailable host remains NOT PROVEN; synthetic WSL evidence is not production proof. | Independent architecture/operations review must attest the complete deployment boundary (including the host policy and all supported launch paths) and reconcile the historical gate reason without narrowing it. Evidence must be fresh on the exact artifact and fail closed when controls are absent. |
-| SECRETS: no legacy same-process credential surface is reachable by supported application processes | Credential gateway owns source credential; authorization owns issuer material; evidence/audit own their signing material; acquisition/reasoner mounts contain only capability files and IPC endpoints (`deployment.py:service`). `gateway.py` passes the credential only on an anonymous stdin pipe to fixed curl; exception paths redact private values. `erpnext_adapter.py` has no implicit opener. | PR #173 exact-tree installed tests show no credential/key values in runtime output, missing manifests deny startup, and ordinary synthetic HTTPS succeeds only through the gateway. `tests/test_pilot_transport.py` verifies disabled legacy reads; packaged runtime tests verify source I/O, revocation, stop and restart behavior. | Supported installed `orion-runtime --serve`; not arbitrary imports in a development interpreter. | **Missing independent release evidence**, not a reproduced installed-path defect: the gate names the broader legacy same-process surface and production credential custody. Host/operator/custody compromise, inherited credentials outside the reviewed manifest, and privileged rollback are trusted or unproven assumptions. | Independent custody and host review must verify role-specific access against the exact artifact and mount/namespace evidence: source credentials are available only to the gateway and its fixed credential-consuming child; issuer material only to its authorization owner; audit/evidence signing material and stores only to their respective custody owners. Acquisition and reasoning may hold only their designated bounded IPC capabilities, not source credentials, issuer keys or custody signing keys/storage. The trusted host/operator/supervisor remains outside the untrusted application boundary; its compromise is not covered by this claim. Any legacy API retained for laboratory use must remain outside the supported deployment contract; status changes require explicit architecture approval. |
+| S1. Bind execution to one installed artifact, entry point and closed runtime profile. | `pyproject.toml:[project.scripts]`; `deployment.py:artifact_identity`, `load_manifest`, `validate_deployment_inputs`; `deployment_profile.py:profile_for_manifest` and `validate_profile`. Profile tests reject entry-point, role, secret-owner, network and filesystem mutations. The corrected full suite and exact-head CI passed. | **ACCEPT implementation; REJECT qualification.** | **Verification artifact:** no retained corrected-wheel SHA-256, installed `RECORD` digest and exercised profile digest tied together in one candidate-host record. | On the candidate host, build once from the exact commit/tree; retain the wheel SHA-256; run its installed `orion-runtime --artifact`; retain the reported `record_sha256`; generate the canonical profile and retain its SHA-256; demonstrate startup denial after independently changing each binding. | Operations owner produces the record; independent security reviewer verifies the binding; architecture/release authority approves it. |
+| S2. Confine every role with the declared process identity, mounts, environment and capabilities; deny when kernel controls are unavailable. | `isolation.py:Fabric`, `prerequisites`, `validate_protected_paths` and `process_command`; `deployment.py:service`. Existing primitive tests verify the installed interpreter, isolated mode, cleared environment, dropped capabilities and fixed service module. Inherited WSL cases exercised distinct role namespaces; corrected tests passed without changing these owners. | **ACCEPT implementation; REJECT qualification.** | **Host configuration and verification:** the target host's user/net/pid/mount namespace capability, bubblewrap policy, role mount tables and effective capabilities have not been captured for the corrected artifact. | From the installed corrected wheel, capture tool/kernel versions; role `/proc/<pid>/ns/*` identifiers; `CapEff`/`CapBnd`; sanitized environment; and mount tables showing only declared read-only/writable targets. Remove or deny each required tool/control in turn and retain startup-denied output. Any unavailable observation is NOT PROVEN. | Independent security reviewer, with the candidate-host operations owner supplying access and immutable logs. |
+| S3. Permit source I/O only after scoped authorization/admission and only to the fixed HTTPS destination; denials must cause zero source I/O. | `broker.py`, `broker_worker.py`, `custody.py` and `gateway.py` require a durable reservation and one-use redemption. `gateway.py` fixes routes, HTTPS, port, certificate, response bounds and disables redirects/proxies. `isolation.py:firewall` has one approved tuple and default-drop counters. Corrected/inherited installed cases cover unauthorized-before-I/O, alternate destinations, redirects, revocation, stop and budget exhaustion. | **ACCEPT implementation; REJECT qualification.** | **Host verification and approval:** no corrected-artifact candidate-host record correlates synthetic source counters with the active nft rules/counters for all allowed and denied requests. | Run the existing installed suite on the candidate host with a fresh synthetic source. Retain source request counts before/after each denied case and nft rules/counter deltas for approved host/port, alternate host/port, proxy, redirect and IPv4/IPv6 paths. Demonstrate missing nft/netlink capability denies startup. | Independent security reviewer; architecture authority adjudicates whether the observed boundary satisfies the complete SECURITY criterion. |
+| S4. Exclude legacy same-process callable paths from the supported deployment launch surface. | The only console script is `orion-runtime`; `process_command` accepts only `orion.pilot.services`; application roles receive no checkout or caller-selected module mount. `erpnext_adapter.py:_default_opener` denies implicit network reads, with inherited direct-adapter negative tests. Laboratory modules intentionally remain importable outside the supported boundary. | **ACCEPT code boundary; REJECT qualification.** | **Host configuration and approval:** there is no approved service definition/runbook proving operators cannot launch an ambient checkout, add `PYTHONPATH`, substitute an interpreter/module, or mount repository code into an application role. | Provide the exact service/unit/container command and filesystem policy: immutable corrected wheel only, isolated interpreter, no checkout mount, no `PYTHONPATH`, no general shell/module selector, manifest/profile path fixed. Rehearse rejection of a checkout/PYTHONPATH launch and retain the configuration plus denial. | Operations owner authors the launch control; independent security reviewer tests it; human release authority approves it. |
 
-The fixed readiness values in `src/orion/pilot/readiness.py:GATES` are release
-declarations, not fresh detectors.  This document records the bounded installed
-evidence and the unresolved complete criteria; it does not promote either gate.
+## SECRETS requirement decisions
 
-## Trust boundary and limitations
-
-Trusted components are the WSL kernel/host and operator, the installed artifact
-and native namespace tools, authorization/custody/gateway services, certificate
-and source truth, and the clock.  The application cannot issue grants, read
-issuer/custody keys, select arbitrary destinations, bypass admission, or restore
-authority after stop/restart within the reviewed installed path.  This review
-does not establish protection against a privileged host/operator, compromised
-custody service, whole-store rollback, or production credential handling.  It
-also does not convert synthetic-source or CI results into customer deployment
-attestation.
-
-`LIVE_PILOT_READY=false` and `execution_allowed=false` remain mandatory.  The
-single next prerequisite is an independent architecture/operations attestation
-against the complete SECURITY and SECRETS criteria on the exact installed
-artifact, followed by an explicit human reconciliation decision; no customer
-access is authorized by that decision.
-
-## Deployment qualification packet
-
-This packet qualifies a candidate host; it does not approve the host for
-production. The fresh installed-runtime record is retained from the approved
-WSL run (23 passed, zero skipped, wheel SHA-256
-`ac0a039f1d564c73244606973c2d436a2f495e924862254c0d8ae15c367a48fa`). It is
-evidence for the synthetic deployment boundary, not a production attestation.
-
-### Candidate-host inventory
-
-The inspected shell runs as unprivileged `orion` (uid/gid 1000). The kernel is
-WSL2 `6.6.87.2-microsoft-standard-WSL2`; the current user/net/pid/mount
-namespace identities are distinct namespace handles, not host-root authority.
-The retained build interpreter is
-`/tmp/orion-build-163-SuBhYK/bin/python3` (Python 3.12.3, pip 24.0,
-hatchling 1.27.0). The recorded tools are util-linux `unshare`/`nsenter` and
-`setpriv` 2.39.3, bubblewrap 0.9.0, and curl 8.5.0. `orion-runtime` is not a
-global host command; it exists only in the verified installed artifact
-environment. This is desirable for this candidate review, but the eventual
-operator must invoke the artifact's entry point rather than an ambient checkout.
-
-The candidate shell cannot inspect host netlink policy (`ip` and `nft` return
-`Operation not permitted`) and the repository `.git` mount is read-only. The
-approved WSL execution context used for the retained 23-case run supplied the
-required namespace/network operations. Therefore host policy is **not approved
-by this inventory alone** and remains an external deployment check. No key,
-credential, signing material or secret file contents were read or printed.
-
-### Supported launch boundary
-
-The packaged public entry point is `orion-runtime`, mapped to
-`orion.pilot.deployment:main` in `pyproject.toml`; `python -m
-orion.pilot.deployment` is the equivalent public module path. `--artifact` and
-`--health` are inspection-only. `--serve` is the only acquisition startup
-operation. `load_manifest` and `main` require the private manifest, exact
-artifact RECORD, private custody roots, fixed synthetic destination, rootless
-namespace capability and the complete native-tool set before loading keys or
-starting roles. Any missing control returns a blocked result; no fallback launch
-path is selected.
-
-ERPNext adapters, live-session modules, broker/service modules and callable
-laboratory helpers remain importable for development tests. They are not
-console entry points and are outside the deployed application boundary. That
-distinction is enforced by packaging and by the supervisor's role commands,
-not by pretending that importability is impossible. An operator who launches
-an internal module directly from an ambient interpreter would be outside the
-supported deployment contract; preventing that misuse is an operator/host
-configuration requirement, not a new application bypass flag. The complete
-SECURITY gate therefore cannot be promoted on synthetic runtime evidence alone.
-
-### SECURITY qualification procedure
-
-| Item | Required control and existing evidence | What remains unverified | Acceptance procedure | Reviewer / authority | Classification |
+| Obligation | Exact implementation and verification evidence | Proposed decision | Exact remaining gap and type | Evidence required to close it | Responsible reviewer |
 |---|---|---|---|---|---|
-| Kernel/process confinement | `deployment.py:main` creates the mapped user/net supervisor; `isolation.process_command` composes per-role user/pid/mount/net namespaces, cleared environment and dropped capabilities. The fresh 23-case artifact record reports all role namespace/capability checks and all IPv4/IPv6 destination denials. | Candidate-host policy, operator launch discipline and privileged-host behavior. | On the candidate host, verify tool versions and namespace capability; build the exact wheel; run `orion-runtime --artifact`, malformed/missing-manifest startup, and the existing full packaged-runtime suite. Capture namespace descriptors, fixed nft policy, denied alternate ports/proxies/redirect routes, and fail-closed startup. Any unavailable kernel operation is NOT PROVEN. | Independent security reviewer; release/architecture authority must approve the evidence. No named approver or approval has been supplied. | Host configuration plus independent review. |
-| Admission and source egress | `broker.py`, `broker_worker.py`, `custody.py` and `gateway.py` require exact grants/reservations before source I/O; gateway uses fixed routes and no redirect/proxy/caller URL. Fresh cases report unauthorized-before-I/O and source-unmodified checks. | Production gateway/source lifecycle and operator-controlled policy outside the synthetic fabric. | Repeat the existing artifact cases with a fresh manifest and synthetic source; verify source request counters remain unchanged for denied calls, and verify kernel counters for every unapproved destination. | Independent security reviewer; architecture authority adjudicates scope. | Existing code control; production verification remains independent review. |
-| Host launch surface | Only the packaged supervisor is supported. Internal modules are retained laboratory APIs and are denied when attempted from confined application roles. | Whether production operators can invoke ambient internal modules or mount a checkout. | Deployment runbook must permit only the immutable wheel entry point, forbid checkout/PYTHONPATH launches, and record the exact artifact hash. A launch outside that procedure rejects qualification. | Operations owner plus independent security reviewer; human release authority approves the runbook. | Operational procedure / host configuration. |
+| Q1. Keep the source credential out of acquisition/reasoning and use it only in the fixed gateway child. | `deployment_profile.py:SECRET_OWNERS` assigns `source-credential` to gateway. `deployment.py:service` mounts it at `/private/credential` only for gateway. `gateway.py:read` passes the bearer header through anonymous curl-config stdin, never argv, and uses a cleared fixed environment. Corrected installed rotation assertions ensure neither generation enters profile or audit output. | **ACCEPT implementation; REJECT qualification.** | **Host/custody configuration, verification and approval:** the candidate secret provider, file ownership/replacement policy, post-replacement erasure behavior and actual per-role descriptor/mount exposure are not recorded. | With synthetic values only, inspect `/proc/<pid>/mountinfo`, `fd`, `cmdline` and `environ` for all roles; show only gateway can resolve the credential path and no value appears in those surfaces or logs. Exercise the candidate secret provider's `0600`, single-link, regular-file atomic replacement and removal of staged/obsolete material. | Independent secrets/custody reviewer; independent security reviewer confirms process exposure; release authority accepts the record. |
+| Q2. Restrict issuer and worker material to authorization custody. | `deployment_profile.py` assigns `issuer` and `worker-secret` only to authorization; `deployment.py:service` mounts them only there. Acquisition receives bounded authorization/gateway capabilities, not keys. Inherited authorization cases cover issuer-read, forgery and scope-expansion denial; corrected full regression passed. | **ACCEPT implementation; REJECT qualification.** | **Custody configuration and verification:** candidate ownership, backup, rotation and rollback controls for issuer/worker material are unspecified and no actual role mount/descriptor record exists. | Record the authorization service identity, `0600` owner, mount table and descriptors without values; prove all other roles cannot resolve/open either path; document and rehearse synthetic key replacement plus backup/rollback rejection while prior grants remain governed by existing expiry/revocation rules. | Independent authorization/custody reviewer; architecture authority approves lifecycle semantics. |
+| Q3. Restrict audit/evidence signing keys and writable stores to their custody owners and detect unavailable/tampered custody. | `deployment.py:service` gives audit/evidence their respective signing key and store only. `journal.py` and `evidence_custody.py` deny mutation, rollback and custody loss. Inherited installed cases exercise append, restart, mutation and custody-loss denial; corrected full regression passed. | **ACCEPT implementation; REJECT qualification.** | **Host storage configuration, verification and approval:** no candidate protected-store ownership/mount record or independent monotonic rollback witness is supplied. MAC integrity alone does not detect a privileged rollback of both store and accepted tip. | On candidate protected storage, retain owner/mode/mount evidence; run append/restart/mutation/custody-loss cases; show history continuity; then restore an older store and accepted tip and demonstrate rejection using an independently retained monotonic witness. If no such witness exists, this row remains rejected. | Independent audit/custody reviewer; human release authority evaluates rollback evidence. |
+| Q4. Give acquisition/reasoning no secret key or custody-store surface. | `deployment_profile.py:ROLE_POLICY` assigns both roles no secret references or state; `deployment.py:service` gives acquisition only scoped capabilities/endpoints and creates no reasoning service with private mounts. Corrected and inherited security cases verify cleared environments, zero effective capabilities and denial before source I/O. | **ACCEPT implementation; REJECT qualification.** | **Host verification:** no corrected-artifact candidate record shows their actual namespace mounts, descriptors, environment and denial of credential/issuer/signing/store paths. | Inspect those process surfaces on the candidate host and attempt non-destructive opens of every declared secret/store target from each role. Retain denials and verify source counters remain unchanged. | Independent security reviewer, with secrets/custody reviewer confirming the target list is complete. |
+| Q5. Revalidate artifact, profile and custody metadata before restart reconstructs services; mismatch must cut off without restoring authority. | `deployment.py:_restart` calls `validate_deployment_inputs` before terminating/reconstructing services. That rechecks installed `RECORD`, canonical profile and stored digest, private/protected roots, each secret's regular-file/uid/`0600`/single-link/non-symlink metadata, and certificate pin. Unit regression covers profile, digest and mode drift. The corrected installed case changes credential mode after acquisition and observes cutoff, terminated gateway/acquisition, zero new source I/O and no custody-service reconstruction. | **ACCEPT.** | No missing code is established. This result still needs inclusion in the retained corrected-artifact/candidate-host packet under S1/S2; that is a **verification-record gap**, not another implementation requirement. | Retain the existing installed case output with the corrected wheel/`RECORD`/profile identities and process IDs on the candidate host. Do not rerun it separately from the single qualification execution. | Independent security and custody reviewers jointly verify the record. |
+| Q6. Rotate an installed source credential through controlled replacement without restoring authority, changing scope or losing audit/budget/stop state; reject the obsolete generation. | The corrected installed `rotation` case performs initial authorized acquisition, ignored interrupted staging, cutoff, atomic `0600` replacement, required service restart, unarmed denial, fresh metadata/read authorization, replacement-backed acquisition, ordinary HTTPS rejection of the obsolete credential, audit/scope/budget assertions, durable stop and another restart. The profile digest remains unchanged because the profile contains references and policy, not secret values or generations. | **ACCEPT cutoff-first implementation; REJECT deployed-custody qualification.** | **Host/custody configuration and approval:** no candidate operator procedure proves coordinated cutoff, source-side switch, file replacement, erasure and restart using the chosen secret provider. | In the one candidate qualification execution, follow the exact cutoff-first sequence with two synthetic generations. Retain cutoff/process/nft state, atomic file metadata, unarmed restart, fresh authorization, source 401 for the old generation, absence of both values from outputs, unchanged scope/audit/budget state, and durable stop after rotation. | Operations/custody owner performs the procedure; independent secrets reviewer observes; independent security reviewer verifies cutoff/egress; architecture authority accepts the ordering. |
+| Q7. Handle a source rejection after a durable acquisition attempt has been reserved. | `custody.AuthorizationCustody` deliberately leaves the attempt pending if no completion arrives; `broker.Broker` and restart reject that pending state. There is no cancellation, rollback or repair contract. This is fail-closed and was not misrepresented as successful in-flight rotation. | **REJECT recovery capability; ACCEPT fail-closed containment.** | **Missing architectural/operating contract and approval:** a credential invalidated before cutoff can make the pilot unavailable with a durable pending attempt. Existing code provides no safe recovery. | For the proposed constrained pilot, architecture must explicitly require operator-controlled cutoff before source invalidation, prohibit automatic retry/reset, and require stop/escalation if an unexpected 401 or pending state occurs. Operations/custody must rehearse the pre-cutoff coordination and the stop/escalation path with synthetic credentials. If independent source rotation cannot satisfy that invariant, a separate architecture issue must define pending-attempt reconciliation before qualification. | Architecture authority owns the contract; operations/custody owner owns the runbook; independent security and custody reviewers verify the rehearsal; human release authority accepts or rejects the residual availability risk. |
 
-### SECRETS qualification procedure
+## Impact of the pending-acquisition limitation
 
-| Item | Required role-specific control and existing evidence | What remains unverified | Acceptance procedure | Reviewer / authority | Classification |
-|---|---|---|---|---|---|
-| Source credential | `deployment.py:service` mounts `keys/source-credential` only in the gateway role. `gateway.py` sends it only through the fixed curl child's anonymous stdin. The 23-case record reports no keys in output and authorized ordinary bearer I/O only. | Production secret-store integration, host administrator access and credential rotation/erasure evidence. | Inspect role mount manifests and process file descriptors without reading values; verify acquisition/reasoning namespaces have no credential path; run the installed suite with a synthetic credential and assert it never appears in output, environment, argv or admitted evidence. | Independent secrets/custody reviewer; release authority must accept the custody evidence. | Custody/host configuration plus independent review. |
-| Grant issuer material | `keys/issuer` is mounted only in the authorization owner; acquisition/reasoning receive capability IPC, not issuer material. Existing security case reports issuer-read, forgery and scope-expansion denials. | Independent issuer-key ownership, rotation and backup/rollback controls in production. | Verify the authorization role's mount and owner, deny all other role path reads, perform only the existing non-destructive negative checks, and record custody service identity and key lifecycle policy without printing values. | Independent authorization/custody reviewer; architecture authority approves the control interpretation. | Operational custody evidence / independent review. |
-| Audit/evidence signing and stores | Audit and evidence roles receive their respective signing key and writable store; other roles receive neither. Existing audit/evidence cases report mutation, rollback and custody-loss denial. | Protected production storage, independent monotonic rollback witness and privileged-service compromise. | Inspect ownership/mode/mount policy, perform append/restart/custody-loss acceptance cases, verify history continuity and reject any unavailable custody service. Do not treat MAC integrity as protection from privileged rollback. | Independent audit/custody reviewer; human release authority decides whether production evidence is sufficient. | Protected storage requirement / independent review. |
-| Acquisition/reasoning secrets | Acquisition receives only auth/gateway capabilities and endpoint mounts; reasoning has no private key/store mount. Existing security case reports zero actual capabilities, cleared environments and absent control credentials. | Host-level operator compromise and any unreviewed deployment wrapper. | Start from the immutable wheel, inspect role mounts and environment, run the existing security case, and reject if any source credential, issuer key, signing key or store path is visible. | Independent security reviewer; release authority approves only exact-artifact evidence. | Existing code control; host verification remains required. |
+The limitation is not a confidentiality or authorization bypass: source authority
+is not restored, and restart fails closed. It is an availability and recovery
+constraint. The proposed pilot can be considered only when its credential issuer
+and operator can guarantee cutoff before invalidating the installed generation.
+An unexpected source-side invalidation, ambiguous timeout after redemption, or
+operator violation must terminate the pilot attempt and escalate; operators may
+not delete or rewrite the durable journal to recover. A pilot whose source rotates
+credentials independently cannot be qualified under the current architecture.
 
-### Finite outstanding decisions
+Production privileged rollback, customer-source lifecycle and every other
+critical release gate remain outside this assessment. No customer access,
+production credential, merge, activation or gate promotion is authorized.
 
-1. A candidate-host administrator must provide a versioned deployment profile
-   proving rootless namespace/netlink/nft capability and exact operator launch
-   restrictions. The current shell inventory is not that approval.
-2. An independent security reviewer must inspect the complete installed launch
-   surface, including the explicit exclusion of laboratory modules and the
-   absence of ambient checkout/PYTHONPATH execution.
-3. An independent secrets/custody reviewer must inspect role-specific mounts,
-   storage ownership, issuer/signing-key lifecycle, rotation and rollback
-   controls without receiving secret values.
-4. The architecture/release authority must adjudicate those review records
-   against the unchanged complete SECURITY and SECRETS criteria. No such
-   external decision is present, so both gates remain unresolved.
-5. Only after items 1–4 are independently satisfied may a human maintainer
-   decide whether the historical FAIL reasons can be reconciled. This packet
-   itself does not promote a gate or authorize customer access.
+## Single next step
 
-No additional technical defect was established by this qualification review.
-The remaining deficiencies are host configuration, operational custody and
-independent review requirements, not a missing ORION code change.
+The operations owner must provision one disposable capable candidate host and
+commission one joint independent security/custody qualification execution at
+commit `b3a90e8bdcd363443371668ce0c59f0a62dd9297`: retain the corrected wheel,
+`RECORD` and profile hashes; execute the existing installed suite once with two
+synthetic credential generations; capture the namespace, capability, mount,
+descriptor, nft/source-counter, restart and cutoff-first rotation evidence listed
+above; and return a signed accept/reject matrix to the architecture/release
+authority.
