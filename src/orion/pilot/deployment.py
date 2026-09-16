@@ -35,6 +35,7 @@ from .broker_contract import (
     metadata_grant_from,
     private_bytes,
 )
+from .deployment_profile import profile_sha256, validate_profile, validate_secret_layout
 from .ipc import rpc
 from .isolation import (
     LAB_PATH,
@@ -116,12 +117,18 @@ def load_manifest(path):
             "artifact_record_sha256",
             "host",
             "policy",
+            "deployment_profile",
+            "deployment_profile_sha256",
         ) + (("semantic",) if type(raw) is dict and raw.get("version") in (2, 3) else ()),
     )
     if type(value["version"]) is not int or value["version"] not in (1, 2, 3) or value["mode"] != "synthetic_read_only":
         raise ValueError("explicit synthetic deployment only")
     if value["host"] not in (V4_APPROVED, V6_APPROVED):
         raise ValueError("fixed approved synthetic destination required")
+    artifact = artifact_identity()
+    validate_profile(value["deployment_profile"], value, artifact)
+    if value["deployment_profile_sha256"] != profile_sha256(value["deployment_profile"]):
+        raise ValueError("deployment profile digest required")
     if type(value["configs"]) is not list or any(type(c) is not dict for c in value["configs"]):
         raise ValueError("separate canonical authorizations required")
     count = len(value["configs"])
@@ -142,12 +149,13 @@ def load_manifest(path):
     private_directory(value["state_directory"])
     private_directory(value["keys_directory"])
     validate_protected_paths(value["state_directory"], value["keys_directory"])
+    validate_secret_layout(value["deployment_profile"])
     if (
         hashlib.sha256(private_bytes(value["certificate"])).hexdigest()
         != value["certificate_sha256"]
     ):
         raise ValueError("pinned source trust required")
-    if artifact_identity()["record_sha256"] != value["artifact_record_sha256"]:
+    if artifact["record_sha256"] != value["artifact_record_sha256"]:
         raise ValueError("exact installed artifact required")
     # Policy validation occurs independently in the protected evidence owner.
     return value
@@ -369,6 +377,8 @@ class Deployment:
                 "reasoning_capability_file": str(self.reasoning_file),
                 "checks": self.checks,
                 "artifact": artifact_identity(),
+                "deployment_profile_version": self.manifest["deployment_profile"]["version"],
+                "deployment_profile_sha256": self.manifest["deployment_profile_sha256"],
                 "health": health,
                 "LIVE_PILOT_READY": False,
                 "execution_allowed": False,
@@ -554,7 +564,13 @@ class Deployment:
             health = self.health()
             if health["status"] == "blocked":
                 return self._cutoff()
-            result = {"status": "unarmed", "health": health, "LIVE_PILOT_READY": False}
+            result = {
+                "status": "unarmed",
+                "health": health,
+                "deployment_profile_version": self.manifest["deployment_profile"]["version"],
+                "deployment_profile_sha256": self.manifest["deployment_profile_sha256"],
+                "LIVE_PILOT_READY": False,
+            }
             if self.manifest.get("version") in (2, 3):
                 result["semantic_assessment"] = self.semantic("restore")
             return result

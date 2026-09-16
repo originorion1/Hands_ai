@@ -34,6 +34,7 @@ def runtime_report(value, checks, identity, ready, named_denials):
             "checks": checks,
             "artifact": identity,
             "wheel_sha256": value["wheel_sha256"],
+            "deployment_profile_sha256": ready.get("deployment_profile_sha256"),
             "source_unmodified": True,
             "clean_installed_artifact": True,
             "ipv6_enabled": ready["ipv6_enabled"],
@@ -309,6 +310,10 @@ def controller(value):
             "ttl_seconds": 1 if value["case"] == "retention" else 3600,
         },
     }
+    from orion.pilot.deployment_profile import profile_for_manifest, profile_sha256
+
+    manifest["deployment_profile"] = profile_for_manifest(manifest, identity)
+    manifest["deployment_profile_sha256"] = profile_sha256(manifest["deployment_profile"])
     semantic_case = value["case"].startswith("semantic")
     independent_case = value["case"].startswith("independent_")
     if independent_case:
@@ -336,6 +341,10 @@ def controller(value):
             (misplaced / name).mkdir(mode=0o700)
         invalid_manifest = dict(manifest, keys_directory=str(misplaced / "keys"),
                                 state_directory=str(misplaced / "state"))
+        invalid_manifest["deployment_profile"] = profile_for_manifest(invalid_manifest, identity)
+        invalid_manifest["deployment_profile_sha256"] = profile_sha256(
+            invalid_manifest["deployment_profile"]
+        )
         invalid_path = root / "invalid-placement.json"
         invalid_path.write_text(json.dumps(invalid_manifest))
         invalid_path.chmod(0o600)

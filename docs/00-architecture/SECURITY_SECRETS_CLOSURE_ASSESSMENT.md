@@ -154,3 +154,51 @@ SECURITY gate therefore cannot be promoted on synthetic runtime evidence alone.
 No additional technical defect was established by this qualification review.
 The remaining deficiencies are host configuration, operational custody and
 independent review requirements, not a missing ORION code change.
+
+## Versioned deployment profile (issue #172 follow-up)
+
+The installed manifest now carries a closed `deployment_profile` object
+(profile version `1`) and its canonical `deployment_profile_sha256`. Startup
+derives the expected profile from the verified wheel identity and manifest,
+then rejects any mismatch before private custody paths are opened or services
+are spawned. The profile binds the `orion-runtime` console script and
+`orion.pilot.deployment` isolated interpreter, fixed role identities, exact
+role mount classes, `0700`/`0600` filesystem requirements, persistent audit and
+evidence locations, the approved kernel destination/port, and explicit denial
+of redirects, proxies, and alternate ports. Secret references contain paths
+and owning roles only; values are never serialized in the profile.
+
+The supervisor reports the profile version and hash on initial start and
+restart. Restart revalidates the same artifact/profile and reconstructs
+processes without restoring authority; shutdown and emergency stop retain the
+existing cutoff and durable-control behavior. Unsupported profile versions,
+entrypoints, role/network changes, secret-owner changes, path changes, or
+profile-hash changes fail closed. Laboratory modules remain importable for
+development compatibility and are not claimed to be import-excluded by this
+profile; the supported operator procedure must launch only the immutable wheel
+entrypoint.
+
+### Operator procedure exercised by the synthetic harness
+
+1. Provision disposable `0700` state/key roots and `0600` synthetic secret
+   files, construct the profile from the exact wheel `RECORD` identity, and
+   record the profile hash without recording secret values.
+2. Verify role ownership and mounts against the profile. Only the gateway
+   receives the source credential; authorization receives issuer/worker
+   material; audit and evidence receive their respective signing material;
+   acquisition/reasoning receive no secret references.
+3. For rotation, stage a replacement in the custody owner, atomically replace
+   the referenced file, update the source-side synthetic credential digest,
+   rebuild the profile hash, and restart. An incomplete staged file is not a
+   profile input and leaves the prior generation in force; an obsolete
+   generation is rejected by the source digest/grant path. Ordinary deletion
+   is not treated as forensic erasure.
+4. Exercise restart, revoked/expired grants, budget continuity, custody loss,
+   and emergency stop through the existing installed acceptance harness. Any
+   missing profile, custody root, key reference, or kernel prerequisite denies
+   startup; no fallback launcher or readiness override exists.
+
+The profile and harness prove the enforceable shape and synthetic lifecycle.
+Production secret-store rotation, privileged rollback resistance, host policy,
+and independent custody/security approval remain external requirements and do
+not change SECURITY, SECRETS, or live-readiness status.
