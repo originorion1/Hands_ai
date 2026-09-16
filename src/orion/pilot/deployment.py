@@ -25,6 +25,7 @@ from pathlib import Path
 from ..contracts import utc_now
 from ..understanding.role_checkpoint import _json
 from .broker_contract import (
+    INSTRUMENT_OPERATIONS,
     MAX_FRAME,
     authenticate,
     decode,
@@ -115,18 +116,29 @@ def load_manifest(path):
             "artifact_record_sha256",
             "host",
             "policy",
-        ) + (("semantic",) if type(raw) is dict and raw.get("version") == 2 else ()),
+        ) + (("semantic",) if type(raw) is dict and raw.get("version") in (2, 3) else ()),
     )
-    if type(value["version"]) is not int or value["version"] not in (1, 2) or value["mode"] != "synthetic_read_only":
+    if type(value["version"]) is not int or value["version"] not in (1, 2, 3) or value["mode"] != "synthetic_read_only":
         raise ValueError("explicit synthetic deployment only")
-    if value["version"] == 2:
-        validate_semantic_config(value["semantic"])
     if value["host"] not in (V4_APPROVED, V6_APPROVED):
         raise ValueError("fixed approved synthetic destination required")
-    if type(value["configs"]) is not list or len(value["configs"]) != 2:
+    if type(value["configs"]) is not list or any(type(c) is not dict for c in value["configs"]):
         raise ValueError("separate canonical authorizations required")
-    if [c.get("operation") for c in value["configs"]] != ["metadata", "read"]:
+    count = len(value["configs"])
+    if (value["version"] in (1, 2) and count != 2) or (value["version"] == 3 and not 3 <= count <= 10):
+        raise ValueError("separate canonical authorizations required")
+    operations = [c.get("operation") for c in value["configs"]]
+    if (any(type(op) is not str for op in operations)
+            or operations[:2] != ["metadata", "read"] or len(set(operations)) != count
+            or any(op not in INSTRUMENT_OPERATIONS for op in operations[2:])):
         raise ValueError("metadata-first separate record configuration required")
+    if value["version"] in (2, 3):
+        if type(value["semantic"]) is not dict or value["semantic"].get("version") != value["version"] - 1:
+            raise ValueError("explicit compatible semantic configuration version required")
+        if value["version"] == 3:
+            validate_semantic_config(value["semantic"], configs=value["configs"])
+        else:
+            validate_semantic_config(value["semantic"])
     private_directory(value["state_directory"])
     private_directory(value["keys_directory"])
     validate_protected_paths(value["state_directory"], value["keys_directory"])
@@ -257,7 +269,7 @@ class Deployment:
             role_keys = {"supervisor": self.caps["evidence"], "owner": self.caps["owner"]}
             readonly.append((self.keys / "evidence-signing", "/private/signing-key"))
             writable.append((self.root / "evidence", "/state"))
-            if self.manifest.get("version") == 2:
+            if self.manifest.get("version") in (2, 3):
                 boot["semantic"] = validate_semantic_config(self.manifest["semantic"])
         elif role == "authorization":
             role_keys = {
@@ -361,7 +373,7 @@ class Deployment:
                 "LIVE_PILOT_READY": False,
                 "execution_allowed": False,
             }
-            if self.manifest.get("version") == 2:
+            if self.manifest.get("version") in (2, 3):
                 result["semantic_assessment"] = self.semantic("restore")
             return result
         except Exception:
@@ -491,7 +503,7 @@ class Deployment:
         # Remove source I/O authority FIRST, even when durable custody is lost.
         report = self._cutoff()
         controls = {}
-        for operation in ("metadata", "read"):
+        for operation in (c["operation"] for c in self.configs):
             try:
                 controls[operation] = self.control(operation, action)["status"]
             except Exception:  # noqa: BLE001 - do not claim unavailable durability
@@ -543,7 +555,7 @@ class Deployment:
             if health["status"] == "blocked":
                 return self._cutoff()
             result = {"status": "unarmed", "health": health, "LIVE_PILOT_READY": False}
-            if self.manifest.get("version") == 2:
+            if self.manifest.get("version") in (2, 3):
                 result["semantic_assessment"] = self.semantic("restore")
             return result
         except Exception:  # noqa: BLE001 - pending/tampered recovery has no reset path
@@ -638,7 +650,7 @@ class Deployment:
             "interpretation_reason": "business_semantics_not_validated",
             "execution_allowed": False, "allow_live_customer_access": False,
         }}
-        if getattr(self, "manifest", {}).get("version") == 2:
+        if getattr(self, "manifest", {}).get("version") in (2, 3):
             # A distinct, protected assessment; admitted transport remains admitted
             # even if semantic evaluation/storage is unavailable. No reasoner claims
             # or user-supplied archive/policy are forwarded to the evidence owner.
@@ -646,7 +658,7 @@ class Deployment:
         return result
 
     def semantic(self, mode):
-        if self.manifest.get("version") != 2 or mode not in ("evaluate", "restore"):
+        if self.manifest.get("version") not in (2, 3) or mode not in ("evaluate", "restore"):
             raise JournalDenied("fixed semantic deployment required")
         try:
             return rpc(self.endpoints["evidence"], "owner", self.caps["owner"],

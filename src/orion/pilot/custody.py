@@ -305,7 +305,9 @@ class RuntimeCustody:
             if role == "owner" and action == "health":
                 return dict(self.runtime.health(), acquisition_in_flight=self.active is not None)
             if role == "owner" and action == "status":
-                owner = {"metadata": self.runtime.metadata, "read": self.runtime.records}[value]
+                if type(value) is not str or value not in self.runtime.owners:
+                    raise JournalDenied("runtime status scope denied")
+                owner = self.runtime.owners[value]
                 return owner.status("unarmed")
             if role == "owner" and action == "control":
                 exact(value, ("operation", "message"))

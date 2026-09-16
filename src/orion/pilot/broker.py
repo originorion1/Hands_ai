@@ -16,7 +16,7 @@ from dataclasses import asdict, replace
 from datetime import datetime
 from pathlib import Path
 
-from ..contracts import utc_now
+from ..contracts import EvidenceKind, utc_now
 from ..discovery.erpnext_adapter import _normalize_base_url
 from ..discovery.erpnext_live_session import CredentialEnvironmentReferences
 from ..discovery.pilot_metadata import launch_pilot_metadata
@@ -31,6 +31,7 @@ from .broker_contract import (
     digest,
     exact,
     grant_from,
+    is_record_operation,
     metadata_grant_from,
     metadata_request_from,
     observations_from,
@@ -53,8 +54,10 @@ class Broker:
             raise ValueError('offline broker configuration required')
         _text(config['caller'])
         self.operation = config['operation']
-        if self.operation == 'read':
+        if is_record_operation(self.operation):
             self.grant = grant_from(config['grant'])
+            if self.operation != 'read' and self.grant.evidence_kind is not EvidenceKind.EXPERIMENT:
+                raise ValueError('instrument experiment authorization required')
             self.source_id = self.grant.source_id
             self.expires_at = self.grant.window.expires_at
             if (self.grant.max_records > 25 or len(self.grant.window.fields) > 64

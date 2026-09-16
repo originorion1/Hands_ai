@@ -8,9 +8,13 @@ GET and source credential, never ORION receipts, grant tokens or control IPC.
 import hashlib
 import subprocess
 
-from .broker_contract import MAX_FRAME, exact, private_bytes
+from .broker_contract import INSTRUMENT_OPERATIONS, MAX_FRAME, exact, private_bytes
 from .isolation import LAB_PATH, PORT, V4_APPROVED, V6_APPROVED
 from .journal import JournalDenied
+
+GATEWAY_PATHS = {"metadata": "/metadata", "read": "/records"} | {
+    operation: "/instrument/" + str(n) for n, operation in enumerate(INSTRUMENT_OPERATIONS)
+}
 
 
 def response_length(status, headers, limit):
@@ -47,13 +51,19 @@ class CredentialGateway:
             raise ValueError("bounded credential required")
         from .broker_contract import digest
 
-        self.routes = {
-            digest(c): "/metadata" if c["operation"] == "metadata" else "/records" for c in configs
-        }
+        operations = [c["operation"] for c in configs]
+        if (
+            not 2 <= len(configs) <= len(GATEWAY_PATHS)
+            or operations[:2] != ["metadata", "read"]
+            or len(set(operations)) != len(operations)
+            or any(operation not in GATEWAY_PATHS for operation in operations)
+        ):
+            raise ValueError("separate exact scopes required")
+        self.routes = {digest(c): GATEWAY_PATHS[c["operation"]] for c in configs}
         self.response_limits = {
             digest(c): min(MAX_FRAME // 2, c["limits"]["response_bytes"] // 2) for c in configs
         }
-        if len(self.routes) != 2 or {c["operation"] for c in configs} != {"metadata", "read"}:
+        if len(self.routes) != len(configs):
             raise ValueError("separate exact scopes required")
         self.client, self.credential = client, credential
         self.certificate, self.certificate_sha256, self.host = certificate, certificate_sha256, host
@@ -77,7 +87,7 @@ class CredentialGateway:
         return {"body": raw.hex()}
 
     def read(self, path, *, limit=MAX_FRAME // 2):
-        if path not in ("/metadata", "/records"):
+        if path not in self.routes.values():
             raise JournalDenied("fixed gateway path required")
         if type(limit) is not int or not 1 <= limit <= MAX_FRAME // 2:
             raise JournalDenied("fixed gateway response budget required")

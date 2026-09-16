@@ -123,7 +123,8 @@ def test_checked_resolves_and_supplies_lab_path_without_inheriting_caller_path(m
     assert os.environ["PATH"] == "/usr/bin"
 
 
-def test_emergency_stop_keeps_durable_controls_when_kernel_cutoff_command_fails():
+@pytest.mark.parametrize("operations", [("metadata", "read"), ("metadata", "read", "instrument_0")])
+def test_emergency_stop_keeps_durable_controls_when_kernel_cutoff_command_fails(operations):
     from orion.pilot.deployment import Deployment
     from orion.pilot.isolation import KernelUnavailable
 
@@ -147,6 +148,7 @@ def test_emergency_stop_keeps_durable_controls_when_kernel_cutoff_command_fails(
             raise KernelUnavailable("synthetic kernel command unavailable")
 
     deployment = Deployment.__new__(Deployment)
+    deployment.configs = [{"operation": operation} for operation in operations]
     deployment.transition = threading.RLock()
     deployment.egress_removed = False
     deployment.blocked = False
@@ -168,9 +170,9 @@ def test_emergency_stop_keeps_durable_controls_when_kernel_cutoff_command_fails(
         "termination_failed": False,
         "LIVE_PILOT_READY": False,
         "execution_allowed": False,
-        "durable_controls": {"metadata": "stop", "read": "stop"},
+        "durable_controls": {operation: "stop" for operation in operations},
     }
-    assert controls == [("metadata", "stop"), ("read", "stop")]
+    assert controls == [(operation, "stop") for operation in operations]
     assert deployment.blocked is True
 
 
