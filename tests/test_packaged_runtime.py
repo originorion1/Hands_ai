@@ -151,6 +151,8 @@ def test_installed_artifact_tampering_denies_identity_and_startup(clean_artifact
         "revision",
         "retention",
         "redirect",
+        "restart_revalidation",
+        "rotation",
         "revoke",
         "audit",
         "authorization",
@@ -209,7 +211,7 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
             failures=5,
             max_requests=8
             if harness.config["operation"] == "metadata"
-            else (2 if case == "revision" else 1),
+            else (2 if case in ("revision", "rotation") else 1),
             total_response_bytes=524288,
         )
         configs.append(harness.config)
@@ -229,6 +231,7 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
         "issuer": metadata.key.decode(),
         "worker_secret": metadata.secret,
         "source_credential": "SyntheticCredentialNoCustomer0123456789",
+        "replacement_source_credential": "SyntheticCredentialReplacement9876543210",
         "certificate": str(certificate),
         "source_key": str(key),
         "wheel_sha256": hashlib.sha256(clean_artifact[1].read_bytes()).hexdigest(),

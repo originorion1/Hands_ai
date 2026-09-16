@@ -59,6 +59,7 @@ def source(value):
     connections = {"canary": 0, "approved": 0}
     lock = threading.Lock()
     credential = value["source_credential"]
+    authentication = {"obsolete_credential_rejections": 0}
     bodies = {
         "/metadata": value["bodies"]["metadata"].encode(),
         "/records": value["bodies"]["read"].encode(),
@@ -72,6 +73,8 @@ def source(value):
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             if self.headers.get("Authorization") != "Bearer " + credential:
+                with lock:
+                    authentication["obsolete_credential_rejections"] += 1
                 self.send_response(401)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
@@ -163,6 +166,18 @@ def source(value):
             elif command == {"command": "connections"}:
                 with lock:
                     emit(dict(connections))
+            elif command == {"command": "credential-rejections"}:
+                with lock:
+                    emit(dict(authentication))
+            elif (
+                type(command) is dict
+                and set(command) == {"command", "credential"}
+                and command["command"] == "rotate-credential"
+                and type(command["credential"]) is str
+            ):
+                with lock:
+                    credential = command["credential"]
+                emit({"status": "rotated"})
             elif command == {"command": "shutdown"}:
                 return
             else:
@@ -201,6 +216,45 @@ def connect(pid, host, port):
         capture_output=True,
         text=True,
         timeout=5,
+    )
+
+
+def probe_source_credential(pid, control_pid, host, certificate, credential):
+    """Issue one ordinary synthetic HTTPS request without exposing the credential in argv."""
+    destination = "[" + host + "]" if ":" in host else host
+    return subprocess.run(
+        [
+            "nsenter",
+            "--preserve-credentials",
+            "--user=/proc/" + str(control_pid) + "/ns/user",
+            "--net=/proc/" + str(pid) + "/ns/net",
+            "/usr/bin/curl",
+            "--disable",
+            "--config",
+            "-",
+            "--silent",
+            "--output",
+            "/dev/null",
+            "--write-out",
+            "%{http_code}",
+            "--proto",
+            "=https",
+            "--max-redirs",
+            "0",
+            "--noproxy",
+            "*",
+            "--proxy",
+            "",
+            "--cacert",
+            certificate,
+            "https://" + destination + ":44443/records",
+        ],
+        input='header = "Authorization: Bearer ' + credential + '"\n',
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+        env={"PATH": os.defpath},
     )
 
 
@@ -562,6 +616,13 @@ def controller(value):
         def status(operation):
             return rpc(endpoints["authorization"], "owner", owner_key, "status", operation)
 
+        def audit_records(operation):
+            with sqlite3.connect(state / "audit" / operation / "broker.db") as database:
+                return [
+                    json.loads(row[0])
+                    for row in database.execute("SELECT body FROM events ORDER BY sequence")
+                ]
+
         def control(operation, action):
             current = status(operation)
             payload = {"control": action, "nonce": current["nonce"], "head": current["head"]}
@@ -636,6 +697,135 @@ def controller(value):
         metadata = acquire("metadata", "discovery-1")
         assert metadata["status"] == "admitted", metadata
         checks["metadata_governed_separate_grant"] = command(server, {"command": "stats"}) == expected_source_io(2, 0)
+        if value["case"] == "rotation":
+            source_credential = keys / "source-credential"
+            staged = keys / "source-credential.next"
+            staged.write_text(value["replacement_source_credential"])
+            staged.chmod(0o640)
+            profile_before = manifest["deployment_profile_sha256"]
+            read_binding = digest(value["configs"][1])
+            checks["initial_authorized_acquisition_uses_installed_runtime"] = (
+                status("metadata")["budget"]["attempts"] == 2
+                and command(server, {"command": "stats"}) == expected_source_io(2, 0)
+            )
+            checks["interrupted_stage_is_not_installed_or_consumed"] = (
+                staged.exists()
+                and source_credential.read_text() == value["source_credential"]
+                and manifest["deployment_profile_sha256"] == profile_before
+                and command(server, {"command": "stats"}) == expected_source_io(2, 0)
+            )
+            audit_before_restart = audit_records("read")
+            budget_before_restart = status("read")["budget"]
+            cutoff = command(runtime, {"command": "cutoff"})
+            staged.chmod(0o600)
+            staged.replace(source_credential)
+            assert command(
+                server,
+                {
+                    "command": "rotate-credential",
+                    "credential": value["replacement_source_credential"],
+                },
+            ) == {"status": "rotated"}
+            checks["controlled_atomic_replacement_preserves_reference_profile"] = (
+                cutoff["status"] == "blocked"
+                and cutoff["kernel_egress_removed"] is True
+                and cutoff["gateway_terminated"] is True
+                and cutoff["acquisition_terminated"] is True
+                and source_credential.lstat().st_mode & 0o777 == 0o600
+                and not staged.exists()
+                and manifest["deployment_profile_sha256"] == profile_before
+                and profile_before == ready["deployment_profile_sha256"]
+                and all(
+                    secret not in json.dumps(manifest["deployment_profile"])
+                    for secret in (
+                        value["source_credential"],
+                        value["replacement_source_credential"],
+                    )
+                )
+            )
+            restarted = command(runtime, {"command": "restart"})
+            budget_after_restart = status("read")["budget"]
+            source_io_after_restart = command(server, {"command": "stats"})
+            unarmed = acquire("read", "replacement-unarmed")
+            checks["replacement_requires_restart_and_fresh_authorization"] = (
+                restarted["status"] == "unarmed"
+                and restarted["execution_allowed"] is False
+                and restarted["deployment_profile_sha256"] == profile_before
+                and unarmed["status"] == "denied"
+                and budget_before_restart["attempts"] == 0
+                and status("read")["budget"]["attempts"] == 0
+                and source_io_after_restart == expected_source_io(2, 0)
+                and command(server, {"command": "stats"}) == source_io_after_restart
+            )
+            assert control("metadata", "arm")["status"] == "arm"
+            replacement_metadata = acquire("metadata", "rotation-discovery-2")
+            checks["replacement_requires_fresh_scoped_metadata_discovery"] = (
+                replacement_metadata["status"] == "admitted"
+                and status("metadata")["budget"]["attempts"] == 4
+                and command(server, {"command": "stats"}) == expected_source_io(4, 0)
+            )
+            assert control("read", "arm")["status"] == "arm"
+            replacement = acquire("read", "replacement-authorized")
+            replacement_budget = status("read")["budget"]
+            audit_after_replacement = audit_records("read")
+            checks["replacement_credential_authorized_after_service_restart"] = (
+                replacement["status"] == "admitted"
+                and command(server, {"command": "stats"}) == expected_source_io(4, 1)
+                and command(server, {"command": "credential-rejections"})
+                == {"obsolete_credential_rejections": 0}
+            )
+            checks["rotation_preserves_scope_audit_and_consumed_budget"] = (
+                budget_after_restart["attempts"] == 0
+                and budget_after_restart["failures"] == 0
+                and replacement_budget["attempts"] == 1
+                and replacement_budget["failures"] == 0
+                and replacement_budget["stopped"] is False
+                and audit_after_replacement[: len(audit_before_restart)] == audit_before_restart
+                and [record["sequence"] for record in audit_after_replacement]
+                == list(range(1, len(audit_after_replacement) + 1))
+                and all(record["binding"] == read_binding for record in audit_after_replacement)
+                and all(
+                    secret not in json.dumps(audit_after_replacement)
+                    for secret in (
+                        value["source_credential"],
+                        value["replacement_source_credential"],
+                    )
+                )
+            )
+            obsolete = probe_source_credential(
+                ready["source_pid"],
+                ready["control_pid"],
+                value["host"],
+                value["certificate"],
+                value["source_credential"],
+            )
+            checks["source_rejects_obsolete_credential_without_runtime_state_change"] = (
+                obsolete.returncode == 0
+                and obsolete.stdout == "401"
+                and command(server, {"command": "credential-rejections"})
+                == {"obsolete_credential_rejections": 1}
+                and command(server, {"command": "stats"}) == expected_source_io(4, 1)
+                and status("read")["budget"] == replacement_budget
+                and audit_records("read") == audit_after_replacement
+            )
+            before_stop_io = command(server, {"command": "stats"})
+            stopped = command(runtime, {"command": "stop"})
+            stopped_restart = command(runtime, {"command": "restart"})
+            stopped_budget = status("read")["budget"]
+            checks["rotation_preserves_durable_stop_and_cutoff"] = (
+                stopped["status"] == "stopped"
+                and stopped["durable_controls"] == {"metadata": "stop", "read": "stop"}
+                and stopped["kernel_egress_removed"] is True
+                and stopped["acquisition_terminated"] is True
+                and stopped_restart["status"] in ("blocked", "unarmed")
+                and command(runtime, {"command": "arm", "operation": "read"})["status"]
+                == "denied"
+                and stopped_budget["attempts"] == 1
+                and stopped_budget["failures"] == 0
+                and stopped_budget["stopped"] is True
+                and command(server, {"command": "stats"}) == before_stop_io
+            )
+            return runtime_report(value, checks, identity, ready, named_denials)
         checks["records_unarmed_after_discovery"] = (
             acquire("read", "unarmed-read")["status"] == "denied"
         )
@@ -709,6 +899,29 @@ def controller(value):
             and loaded["checkpoints"][0]["references"][0]["revision"] == 1
             and loaded["authority_restored"] is False
         )
+
+        if value["case"] == "restart_revalidation":
+            before_io = command(server, {"command": "stats"})
+            (keys / "source-credential").chmod(0o640)
+            denied_restart = command(runtime, {"command": "restart"})
+            checks["restart_secret_metadata_mismatch_uses_existing_cutoff"] = (
+                denied_restart["status"] == "blocked"
+                and denied_restart["execution_allowed"] is False
+                and denied_restart["kernel_egress_removed"] is True
+                and denied_restart["gateway_terminated"] is True
+                and denied_restart["acquisition_terminated"] is True
+                and command(runtime, {"command": "health"})["status"] == "blocked"
+                and command(server, {"command": "stats"}) == before_io
+            )
+            checks["restart_revalidation_precedes_service_reconstruction"] = (
+                all(
+                    Path("/proc/" + str(ready["service_pids"][role])).exists()
+                    for role in ("audit", "evidence", "authorization")
+                )
+                and not Path("/proc/" + str(ready["service_pids"]["acquisition"])).exists()
+                and not Path("/proc/" + str(ready["gateway_pid"])).exists()
+            )
+            return runtime_report(value, checks, identity, ready, named_denials)
 
         if independent_case:
             assessment = admitted["semantic_assessment"]

@@ -128,7 +128,7 @@ SECURITY gate therefore cannot be promoted on synthetic runtime evidence alone.
 
 | Item | Required role-specific control and existing evidence | What remains unverified | Acceptance procedure | Reviewer / authority | Classification |
 |---|---|---|---|---|---|
-| Source credential | `deployment.py:service` mounts `keys/source-credential` only in the gateway role. `gateway.py` sends it only through the fixed curl child's anonymous stdin. The 23-case record reports no keys in output and authorized ordinary bearer I/O only. | Production secret-store integration, host administrator access and credential rotation/erasure evidence. | Inspect role mount manifests and process file descriptors without reading values; verify acquisition/reasoning namespaces have no credential path; run the installed suite with a synthetic credential and assert it never appears in output, environment, argv or admitted evidence. | Independent secrets/custody reviewer; release authority must accept the custody evidence. | Custody/host configuration plus independent review. |
+| Source credential | `deployment.py:service` mounts `keys/source-credential` only in the gateway role. `gateway.py` sends it only through the fixed curl child's anonymous stdin. The installed harness reports no keys in output, authorized ordinary bearer I/O only, and cutoff-first synthetic replacement through the actual wheel runtime. | Production secret-store integration, host administrator access and credential rotation/erasure evidence. | Inspect role mount manifests and process file descriptors without reading values; verify acquisition/reasoning namespaces have no credential path; run the installed suite with synthetic credential generations and assert neither appears in output, environment, argv, the deployment profile, audit history or admitted evidence. Require cutoff before replacement, an unarmed service restart, fresh scoped authorization, and source rejection of the obsolete generation. | Independent secrets/custody reviewer; release authority must accept the custody evidence. | Custody/host configuration plus independent review. |
 | Grant issuer material | `keys/issuer` is mounted only in the authorization owner; acquisition/reasoning receive capability IPC, not issuer material. Existing security case reports issuer-read, forgery and scope-expansion denials. | Independent issuer-key ownership, rotation and backup/rollback controls in production. | Verify the authorization role's mount and owner, deny all other role path reads, perform only the existing non-destructive negative checks, and record custody service identity and key lifecycle policy without printing values. | Independent authorization/custody reviewer; architecture authority approves the control interpretation. | Operational custody evidence / independent review. |
 | Audit/evidence signing and stores | Audit and evidence roles receive their respective signing key and writable store; other roles receive neither. Existing audit/evidence cases report mutation, rollback and custody-loss denial. | Protected production storage, independent monotonic rollback witness and privileged-service compromise. | Inspect ownership/mode/mount policy, perform append/restart/custody-loss acceptance cases, verify history continuity and reject any unavailable custody service. Do not treat MAC integrity as protection from privileged rollback. | Independent audit/custody reviewer; human release authority decides whether production evidence is sufficient. | Protected storage requirement / independent review. |
 | Acquisition/reasoning secrets | Acquisition receives only auth/gateway capabilities and endpoint mounts; reasoning has no private key/store mount. Existing security case reports zero actual capabilities, cleared environments and absent control credentials. | Host-level operator compromise and any unreviewed deployment wrapper. | Start from the immutable wheel, inspect role mounts and environment, run the existing security case, and reject if any source credential, issuer key, signing key or store path is visible. | Independent security reviewer; release authority approves only exact-artifact evidence. | Existing code control; host verification remains required. |
@@ -169,14 +169,18 @@ of redirects, proxies, and alternate ports. Secret references contain paths
 and owning roles only; values are never serialized in the profile.
 
 The supervisor reports the profile version and hash on initial start and
-restart. Restart revalidates the same artifact/profile and reconstructs
-processes without restoring authority; shutdown and emergency stop retain the
-existing cutoff and durable-control behavior. Unsupported profile versions,
-entrypoints, role/network changes, secret-owner changes, path changes, or
-profile-hash changes fail closed. Laboratory modules remain importable for
-development compatibility and are not claimed to be import-excluded by this
-profile; the supported operator procedure must launch only the immutable wheel
-entrypoint.
+restart. Before terminating or reconstructing any service, restart freshly
+revalidates the installed artifact binding, the canonical profile and stored
+profile hash, private/protected custody roots, every referenced secret's owner,
+mode, link and regular-file metadata, and the pinned certificate. Any mismatch
+or unavailable custody invokes the existing cutoff and restores no authority.
+A compliant restart reconstructs processes unarmed while preserving audit and
+evidence state, consumed budgets, and durable stop/revocation controls. The
+reported profile hash identifies references and policy only; it intentionally
+does not identify or track credential generations. Laboratory modules remain
+importable for development compatibility and are not claimed to be
+import-excluded by this profile; the supported operator procedure must launch
+only the immutable wheel entrypoint.
 
 ### Operator procedure exercised by the synthetic harness
 
@@ -187,16 +191,32 @@ entrypoint.
    receives the source credential; authorization receives issuer/worker
    material; audit and evidence receive their respective signing material;
    acquisition/reasoning receive no secret references.
-3. For rotation, stage a replacement in the custody owner, atomically replace
-   the referenced file, update the source-side synthetic credential digest,
-   rebuild the profile hash, and restart. An incomplete staged file is not a
-   profile input and leaves the prior generation in force; an obsolete
-   generation is rejected by the source digest/grant path. Ordinary deletion
-   is not treated as forensic erasure.
-4. Exercise restart, revoked/expired grants, budget continuity, custody loss,
+3. For rotation, stage the replacement outside the referenced path. An
+   interrupted or noncompliant staged file is not a profile input and leaves
+   the installed generation in force. Invoke the existing cutoff before
+   changing either side, atomically replace the referenced `0600` regular file,
+   update the synthetic source, and restart the services. The profile and its
+   hash remain unchanged because they contain the credential path and owner,
+   never the credential value or generation.
+4. After restart, verify that authority is unarmed and budgets/audit history are
+   unchanged, then separately authorize fresh metadata discovery before the
+   replacement-backed record acquisition. Probe the synthetic source directly
+   over ordinary HTTPS to confirm that it rejects the obsolete credential
+   without altering runtime scope, audit, stop or budget state. Finally exercise
+   durable stop and another restart to prove that rotation restored no authority.
+5. Exercise restart, revoked/expired grants, budget continuity, custody loss,
    and emergency stop through the existing installed acceptance harness. Any
    missing profile, custody root, key reference, or kernel prerequisite denies
    startup; no fallback launcher or readiness override exists.
+
+Cutoff-first ordering is mandatory with the current custody contract. If an
+authorized runtime request reaches the source with an obsolete credential, the
+source rejects it after the durable attempt has been reserved but before a
+completion body returns. That leaves the attempt pending, and authorization
+restart correctly fails closed. The runtime has no cancellation, rollback or
+repair contract for that state; this follow-up does not invent one or claim a
+successful in-flight rotation. A different ordering would therefore require a
+separate architectural contract and review.
 
 The profile and harness prove the enforceable shape and synthetic lifecycle.
 Production secret-store rotation, privileged rollback resistance, host policy,

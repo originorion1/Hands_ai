@@ -1,7 +1,9 @@
 """Machine-readable deployment-profile contract tests."""
 
 import copy
+import hashlib
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -97,3 +99,64 @@ def test_secret_layout_rotation_is_atomic_and_interrupted_stage_is_ignored(tmp_p
     validate_secret_layout(manifest["deployment_profile"])
     assert "synthetic-initial" not in json.dumps(manifest["deployment_profile"])
     assert "synthetic-rotated" not in json.dumps(manifest["deployment_profile"])
+
+
+@pytest.mark.parametrize("mutation", ("profile", "profile_hash", "secret_metadata"))
+def test_restart_revalidates_profile_and_secret_custody_before_reconstruction(
+    tmp_path, monkeypatch, mutation
+):
+    manifest, artifact = _inputs(tmp_path)
+    state = Path(manifest["state_directory"])
+    keys = Path(manifest["keys_directory"])
+    state.mkdir(mode=0o700)
+    keys.mkdir(mode=0o700)
+    for name in manifest["deployment_profile"]["secret_references"]:
+        path = keys / name
+        path.write_text("synthetic-private-input")
+        path.chmod(0o600)
+    certificate = Path(manifest["certificate"])
+    certificate.write_text("synthetic-certificate")
+    certificate.chmod(0o600)
+    manifest["certificate_sha256"] = hashlib.sha256(certificate.read_bytes()).hexdigest()
+
+    if mutation == "profile":
+        manifest["deployment_profile"]["network"]["redirects"] = "allow"
+        manifest["deployment_profile_sha256"] = profile_sha256(
+            manifest["deployment_profile"]
+        )
+    elif mutation == "profile_hash":
+        manifest["deployment_profile_sha256"] = "0" * 64
+    else:
+        (keys / "source-credential").chmod(0o640)
+
+    runtime = deployment.Deployment.__new__(deployment.Deployment)
+    runtime.transition = threading.RLock()
+    runtime.manifest = manifest
+    runtime.blocked = False
+    runtime.processes = {}
+    cutoffs = []
+
+    def cutoff():
+        cutoffs.append("existing-authority")
+        runtime.blocked = True
+        return {
+            "status": "blocked",
+            "LIVE_PILOT_READY": False,
+            "execution_allowed": False,
+        }
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("invalid restart inputs must not reconstruct services")
+
+    runtime._cutoff = cutoff
+    runtime.service = forbidden
+    monkeypatch.setattr(deployment, "artifact_identity", lambda: artifact)
+    monkeypatch.setattr(deployment.subprocess, "run", forbidden)
+
+    assert runtime.restart() == {
+        "status": "blocked",
+        "LIVE_PILOT_READY": False,
+        "execution_allowed": False,
+    }
+    assert cutoffs == ["existing-authority"]
+    assert runtime.blocked is True

@@ -97,6 +97,28 @@ def private_directory(path):
     return path
 
 
+def validate_deployment_inputs(value):
+    """Revalidate the installed profile and custody inputs without reading secrets."""
+    artifact = artifact_identity()
+    if artifact["record_sha256"] != value["artifact_record_sha256"]:
+        raise ValueError("exact installed artifact required")
+    validate_profile(value["deployment_profile"], value, artifact)
+    if value["deployment_profile_sha256"] != profile_sha256(
+        value["deployment_profile"]
+    ):
+        raise ValueError("deployment profile digest required")
+    private_directory(value["state_directory"])
+    private_directory(value["keys_directory"])
+    validate_protected_paths(value["state_directory"], value["keys_directory"])
+    validate_secret_layout(value["deployment_profile"])
+    if (
+        hashlib.sha256(private_bytes(value["certificate"])).hexdigest()
+        != value["certificate_sha256"]
+    ):
+        raise ValueError("pinned source trust required")
+    return artifact
+
+
 def load_manifest(path):
     if not all(
         shutil.which(tool, path=LAB_PATH)
@@ -125,10 +147,6 @@ def load_manifest(path):
         raise ValueError("explicit synthetic deployment only")
     if value["host"] not in (V4_APPROVED, V6_APPROVED):
         raise ValueError("fixed approved synthetic destination required")
-    artifact = artifact_identity()
-    validate_profile(value["deployment_profile"], value, artifact)
-    if value["deployment_profile_sha256"] != profile_sha256(value["deployment_profile"]):
-        raise ValueError("deployment profile digest required")
     if type(value["configs"]) is not list or any(type(c) is not dict for c in value["configs"]):
         raise ValueError("separate canonical authorizations required")
     count = len(value["configs"])
@@ -146,17 +164,7 @@ def load_manifest(path):
             validate_semantic_config(value["semantic"], configs=value["configs"])
         else:
             validate_semantic_config(value["semantic"])
-    private_directory(value["state_directory"])
-    private_directory(value["keys_directory"])
-    validate_protected_paths(value["state_directory"], value["keys_directory"])
-    validate_secret_layout(value["deployment_profile"])
-    if (
-        hashlib.sha256(private_bytes(value["certificate"])).hexdigest()
-        != value["certificate_sha256"]
-    ):
-        raise ValueError("pinned source trust required")
-    if artifact["record_sha256"] != value["artifact_record_sha256"]:
-        raise ValueError("exact installed artifact required")
+    validate_deployment_inputs(value)
     # Policy validation occurs independently in the protected evidence owner.
     return value
 
@@ -535,12 +543,8 @@ class Deployment:
 
     def _restart(self):
         try:
-            unchanged = (
-                artifact_identity()["record_sha256"] == self.manifest["artifact_record_sha256"]
-            )
-        except Exception:  # noqa: BLE001 - changed/missing artifacts remove existing authority
-            unchanged = False
-        if not unchanged:
+            validate_deployment_inputs(self.manifest)
+        except Exception:  # noqa: BLE001 - changed/missing custody removes existing authority
             return self._cutoff()
         # Restart processes, NOT journals/indices/budgets; no authority is reissued.
         for process in self.processes.values():
@@ -570,6 +574,7 @@ class Deployment:
                 "deployment_profile_version": self.manifest["deployment_profile"]["version"],
                 "deployment_profile_sha256": self.manifest["deployment_profile_sha256"],
                 "LIVE_PILOT_READY": False,
+                "execution_allowed": False,
             }
             if self.manifest.get("version") in (2, 3):
                 result["semantic_assessment"] = self.semantic("restore")
