@@ -10,8 +10,14 @@ import stat
 from pathlib import Path
 
 from .broker_contract import digest, exact
+from .progress_witness import (
+    WITNESS_VERSION,
+    deployment_identity_for_manifest,
+    witness_identity,
+    witness_streams,
+)
 
-PROFILE_VERSION = 1
+PROFILE_VERSION = 2
 ENTRYPOINT = {
     "console_script": "orion-runtime",
     "module": "orion.pilot.deployment",
@@ -19,6 +25,12 @@ ENTRYPOINT = {
 }
 
 ROLE_POLICY = {
+    "witness": {
+        "identity": "progress-witness",
+        "network": "none",
+        "state": "witness:rw",
+        "secret_refs": ("witness-signing",),
+    },
     "audit": {
         "identity": "audit-custody",
         "network": "none",
@@ -58,6 +70,7 @@ ROLE_POLICY = {
 }
 
 SECRET_OWNERS = {
+    "witness-signing": "witness",
     "audit-signing": "audit",
     "evidence-signing": "evidence",
     "issuer": "authorization",
@@ -70,6 +83,10 @@ def profile_for_manifest(manifest, artifact):
     """Return the canonical profile derived from already validated inputs."""
     root = str(Path(manifest["state_directory"]).absolute())
     keys = str(Path(manifest["keys_directory"]).absolute())
+    witness = str(Path(manifest["witness_directory"]).absolute())
+    expected_identity = deployment_identity_for_manifest(manifest, artifact)
+    if manifest.get("deployment_identity") != expected_identity:
+        raise ValueError("stable deployment identity required")
     roles = {
         name: {
             "identity": policy["identity"],
@@ -96,9 +113,20 @@ def profile_for_manifest(manifest, artifact):
         "filesystem": {
             "state_directory": root,
             "keys_directory": keys,
+            "witness_directory": witness,
             "directory_mode": "0700",
             "secret_file_mode": "0600",
             "persistent_state": ["audit", "evidence"],
+            "independent_witness_state": "witness",
+        },
+        "witness": {
+            "version": WITNESS_VERSION,
+            "deployment_identity": expected_identity,
+            "witness_identity": witness_identity(expected_identity),
+            "streams": witness_streams(manifest["configs"]),
+            "rollback_set": [str(Path(root) / "audit"), str(Path(root) / "evidence")],
+            "storage_outside_rollback_set": witness,
+            "whole_host_rollback_protection": False,
         },
         "network": {
             "mode": "private_kernel_egress",
@@ -118,6 +146,8 @@ def profile_for_manifest(manifest, artifact):
             "restart": "revalidate_without_authority_restore",
             "emergency_stop": "remove_egress_and_terminate",
             "authority_restore": "forbidden",
+            "witness_enrollment": "explicit_operator_bootstrap",
+            "witness_disagreement": "cutoff_and_deny",
         },
     }
 
@@ -133,6 +163,7 @@ def validate_profile(profile, manifest, artifact):
             "entrypoint",
             "roles",
             "filesystem",
+            "witness",
             "network",
             "secret_references",
             "lifecycle",

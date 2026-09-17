@@ -275,6 +275,10 @@ def attack(value):
             "/" + s + "/service", "owner", available_key, a,
             {"binding": digest(config), "arguments": {}},
         ))
+    denied("witness_state_and_advance_inaccessible", lambda: rpc(
+        "/witness/service", "audit", available_key, "advance",
+        {"expected_sequence": 1, "expected_head": "0" * 64, "state": {}},
+    ))
     config_path = Path("/tmp/forged-config.json")
     config_path.write_text(json.dumps(config))
     config_path.chmod(0o600)
@@ -360,8 +364,10 @@ def supervisor(manifest_path, descriptors):
                                   host=deployment.manifest["host"], configs=deployment.configs,
                                   certificate_pem=Path(deployment.manifest["certificate"]).read_text(),
                                   protected_paths=[str(deployment.keys / name) for name in
-                                                   ("issuer", "source-credential", "worker-secret", "audit-signing", "evidence-signing")]
+                                                   ("issuer", "source-credential", "worker-secret",
+                                                    "audit-signing", "evidence-signing", "witness-signing")]
                                   + [str(deployment.root), str(evidence), str(audit),
+                                     str(deployment.witness_root), str(deployment.endpoints["witness"]),
                                      str(deployment.cap_files["owner"]), str(deployment.cap_files["auth-source"])],
                                   protected_pids=[os.getpid(), *(p.pid for p in deployment.processes.values())])
                     inputs["storage_paths"] = [str(deployment.root / directory / filename)
@@ -371,6 +377,9 @@ def supervisor(manifest_path, descriptors):
                                                    ("evidence", "evidence.db"),
                                                    ("evidence", "accepted-evidence-head"),
                                                )]
+                    inputs["storage_paths"].append(
+                        str(deployment.witness_root / "progress-witness.db")
+                    )
                     program = replace(captured[role], Path(__file__).read_text(), "--attack", json.dumps(inputs))
                     bootstrap = {"role": role, "parent": deployment.parent,
                                  "policy": deployment.manifest["policy"]}

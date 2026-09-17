@@ -9,6 +9,7 @@ import http.server
 import json
 import os
 import secrets
+import shutil
 import signal
 import socket
 import sqlite3
@@ -40,6 +41,8 @@ def runtime_report(value, checks, identity, ready, named_denials):
             "ipv6_enabled": ready["ipv6_enabled"],
             "named_kernel_rejects": named_denials,
             "semantic_result": value.get("semantic_result"),
+            "rollback_result": value.get("rollback_result"),
+            "witness": ready.get("health", {}).get("witness"),
             "LIVE_PILOT_READY": False,
         }
     )
@@ -326,15 +329,21 @@ def controller(value):
     from orion.pilot.journal import JournalDenied
 
     root = Path(value["root"])
-    keys, state = root / "runtime-keys", root / "runtime-state"
+    keys, state, witness = (
+        root / "runtime-keys",
+        root / "runtime-state",
+        root / "runtime-witness",
+    )
     keys.mkdir(mode=0o700)
     state.mkdir(mode=0o700)
+    witness.mkdir(mode=0o700)
     private = {
         "issuer": value["issuer"],
         "worker-secret": value["worker_secret"],
         "source-credential": value["source_credential"],
         "audit-signing": secrets.token_hex(32),
         "evidence-signing": secrets.token_hex(32),
+        "witness-signing": secrets.token_hex(32),
     }
     for name, content in private.items():
         path = keys / name
@@ -354,6 +363,7 @@ def controller(value):
         "configs": value["configs"],
         "state_directory": str(state),
         "keys_directory": str(keys),
+        "witness_directory": str(witness),
         "certificate": value["certificate"],
         "certificate_sha256": hashlib.sha256(Path(value["certificate"]).read_bytes()).hexdigest(),
         "artifact_record_sha256": identity["record_sha256"],
@@ -364,11 +374,9 @@ def controller(value):
             "ttl_seconds": 1 if value["case"] == "retention" else 3600,
         },
     }
-    from orion.pilot.deployment_profile import profile_for_manifest, profile_sha256
-
-    manifest["deployment_profile"] = profile_for_manifest(manifest, identity)
-    manifest["deployment_profile_sha256"] = profile_sha256(manifest["deployment_profile"])
-    semantic_case = value["case"].startswith("semantic")
+    semantic_case = value["case"].startswith("semantic") or value[
+        "case"
+    ] == "witness_evidence_rollback"
     independent_case = value["case"].startswith("independent_")
     if independent_case:
         manifest.update(version=3, semantic=value["semantic"])
@@ -384,17 +392,42 @@ def controller(value):
             "policy_sha256": semantic_policy_sha256(),
         })
         manifest["policy"]["ttl_seconds"] = 8 if value["case"] == "semantic_retention" else 3600
+    from orion.pilot.deployment_profile import profile_for_manifest, profile_sha256
+    from orion.pilot.progress_witness import deployment_identity_for_manifest
+
+    manifest["deployment_identity"] = deployment_identity_for_manifest(manifest, identity)
+    manifest["deployment_profile"] = profile_for_manifest(manifest, identity)
+    manifest["deployment_profile_sha256"] = profile_sha256(manifest["deployment_profile"])
     manifest_path = root / "manifest.json"
     manifest_path.write_text(json.dumps(manifest))
     manifest_path.chmod(0o600)
+    enrolled = subprocess.run(
+        [
+            str(Path(sys.executable).with_name("orion-runtime")),
+            "--enroll-witness",
+            str(manifest_path),
+        ],
+        capture_output=True,
+        text=True,
+        env={"PATH": os.defpath},
+        timeout=15,
+        check=False,
+    )
+    enrollment = json.loads(enrolled.stdout)
+    assert enrolled.returncode == 0 and enrollment["status"] == "enrolled", enrollment
+    assert enrollment["whole_host_rollback_protection"] is False
     misplaced_denied = None
     if value["case"] == "security":
         misplaced = Path(sys.prefix) / ("invalid-custody-" + root.name)
         misplaced.mkdir(mode=0o700)
-        for name in ("keys", "state"):
+        for name in ("keys", "state", "witness"):
             (misplaced / name).mkdir(mode=0o700)
         invalid_manifest = dict(manifest, keys_directory=str(misplaced / "keys"),
-                                state_directory=str(misplaced / "state"))
+                                state_directory=str(misplaced / "state"),
+                                witness_directory=str(misplaced / "witness"))
+        invalid_manifest["deployment_identity"] = deployment_identity_for_manifest(
+            invalid_manifest, identity
+        )
         invalid_manifest["deployment_profile"] = profile_for_manifest(invalid_manifest, identity)
         invalid_manifest["deployment_profile_sha256"] = profile_sha256(
             invalid_manifest["deployment_profile"]
@@ -623,6 +656,13 @@ def controller(value):
                     for row in database.execute("SELECT body FROM events ORDER BY sequence")
                 ]
 
+        def witness_rows():
+            with sqlite3.connect(witness / "progress-witness.db") as database:
+                return [
+                    json.loads(row[0])
+                    for row in database.execute("SELECT body FROM streams ORDER BY identity")
+                ]
+
         def control(operation, action):
             current = status(operation)
             payload = {"control": action, "nonce": current["nonce"], "head": current["head"]}
@@ -830,6 +870,16 @@ def controller(value):
             acquire("read", "unarmed-read")["status"] == "denied"
         )
         assert control("read", "arm")["status"] == "arm"
+        evidence_snapshot = None
+        if value["case"] == "witness_evidence_rollback":
+            evidence_snapshot = (
+                root / "old-evidence.db",
+                root / "old-accepted-evidence-head",
+            )
+            shutil.copyfile(state / "evidence/evidence.db", evidence_snapshot[0])
+            shutil.copyfile(
+                state / "evidence/accepted-evidence-head", evidence_snapshot[1]
+            )
         if value["case"] == "semantic_failure":
             with sqlite3.connect(state / "evidence/evidence.db") as database:
                 database.execute("""
@@ -899,6 +949,212 @@ def controller(value):
             and loaded["checkpoints"][0]["references"][0]["revision"] == 1
             and loaded["authority_restored"] is False
         )
+        witnessed_progress = witness_rows()
+        checks["normal_audit_and_evidence_progress_witnessed"] = (
+            len(witnessed_progress) == len(value["configs"]) + 1
+            and all(row["sequence"] > 1 for row in witnessed_progress)
+            and all(
+                set(row)
+                == {
+                    "identity",
+                    "kind",
+                    "scope_binding",
+                    "sequence",
+                    "head",
+                    "predecessor_sequence",
+                    "predecessor_head",
+                }
+                for row in witnessed_progress
+            )
+        )
+
+        if value["case"] == "witness_audit_rollback":
+            audit_directory = state / "audit/read"
+            old_database, old_tip = root / "old-audit.db", root / "old-accepted-head"
+            shutil.copyfile(audit_directory / "broker.db", old_database)
+            shutil.copyfile(audit_directory / "accepted-head", old_tip)
+            before_io = command(server, {"command": "stats"})
+            stopped = command(runtime, {"command": "stop"})
+            witness_path = witness / "progress-witness.db"
+            witnessed_sha256 = hashlib.sha256(witness_path.read_bytes()).hexdigest()
+            os.kill(ready["service_pids"]["audit"], signal.SIGKILL)
+            deadline = time.monotonic() + 3
+            while (
+                time.monotonic() < deadline
+                and Path("/proc/" + str(ready["service_pids"]["audit"])).exists()
+            ):
+                time.sleep(0.05)
+            shutil.copyfile(old_database, audit_directory / "broker.db")
+            shutil.copyfile(old_tip, audit_directory / "accepted-head")
+            preserved_sha256 = hashlib.sha256(witness_path.read_bytes()).hexdigest()
+            rejected = command(runtime, {"command": "restart"})
+            checks["audit_database_plus_tip_rollback_rejected_by_preserved_witness"] = (
+                stopped["status"] == "stopped"
+                and rejected["status"] == "blocked"
+                and witnessed_sha256 == preserved_sha256
+                and command(runtime, {"command": "health"})["status"] == "blocked"
+            )
+            checks["audit_rollback_denied_before_source_io_rearm_or_budget_reset"] = (
+                command(server, {"command": "stats"}) == before_io
+                and command(runtime, {"command": "arm", "operation": "read"})[
+                    "status"
+                ]
+                == "denied"
+            )
+            checks["stopped_state_rollback_does_not_restore_authority"] = (
+                stopped["durable_controls"] == {"metadata": "stop", "read": "stop"}
+                and command(runtime, {"command": "read", "message": message("read", "rollback")})[
+                    "status"
+                ]
+                == "denied"
+                and command(server, {"command": "stats"}) == before_io
+            )
+            value["rollback_result"] = {
+                "kind": "audit",
+                "source_requests_before_restore": before_io,
+                "source_requests_after_rejection": command(server, {"command": "stats"}),
+                "restart_status": rejected["status"],
+                "witness_preserved": witnessed_sha256 == preserved_sha256,
+                "whole_host_rollback_protection": False,
+            }
+            return runtime_report(value, checks, identity, ready, named_denials)
+
+        if value["case"] == "witness_evidence_rollback":
+            with sqlite3.connect(state / "evidence/evidence.db") as database:
+                accepted_semantic_revisions = database.execute(
+                    "SELECT COUNT(*) FROM orion_semantic_checkpoints"
+                ).fetchone()[0]
+            before_io = command(server, {"command": "stats"})
+            witness_path = witness / "progress-witness.db"
+            witnessed_sha256 = hashlib.sha256(witness_path.read_bytes()).hexdigest()
+            os.kill(ready["service_pids"]["evidence"], signal.SIGKILL)
+            deadline = time.monotonic() + 3
+            while (
+                time.monotonic() < deadline
+                and Path("/proc/" + str(ready["service_pids"]["evidence"])).exists()
+            ):
+                time.sleep(0.05)
+            shutil.copyfile(evidence_snapshot[0], state / "evidence/evidence.db")
+            shutil.copyfile(
+                evidence_snapshot[1], state / "evidence/accepted-evidence-head"
+            )
+            preserved_sha256 = hashlib.sha256(witness_path.read_bytes()).hexdigest()
+            rejected = command(runtime, {"command": "restart"})
+            stale = command(runtime, {"command": "semantic", "mode": "restore"})
+            checks["evidence_database_tip_and_semantic_rollback_rejected"] = (
+                accepted_semantic_revisions == 1
+                and admitted["semantic_assessment"]["status"] == "AVAILABLE"
+                and rejected["status"] == "blocked"
+                and witnessed_sha256 == preserved_sha256
+            )
+            checks["evidence_rollback_denied_before_source_io_or_stale_graph_publication"] = (
+                command(server, {"command": "stats"}) == before_io
+                and stale["status"] == "UNAVAILABLE"
+                and "world_model" not in stale
+                and command(runtime, {"command": "arm", "operation": "read"})[
+                    "status"
+                ]
+                == "denied"
+            )
+            value["rollback_result"] = {
+                "kind": "evidence_semantic",
+                "accepted_semantic_revisions_before_restore": accepted_semantic_revisions,
+                "stale_graph_publications_after_restore": 0,
+                "source_requests_before_restore": before_io,
+                "source_requests_after_rejection": command(server, {"command": "stats"}),
+                "restart_status": rejected["status"],
+                "witness_preserved": witnessed_sha256 == preserved_sha256,
+                "whole_host_rollback_protection": False,
+            }
+            return runtime_report(value, checks, identity, ready, named_denials)
+
+        if value["case"] == "witness_unavailable":
+            before_io = command(server, {"command": "stats"})
+            budget_before = status("read")["budget"]
+
+            def acquisition_budget(budget):
+                return {
+                    name: budget[name]
+                    for name in (
+                        "attempts", "failures", "reserved_bytes", "stopped", "pending"
+                    )
+                }
+
+            witness_path = witness / "progress-witness.db"
+            backup = root / "preserved-witness.db"
+            shutil.copyfile(witness_path, backup)
+            os.kill(ready["service_pids"]["witness"], signal.SIGKILL)
+            deadline = time.monotonic() + 3
+            health = command(runtime, {"command": "health"})
+            while time.monotonic() < deadline and health["status"] != "blocked":
+                time.sleep(0.05)
+                health = command(runtime, {"command": "health"})
+            checks["witness_process_outage_uses_existing_cutoff"] = (
+                health["status"] == "blocked"
+                and command(server, {"command": "stats"}) == before_io
+            )
+            recovered = command(runtime, {"command": "restart"})
+            budget_after_restart = status("read")["budget"]
+            unarmed = acquire("read", "witness-outage-unarmed")
+            budget_after_denial = status("read")["budget"]
+            checks["intact_witness_restart_is_unarmed_and_preserves_budget"] = (
+                recovered["status"] == "unarmed"
+                and recovered["health"]["witness"]["available"] is True
+                and acquisition_budget(budget_after_restart)
+                == acquisition_budget(budget_before)
+                and unarmed["status"] == "denied"
+                and acquisition_budget(budget_after_denial)
+                == acquisition_budget(budget_before)
+                and command(server, {"command": "stats"}) == before_io
+            )
+            command(runtime, {"command": "cutoff"})
+            os.kill(runtime.pid, signal.SIGKILL)
+            runtime.wait(timeout=10)
+            witness_path.unlink()
+            runtime = subprocess.Popen(
+                runtime_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={"PATH": os.defpath},
+                close_fds=True,
+            )
+            missing = read_frame(runtime.stdout)
+            checks["missing_enrolled_witness_denies_fresh_runtime"] = (
+                runtime.wait(timeout=10) == 2
+                and missing["status"] == "BLOCKED"
+                and command(server, {"command": "stats"}) == before_io
+            )
+            shutil.copyfile(backup, witness_path)
+            witness_path.chmod(0o600)
+            with sqlite3.connect(witness_path) as database:
+                database.execute("UPDATE metadata SET body='{}'")
+            runtime = subprocess.Popen(
+                runtime_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env={"PATH": os.defpath},
+                close_fds=True,
+            )
+            corrupt = read_frame(runtime.stdout)
+            checks["corrupt_witness_denies_fresh_runtime"] = (
+                runtime.wait(timeout=10) == 2
+                and corrupt["status"] == "BLOCKED"
+                and command(server, {"command": "stats"}) == before_io
+            )
+            value["rollback_result"] = {
+                "kind": "witness_availability",
+                "source_requests_before_failure": before_io,
+                "source_requests_after_rejection": command(server, {"command": "stats"}),
+                "process_outage_cutoff": health["status"],
+                "missing_status": missing["status"],
+                "corrupt_status": corrupt["status"],
+                "whole_host_rollback_protection": False,
+            }
+            return runtime_report(value, checks, identity, ready, named_denials)
 
         if value["case"] == "restart_revalidation":
             before_io = command(server, {"command": "stats"})
@@ -1296,6 +1552,9 @@ def controller(value):
             )
             return report()
         if value["case"] == "retention":
+            before_retention = next(
+                row for row in witness_rows() if row["kind"] == "evidence"
+            )
             time.sleep(1.2)
             health = command(runtime, {"command": "health"})
             expired = archive("load")
@@ -1307,6 +1566,15 @@ def controller(value):
                 and expired["checkpoints"][0]["references"]
                 == loaded["checkpoints"][0]["references"]
                 and expired["authority_restored"] is False
+            )
+            after_retention = next(
+                row for row in witness_rows() if row["kind"] == "evidence"
+            )
+            checks["retention_advances_without_erasing_witness_high_water_mark"] = (
+                after_retention["sequence"] > before_retention["sequence"]
+                and after_retention["predecessor_sequence"]
+                == before_retention["sequence"]
+                and after_retention["predecessor_head"] == before_retention["head"]
             )
             return report()
         if value["case"] == "revoke":

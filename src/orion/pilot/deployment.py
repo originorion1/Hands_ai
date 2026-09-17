@@ -48,6 +48,12 @@ from .isolation import (
     validate_protected_paths,
 )
 from .journal import JournalDenied
+from .progress_witness import (
+    ProgressWitness,
+    progress_state,
+    stream_for,
+    witness_contract,
+)
 from .readiness import release_report
 from .semantic_runtime import validate_semantic_config
 
@@ -109,7 +115,10 @@ def validate_deployment_inputs(value):
         raise ValueError("deployment profile digest required")
     private_directory(value["state_directory"])
     private_directory(value["keys_directory"])
-    validate_protected_paths(value["state_directory"], value["keys_directory"])
+    private_directory(value["witness_directory"])
+    validate_protected_paths(
+        value["state_directory"], value["keys_directory"], value["witness_directory"]
+    )
     validate_secret_layout(value["deployment_profile"])
     if (
         hashlib.sha256(private_bytes(value["certificate"])).hexdigest()
@@ -134,6 +143,8 @@ def load_manifest(path):
             "configs",
             "state_directory",
             "keys_directory",
+            "witness_directory",
+            "deployment_identity",
             "certificate",
             "certificate_sha256",
             "artifact_record_sha256",
@@ -177,6 +188,68 @@ def write_private(path, value):
         os.fsync(stream.fileno())
 
 
+def enroll_witness(manifest):
+    """Explicitly initialize local custody and its separately retained witness."""
+    from .custody import AuditCustody
+    from .evidence_custody import EvidenceCustody
+
+    validate_deployment_inputs(manifest)
+    root, keys = Path(manifest["state_directory"]), Path(manifest["keys_directory"])
+    for directory in (root / "audit", root / "evidence"):
+        directory.mkdir(mode=0o700, exist_ok=True)
+        private_directory(directory)
+    audits = []
+    for config in manifest["configs"]:
+        directory = root / "audit" / config["operation"]
+        directory.mkdir(mode=0o700, exist_ok=True)
+        private_directory(directory)
+        audits.append(
+            (
+                config,
+                AuditCustody(directory, private_bytes(keys / "audit-signing"), config),
+            )
+        )
+    evidence = EvidenceCustody(
+        root / "evidence",
+        private_bytes(keys / "evidence-signing"),
+        manifest["configs"],
+        policy=manifest["policy"],
+        semantic_limit=100
+        if manifest.get("semantic", {}).get("version") == 2
+        else 1,
+    )
+    states = []
+    for config, owner in audits:
+        sequence, head = owner.journal.progress()
+        states.append(
+            progress_state(
+                stream_for(manifest["configs"], "audit", digest(config)), sequence, head
+            )
+        )
+    with evidence._connect() as database:
+        events, _, _, _ = evidence._check(database)
+    states.append(
+        progress_state(
+            stream_for(manifest["configs"], "evidence"), len(events), evidence.head
+        )
+    )
+    witness = ProgressWitness.enroll(
+        manifest["witness_directory"],
+        private_bytes(keys / "witness-signing"),
+        witness_contract(manifest),
+        states,
+    )
+    status = witness.dispatch("owner", "status", None)
+    return dict(
+        status,
+        status="enrolled",
+        rollback_set=[str(root / "audit"), str(root / "evidence")],
+        witness_storage=str(Path(manifest["witness_directory"])),
+        LIVE_PILOT_READY=False,
+        execution_allowed=False,
+    )
+
+
 def receive(process, *, timeout=12):
     if not select.select([process.stdout], [], [], timeout)[0]:
         raise JournalDenied("supervised process startup deadline")
@@ -198,7 +271,8 @@ class Deployment:
     def __init__(self, manifest, *, baseline_net, baseline_user):
         self.manifest = manifest
         self.root, self.keys = Path(manifest["state_directory"]), Path(manifest["keys_directory"])
-        validate_protected_paths(self.root, self.keys)
+        self.witness_root = Path(manifest["witness_directory"])
+        validate_protected_paths(self.root, self.keys, self.witness_root)
         self.processes, self.checks = {}, {}
         self.blocked = False
         self.egress_removed = False
@@ -234,6 +308,9 @@ class Deployment:
             name: secrets.token_hex(32).encode()
             for name in (
                 "owner",
+                "witness-owner",
+                "witness-audit",
+                "witness-evidence",
                 "audit",
                 "evidence",
                 "auth-broker",
@@ -255,7 +332,7 @@ class Deployment:
         )
         write_private(self.operator_file, _json({"owner": self.caps["owner"].decode()}))
         write_private(self.reasoning_file, _json({"reasoner": self.caps["reasoner"].decode()}))
-        for role in ("audit", "evidence", "authorization", "gateway", "acquisition"):
+        for role in ("witness", "audit", "evidence", "authorization", "gateway", "acquisition"):
             directory = self.session / role
             directory.mkdir(mode=0o700)
             self.endpoints[role] = directory / "service"
@@ -277,13 +354,33 @@ class Deployment:
         writable = [(endpoint.parent, "/endpoint")]
         boot = {"role": role, "parent": self.parent, "policy": self.manifest["policy"]}
         role_keys = {}
-        if role == "audit":
-            role_keys = {"supervisor": self.caps["audit"]}
+        if role == "witness":
+            role_keys = {
+                "owner": self.caps["witness-owner"],
+                "audit": self.caps["witness-audit"],
+                "evidence": self.caps["witness-evidence"],
+            }
+            readonly.append((self.keys / "witness-signing", "/private/signing-key"))
+            writable.append((self.witness_root, "/state"))
+            boot["witness_contract"] = witness_contract(self.manifest)
+        elif role == "audit":
+            role_keys = {
+                "supervisor": self.caps["audit"],
+                "witness": self.caps["witness-audit"],
+            }
             readonly.append((self.keys / "audit-signing", "/private/signing-key"))
+            readonly += [
+                (self.endpoints["witness"].parent, "/witness"),
+            ]
             writable.append((self.root / "audit", "/state"))
         elif role == "evidence":
-            role_keys = {"supervisor": self.caps["evidence"], "owner": self.caps["owner"]}
+            role_keys = {
+                "supervisor": self.caps["evidence"],
+                "owner": self.caps["owner"],
+                "witness": self.caps["witness-evidence"],
+            }
             readonly.append((self.keys / "evidence-signing", "/private/signing-key"))
+            readonly.append((self.endpoints["witness"].parent, "/witness"))
             writable.append((self.root / "evidence", "/state"))
             if self.manifest.get("version") in (2, 3):
                 boot["semantic"] = validate_semantic_config(self.manifest["semantic"])
@@ -361,7 +458,7 @@ class Deployment:
             if self.manifest["host"] == V6_APPROVED and not self.fabric.ipv6:
                 raise KernelUnavailable("required IPv6 unavailable")
             self.fabric.connect(self.source, self.gateway, self.manifest["host"])
-            for role in ("audit", "evidence", "authorization", "gateway", "acquisition"):
+            for role in ("witness", "audit", "evidence", "authorization", "gateway", "acquisition"):
                 self.service(role)
             health = self.health()
             if health["status"] == "blocked":
@@ -424,6 +521,15 @@ class Deployment:
             }
         health_boundary = "authorization_health"
         try:
+            health_boundary = "progress_witness"
+            witness = rpc(
+                self.endpoints["witness"],
+                "owner",
+                self.caps["witness-owner"],
+                "status",
+                None,
+            )
+            health_boundary = "authorization_health"
             report = self.owner("health")
             archive = {}
             for c in self.configs:
@@ -437,6 +543,7 @@ class Deployment:
                 )
             report = dict(
                 report,
+                witness=witness,
                 evidence=archive,
                 supervised_processes=len(self.processes),
                 LIVE_PILOT_READY=False,
@@ -563,7 +670,7 @@ class Deployment:
         self.blocked = False
         self.egress_removed = False
         try:
-            for role in ("audit", "evidence", "authorization", "gateway", "acquisition"):
+            for role in ("witness", "audit", "evidence", "authorization", "gateway", "acquisition"):
                 self.service(role)
             health = self.health()
             if health["status"] == "blocked":
@@ -744,6 +851,7 @@ def main(argv=None):
         description="Installed synthetic-only runtime; never activate access."
     )
     parser.add_argument("--serve", metavar="PRIVATE_MANIFEST")
+    parser.add_argument("--enroll-witness", metavar="PRIVATE_MANIFEST")
     parser.add_argument("--artifact", action="store_true")
     parser.add_argument("--health", action="store_true")
     parser.add_argument("--start", action="store_true")
@@ -751,6 +859,28 @@ def main(argv=None):
     parser.add_argument("--baseline-net-fd", type=int, help=argparse.SUPPRESS)
     parser.add_argument("--baseline-user-fd", type=int, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.enroll_witness:
+        try:
+            if args.serve or args.private_supervisor:
+                raise ValueError("exclusive witness enrollment required")
+            report = enroll_witness(load_manifest(args.enroll_witness))
+            print(_json(report), flush=True)
+            return 0
+        except Exception as error:  # noqa: BLE001 - no bootstrap input is printed
+            boundary = traceback.extract_tb(error.__traceback__)[-1]
+            print(
+                _json(
+                    {
+                        "status": "BLOCKED",
+                        "LIVE_PILOT_READY": False,
+                        "execution_allowed": False,
+                        "failure_type": type(error).__name__,
+                        "failure_boundary": boundary.name,
+                    }
+                ),
+                flush=True,
+            )
+            return 2
     if not args.serve:
         try:
             report = (

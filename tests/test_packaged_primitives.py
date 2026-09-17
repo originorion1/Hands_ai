@@ -367,6 +367,17 @@ def test_protected_roots_are_resolved_private_siblings_not_symlink_aliases(tmp_p
         validate_protected_paths(tmp_path / "absent")
 
 
+def test_protected_custody_roots_must_be_mutually_disjoint(tmp_path, monkeypatch):
+    from orion.pilot import isolation
+
+    state = tmp_path / "state"
+    witness = state / "witness"
+    witness.mkdir(parents=True)
+    monkeypatch.setattr(isolation, "ambient_mount_roots", lambda: ())
+    with pytest.raises(KernelUnavailable, match="overlapping custody roots"):
+        validate_protected_paths(state, witness)
+
+
 def test_ambient_runtime_mounts_never_include_whole_host_root(monkeypatch):
     monkeypatch.setattr(sys, "base_prefix", "/")
     with pytest.raises(KernelUnavailable):

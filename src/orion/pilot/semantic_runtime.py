@@ -4,7 +4,9 @@ Version one retains structural UNKNOWN and one accepted checkpoint. Version two
 composes separately authorized instrument originals with a reviewed collector
 registry and bounded successive canonical checkpoints. Registry correctness,
 policy, clock, custody and host remain trusted; integrity is not truth or real
-collector independence, and privileged whole-store/tip rollback is not proven.
+collector independence. The installed progress witness detects rollback of the
+evidence store and tip while its separately retained same-host state stays intact;
+it does not prove whole-host or snapshot rollback protection.
 """
 
 import json
@@ -409,18 +411,16 @@ class RuntimeSemanticCustody:
         finally:
             connection.close()
         envelope = json.loads(row[3])
-        with self.owner._connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            self.owner._check(db)
-            self.owner._append_event(db, {"event": "semantic_checkpoint", "binding": self.binding,
+        self.owner.append_semantic_event(
+            {"event": "semantic_checkpoint", "binding": self.binding,
                 "scope": self.scope, "sequence_index": sequence, "checkpoint_sha256": row[2],
                 "envelope_sha256": row[4], "predecessor_sha256": rows[-1][4] if rows else None,
                 "policy_sha256": self.config["policy_sha256"],
                 "registry_sha256": digest(self.config["collector_registry"]),
                 "evaluator_version": SEMANTIC_EVALUATOR_VERSION,
                 "dependencies_sha256": envelope["dependencies_sha256"],
-                "at": self.owner._now().isoformat()})
-        self.owner._pin()
+                "at": self.owner._now().isoformat()}
+        )
         self._accepted_rows()
         return result
 
@@ -496,14 +496,12 @@ class RuntimeSemanticCustody:
                     return result
                 self.store.append_semantic(study, study_id=self.config["study_id"], sequence=1)
                 if pin is None:
-                    with self.owner._connect() as db:
-                        db.execute("BEGIN IMMEDIATE")
-                        self.owner._check(db)
-                        self.owner._append_event(db, {"event": "semantic_checkpoint",
+                    self.owner.append_semantic_event(
+                        {"event": "semantic_checkpoint",
                             "binding": self.binding, "sequence_index": 1,
                             "checkpoint_sha256": checkpoint_sha256(payload),
-                            "at": self.owner._now().isoformat()})
-                    self.owner._pin()
+                            "at": self.owner._now().isoformat()}
+                    )
                 return result
             except (ValueError, TypeError, KeyError, AttributeError,
                     OSError, sqlite3.Error, StudyCheckpointIntegrityError):

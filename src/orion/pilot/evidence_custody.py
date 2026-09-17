@@ -3,10 +3,12 @@
 The canonical historical batch deliberately rejects admitted provenance payloads.
 This owner therefore indexes canonical admitted observations without changing that
 contract or AttemptJournal. A separate deployment protects this owner's key,
-database and accepted tip from acquisition/reasoning. Privileged rollback of BOTH
-the database and its protected tip needs an external monotonic witness; this owner
-does not claim that property. Payload expiry is logical SQLite erasure, not a claim
-about forensic recovery from storage hardware or independently retained backups.
+database and accepted tip from acquisition/reasoning. When configured by the
+installed deployment, an independently retained progress witness rejects rollback
+of this database plus its accepted tip before custody use. That same-host
+composition is not whole-host or snapshot rollback protection. Payload expiry is
+logical SQLite erasure, not a claim about forensic recovery from storage hardware
+or independently retained backups.
 """
 
 import hmac
@@ -39,6 +41,7 @@ from .broker_contract import (
 )
 from .broker_metadata import proposal_from
 from .journal import JournalDenied, grant_digest
+from .progress_witness import progress_state
 
 
 def _json(value):
@@ -77,7 +80,18 @@ class EvidenceCustody:
     acquisition even after content expires. Clock and policy are trusted inputs.
     """
 
-    def __init__(self, directory, key, configs, policy=None, *, clock=utc_now, semantic_limit=1):
+    def __init__(
+        self,
+        directory,
+        key,
+        configs,
+        policy=None,
+        *,
+        clock=utc_now,
+        semantic_limit=1,
+        witness=None,
+        witness_stream=None,
+    ):
         if type(key) is not bytes or len(key) < 32 or not callable(clock):
             raise JournalDenied("protected evidence key and clock required")
         policy = (
@@ -105,6 +119,9 @@ class EvidenceCustody:
             raise JournalDenied("duplicate evidence scopes denied")
         self.key, self.clock, self.policy = key, clock, dict(policy)
         self.semantic_limit = semantic_limit
+        if (witness is None) != (witness_stream is None):
+            raise JournalDenied("complete evidence witness required")
+        self.witness, self.witness_stream = witness, witness_stream
         self.directory = Path(directory)
         self.path, self.anchor = (
             self.directory / "evidence.db",
@@ -146,6 +163,7 @@ class EvidenceCustody:
                 self._verify(db)
         if new:
             self._pin()
+        self._verify_witness()
 
     def _now(self):
         now = self.clock()
@@ -286,6 +304,47 @@ class EvidenceCustody:
                 )
                 removed += 1
         return removed
+
+    def _progress(self, events=None):
+        if self.witness_stream is None:
+            return None
+        if events is None:
+            with self._connect() as database:
+                events, _, _, _ = self._check(database)
+        return progress_state(self.witness_stream, len(events), self.head)
+
+    def _verify_witness(self, state=None):
+        if self.witness is not None:
+            self.witness("verify", {"state": state or self._progress()})
+
+    def _advance_witness(self, previous, current=None):
+        if self.witness is None:
+            return
+        current = current or self._progress()
+        if current == previous:
+            self.witness("verify", {"state": current})
+            return
+        self.witness(
+            "advance",
+            {
+                "expected_sequence": previous["sequence"],
+                "expected_head": previous["head"],
+                "state": current,
+            },
+        )
+
+    def append_semantic_event(self, value):
+        """Commit one accepted semantic pin before witness and publication."""
+        with self.lock:
+            with self._connect() as database:
+                database.execute("BEGIN IMMEDIATE")
+                events, _, _, _ = self._check(database)
+                previous = self._progress(events)
+                self._verify_witness(previous)
+                sequence = self._append_event(database, value)
+            self._pin()
+            self._advance_witness(previous)
+            return sequence
 
     def _validate(self, binding, values):
         config = self.configs[binding]
@@ -453,13 +512,19 @@ class EvidenceCustody:
         with self.lock:
             with self._connect() as db:
                 db.execute("BEGIN IMMEDIATE")
+                events, _, _, _ = self._check(db)
+                previous = self._progress(events)
+                self._verify_witness(previous)
                 self._prune(db)
             # Retention acknowledgements are durable even if the next request is
             # rejected. Never roll back erased payloads as part of a denied read.
             self._pin()
+            self._advance_witness(previous)
             with self._connect() as db:
                 db.execute("BEGIN IMMEDIATE")
-                _, checkpoints, expired, payloads = self._check(db)
+                events, checkpoints, expired, payloads = self._check(db)
+                previous = self._progress(events)
+                self._verify_witness(previous)
                 if action == "append":
                     _reference(args["journal_head"])
                     _reference(args["request_reference"])
@@ -593,4 +658,5 @@ class EvidenceCustody:
                             for o in json.loads(payloads[e["sequence"]])
                         ]
             self._pin()
+            self._advance_witness(previous)
             return result

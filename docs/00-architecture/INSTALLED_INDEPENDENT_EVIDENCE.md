@@ -98,17 +98,20 @@ limits apply independently to every operation. Capacity exhaustion denies furthe
 publication or acquisition; it does not trigger unlimited retries or collection.
 
 An operator prepares a private, versioned synthetic manifest and reviewed registry,
-installs the verified wheel, and starts `orion-runtime --serve MANIFEST` using the
-existing private network fabric. Startup is unarmed. Explicitly arm metadata,
+installs the verified wheel, explicitly enrolls its retained witness once, and
+starts `orion-runtime --serve MANIFEST` using the existing private network fabric.
+Startup is unarmed. Explicitly arm metadata,
 admit discovery, then separately arm and read structural/instrument operations.
 The existing `semantic` evaluate/restore commands publish knowledge only. Use the
 existing stop command for durable emergency stop; restarting does not undo it.
 This procedure is synthetic verification, not permission for customer access.
 
 Trusted dependencies remain the reviewed policy/registry, host/operator, custody
-services, clock and installed artifact. This increment does not prove protection
-against privileged whole-database-and-tip rollback or compromised trusted custody.
-It does not resume restricted security experiments. SECURITY and SECRETS and all
+services, clock and installed artifact. The retained witness detects rollback of
+the evidence database and accepted tip only while its separate database, key and
+deployment binding remain intact; it does not protect against whole-host rollback
+or compromised trusted custody. It does not resume restricted security experiments.
+SECURITY and SECRETS and all
 other unresolved critical gates retain their complete existing requirements.
 Bounded synthetic semantic revision closes neither full WORLD_MODEL nor
 SEMANTIC_UNDERSTANDING, PROVENANCE or production-readiness attestation. Any eventual
