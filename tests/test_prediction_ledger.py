@@ -5,6 +5,7 @@ from uuid import UUID
 import pytest
 
 from orion.learning.prediction_ledger import (
+    BusinessCohort,
     ModelRevision,
     Outcome,
     Prediction,
@@ -179,16 +180,19 @@ def test_revision_requires_resolved_prior_outcome_evidence_and_order(tmp_path):
 def test_paired_score_requires_same_case_outcome_evidence_unit_and_horizon(tmp_path):
     path = tmp_path / 'ledger.db'
     ledger = PredictionLedger(path, clock=lambda: NOW)
+    cohort = BusinessCohort('entity-a', 'location-a', NOW, NOW + timedelta(days=1))
     for identity, model, probability in (
         ('prior', 'baseline-v1', 0.5), ('revised', 'revised-v1', 0.75),
     ):
         ledger.record(Prediction(
             'tenant-a', identity, 'target-v1', model, NOW, NOW,
-            NOW + timedelta(days=1), probability, (REF,), 'USD', 'case-1',
+            NOW + timedelta(days=1), probability, (REF,), 'USD', cohort,
         ))
     later = PredictionLedger(path, clock=lambda: NOW + timedelta(days=1))
-    later.resolve(Outcome('tenant-a', 'prior', NOW + timedelta(days=1), True, (REF,)))
-    later.resolve(Outcome('tenant-a', 'revised', NOW + timedelta(days=1), True, (REF,)))
+    later.resolve(Outcome(
+        'tenant-a', 'prior', NOW + timedelta(days=1), True, (REF,), cohort))
+    later.resolve(Outcome(
+        'tenant-a', 'revised', NOW + timedelta(days=1), True, (REF,), cohort))
     comparison = later.paired_score(
         'tenant-a', target_definition='target-v1', unit='USD',
         prior_model_version='baseline-v1', revised_model_version='revised-v1',
@@ -196,3 +200,25 @@ def test_paired_score_requires_same_case_outcome_evidence_unit_and_horizon(tmp_p
     assert comparison['prior_brier'] == pytest.approx(0.25)
     assert comparison['revised_brier'] == pytest.approx(0.0625)
     assert comparison['prediction_improved'] is True
+    assert comparison['cohorts'][0]['entity_id'] == 'entity-a'
+
+
+def test_duplicate_and_mismatched_business_cohorts_fail_closed(tmp_path):
+    path = tmp_path / 'ledger.db'
+    cohort = BusinessCohort('entity-a', 'location-a', NOW, NOW + timedelta(days=1))
+    ledger = PredictionLedger(path, clock=lambda: NOW)
+    first = Prediction(
+        'tenant-a', 'p1', 'target-v1', 'model-v1', NOW, NOW,
+        cohort.window_end, 0.5, (REF,), 'USD', cohort,
+    )
+    ledger.record(first)
+    with pytest.raises(ValueError, match='duplicate business cohort'):
+        ledger.record(replace(first, prediction_id='p2'))
+    different = BusinessCohort(
+        cohort.entity_id, 'location-b', cohort.window_start, cohort.window_end)
+    later = PredictionLedger(path, clock=lambda: cohort.window_end)
+    with pytest.raises(ValueError, match='cohort'):
+        later.resolve(Outcome(
+            'tenant-a', 'p1', cohort.window_end, True, (REF,), different))
+    assert later.score(
+        'tenant-a', target_definition='target-v1', model_version='model-v1')['pending'] == 1

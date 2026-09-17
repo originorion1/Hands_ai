@@ -32,7 +32,8 @@ from orion.understanding.semantic_study import (
 
 
 class Restaurant(Organization):
-    def __init__(self, seed=41, *, tenant='t_synthetic', reorder=False, note=''):
+    def __init__(self, seed=41, *, tenant='t_synthetic', reorder=False, note='',
+                 source='https://restaurant.test', structural_variant=False):
         rng = random.Random(seed)
         opaque = lambda prefix: prefix + format(rng.getrandbits(64), 'x')
         self.resources = tuple(opaque('r_') for _ in range(6))
@@ -43,9 +44,11 @@ class Restaurant(Organization):
             ('Float', 'Date', 'Date', 'Date', 'Link', 'Link'),
             ('Float', 'Date', 'Date', 'Date', 'Link'),
             ('Float', 'Date', 'Date', 'Date'))
+        if structural_variant:
+            self.kinds = (self.kinds[0] + ('Float',), *self.kinds[1:])
         self.columns = tuple(tuple(opaque('f_') for _ in kinds) for kinds in self.kinds)
         self.identity, self.partition = opaque('f_'), opaque('f_')
-        self.tenant, self.company, self.source = tenant, 'c_synthetic', 'https://restaurant.test'
+        self.tenant, self.company, self.source = tenant, 'c_synthetic', source
         self.archive, self.calls, self.counter = {}, [], 0
         self.now, self.journal_factory = NOW, None
         self._reorder, self._note = reorder, note
@@ -79,6 +82,8 @@ class Restaurant(Organization):
             ((7, '2024-06-01', '2024-06-04', '2024-06-05'),
              (9, '2024-06-01', '2024-06-04', '2024-06-05'),
              (4, '2024-06-01', '2024-06-04', '2024-06-05')))
+        if structural_variant:
+            self.values = (tuple((*row, 999) for row in self.values[0]), *self.values[1:])
         # Independent process witness values: no reading self.values or field lookup.
         self.process = (
             {'gross_sales': (100, 144, 121), 'served_units': (10, 12, 11),

@@ -37,6 +37,22 @@ def _references(value: tuple[UUID, ...]) -> None:
 
 
 @dataclass(frozen=True, slots=True)
+class BusinessCohort:
+    """Exact entity/location/time population represented by one prediction."""
+
+    entity_id: str
+    location_id: str
+    window_start: datetime
+    window_end: datetime
+
+    def __post_init__(self) -> None:
+        _identity(self.entity_id)
+        _identity(self.location_id)
+        if _time(self.window_start) >= _time(self.window_end):
+            raise ValueError('cohort window must be non-empty')
+
+
+@dataclass(frozen=True, slots=True)
 class Prediction:
     tenant_id: str
     prediction_id: str
@@ -48,14 +64,17 @@ class Prediction:
     probability: float
     evidence_ids: tuple[UUID, ...]
     unit: str = 'binary'
-    evaluation_key: str | None = None
+    cohort: BusinessCohort | None = None
 
     def __post_init__(self) -> None:
         for value in (self.tenant_id, self.prediction_id, self.target_definition,
                       self.model_version, self.unit):
             _identity(value)
-        if self.evaluation_key is not None:
-            _identity(self.evaluation_key)
+        if self.cohort is not None:
+            if not isinstance(self.cohort, BusinessCohort):
+                raise TypeError('cohort must be BusinessCohort')
+            if _time(self.horizon_end) != _time(self.cohort.window_end):
+                raise ValueError('prediction horizon must equal cohort window end')
         if not _time(self.evidence_cutoff) <= _time(self.issued_at) < _time(self.horizon_end):
             raise ValueError('prediction requires cutoff <= issuance < horizon')
         if (type(self.probability) not in (int, float)
@@ -103,6 +122,7 @@ class Outcome:
     observed_at: datetime
     actual: bool
     evidence_ids: tuple[UUID, ...]
+    cohort: BusinessCohort | None = None
 
     def __post_init__(self) -> None:
         _identity(self.tenant_id)
@@ -110,6 +130,8 @@ class Outcome:
         _time(self.observed_at)
         if type(self.actual) is not bool:
             raise ValueError('actual must be bool')
+        if self.cohort is not None and not isinstance(self.cohort, BusinessCohort):
+            raise TypeError('cohort must be BusinessCohort')
         _references(self.evidence_ids)
 
 
@@ -243,6 +265,18 @@ class PredictionLedger:
                 if existing[0] != payload:
                     raise ValueError('prediction replay conflict')
                 return
+            if prediction.cohort is not None:
+                cohort = json.loads(payload)['cohort']
+                rows = connection.execute(
+                    'SELECT payload FROM predictions WHERE tenant=?',
+                    (prediction.tenant_id,),
+                ).fetchall()
+                for (candidate_json,) in rows:
+                    candidate = json.loads(candidate_json)
+                    if ((candidate['target_definition'], candidate['model_version'],
+                         candidate.get('cohort'))
+                            == (prediction.target_definition, prediction.model_version, cohort)):
+                        raise ValueError('duplicate business cohort for model and target')
             now = _time(self.clock())
             if not _time(prediction.issued_at) <= now < _time(prediction.horizon_end):
                 raise ValueError('prediction must be recorded prospectively before horizon')
@@ -263,6 +297,9 @@ class PredictionLedger:
             if row is None:
                 raise ValueError('unknown prediction in tenant scope')
             prediction = json.loads(row[0])
+            actual_cohort = json.loads(_json(outcome)).get('cohort')
+            if prediction.get('cohort') != actual_cohort:
+                raise ValueError('outcome business cohort does not match prediction')
             now = _time(self.clock())
             if not datetime.fromisoformat(prediction['horizon_end']) <= _time(outcome.observed_at) <= now:
                 raise ValueError('outcome must be observed after horizon and not in future')
@@ -331,14 +368,44 @@ class PredictionLedger:
             'horizon_seconds': next(iter(contracts))[1] if contracts else None,
         }
 
+    def commitment_state(
+        self, tenant_id: str, *, target_definition: str, model_version: str,
+    ) -> dict[str, object]:
+        """Return durable pending measurement state without acquisition authority."""
+        for value in (tenant_id, target_definition, model_version):
+            _identity(value)
+        with self._connect() as connection:
+            rows = connection.execute('''
+                SELECT p.payload, o.identity FROM predictions p
+                LEFT JOIN prediction_outcomes o
+                  ON p.tenant=o.tenant AND p.identity=o.identity
+                WHERE p.tenant=? ORDER BY p.identity
+            ''', (tenant_id,)).fetchall()
+        decoded = ((json.loads(payload), outcome_id) for payload, outcome_id in rows)
+        selected = [(prediction, outcome_id) for prediction, outcome_id in decoded
+                    if (prediction['target_definition'], prediction['model_version'])
+                    == (target_definition, model_version)]
+        cohorts = tuple(item[0].get('cohort') for item in selected)
+        return {
+            'predictions': len(selected),
+            'pending': sum(outcome_id is None for _, outcome_id in selected),
+            'cohorts': cohorts,
+            'authority_restored': False,
+            'acquisition_available': False,
+            'execution_allowed': False,
+        }
+
     def paired_score(
         self, tenant_id: str, *, target_definition: str, unit: str,
         prior_model_version: str, revised_model_version: str,
+        evaluation_after: datetime | None = None,
     ) -> dict[str, object]:
         """Compare frozen methods only on their identical resolved evaluation cases."""
         for value in (tenant_id, target_definition, unit, prior_model_version,
                       revised_model_version):
             _identity(value)
+        if evaluation_after is not None:
+            evaluation_after = _time(evaluation_after)
         with self._connect() as connection:
             rows = connection.execute('''
                 SELECT p.payload, o.payload FROM predictions p
@@ -354,9 +421,11 @@ class PredictionLedger:
             if ((prediction['target_definition'], prediction.get('unit', 'binary'))
                     != (target_definition, unit)
                     or prediction['model_version'] not in arms
-                    or prediction.get('evaluation_key') is None):
+                    or prediction.get('cohort') is None
+                    or (evaluation_after is not None
+                        and datetime.fromisoformat(prediction['issued_at']) < evaluation_after)):
                 continue
-            key = prediction['evaluation_key']
+            key = json.dumps(prediction['cohort'], sort_keys=True, separators=(',', ':'))
             if key in arms[prediction['model_version']]:
                 raise ValueError('duplicate model arm for evaluation case')
             arms[prediction['model_version']][key] = (prediction, outcome)
@@ -384,7 +453,8 @@ class PredictionLedger:
         prior_brier = sum(prior_errors) / len(prior_errors)
         revised_brier = sum(revised_errors) / len(revised_errors)
         return {
-            'cases': len(prior_errors), 'evaluation_keys': tuple(sorted(arms[prior_model_version])),
+            'cases': len(prior_errors),
+            'cohorts': tuple(json.loads(key) for key in sorted(arms[prior_model_version])),
             'target_definition': target_definition, 'unit': unit,
             'horizon_seconds': next(iter(horizons)), 'prior_brier': prior_brier,
             'revised_brier': revised_brier, 'prediction_improved': revised_brier < prior_brier,
