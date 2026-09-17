@@ -35,7 +35,12 @@ from .broker_contract import (
     metadata_grant_from,
     private_bytes,
 )
-from .deployment_profile import profile_sha256, validate_profile, validate_secret_layout
+from .deployment_profile import (
+    ENTRYPOINT_MODULE,
+    profile_sha256,
+    validate_profile,
+    validate_secret_layout,
+)
 from .ipc import rpc
 from .isolation import (
     LAB_PATH,
@@ -61,6 +66,52 @@ from .readiness import release_report
 from .semantic_runtime import validate_semantic_config
 
 MODULE = "orion.pilot.services"
+HOST_ENTRYPOINT = ENTRYPOINT_MODULE
+HOST_WORKING_DIRECTORY = Path("/")
+DENIED_LAUNCH_ENVIRONMENT = {"BASH_ENV", "CDPATH", "ENV", "SHELLOPTS"}
+
+
+def validate_launch_invocation(
+    operation, manifest_path, *, private_supervisor=False, baseline_fds=()
+):
+    """Require the one installed, isolated host launch before private input use."""
+    if operation not in ("--enroll-witness", "--serve"):
+        raise KernelUnavailable("approved runtime operation required")
+    manifest_path = str(Path(manifest_path).resolve())
+    executable = str(Path(sys.executable).absolute())
+    expected = [executable, "-I", "-m", HOST_ENTRYPOINT]
+    if private_supervisor:
+        if (
+            type(baseline_fds) is not tuple
+            or len(baseline_fds) != 2
+            or any(type(descriptor) is not int or descriptor < 0 for descriptor in baseline_fds)
+        ):
+            raise KernelUnavailable("exact namespace descriptors required")
+        expected.extend(
+            [
+                "--private-supervisor",
+                operation,
+                manifest_path,
+                "--baseline-net-fd",
+                str(baseline_fds[0]),
+                "--baseline-user-fd",
+                str(baseline_fds[1]),
+            ]
+        )
+    else:
+        expected.extend((operation, manifest_path))
+    environment_denied = any(
+        name.startswith(("PYTHON", "LD_")) or name in DENIED_LAUNCH_ENVIRONMENT
+        for name in os.environ
+    )
+    if (
+        not sys.flags.isolated
+        or sys.orig_argv != expected
+        or Path.cwd() != HOST_WORKING_DIRECTORY
+        or environment_denied
+    ):
+        raise KernelUnavailable("wheel-only launch controls required")
+    return manifest_path
 
 
 def artifact_identity():
@@ -69,7 +120,13 @@ def artifact_identity():
     record = distribution.read_text("RECORD")
     if not record:
         raise ValueError("installed artifact RECORD required")
+    prefix = Path(sys.prefix).absolute()
+    resolved_prefix = prefix.resolve()
+    running_module = Path(__file__).resolve()
+    if not running_module.is_relative_to(resolved_prefix):
+        raise ValueError("non-editable installed artifact required")
     verified = 0
+    running_module_verified = False
     for filename, checksum, size in csv.reader(io.StringIO(record)):
         if not checksum:
             if not filename.endswith(("RECORD", ".pyc")):
@@ -78,17 +135,25 @@ def artifact_identity():
         algorithm, separator, expected = checksum.partition("=")
         if not separator or algorithm != "sha256":
             raise ValueError("artifact hash policy required")
-        raw = distribution.locate_file(filename).read_bytes()
+        installed_file = distribution.locate_file(filename).resolve()
+        if not installed_file.is_relative_to(resolved_prefix):
+            raise ValueError("installed artifact escaped its prefix")
+        raw = installed_file.read_bytes()
         actual = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
         if actual != expected or len(raw) != int(size):
             raise ValueError("installed artifact tampered")
+        running_module_verified = running_module_verified or installed_file == running_module
         verified += 1
+    if not running_module_verified:
+        raise ValueError("executing module is not the verified artifact")
     return {
         "name": distribution.metadata["Name"],
         "version": distribution.version,
         "record_sha256": hashlib.sha256(record.encode()).hexdigest(),
         "verified_files": verified,
-        "package_root": str(Path(__file__).resolve().parents[1]),
+        "package_root": str(running_module.parents[1]),
+        "installed_prefix": str(prefix),
+        "interpreter": str(Path(sys.executable).absolute()),
         "execution_allowed": False,
         "LIVE_PILOT_READY": False,
     }
@@ -106,12 +171,14 @@ def private_directory(path):
     return path
 
 
-def validate_deployment_inputs(value, *, enrollment=False):
+def validate_deployment_inputs(value, *, manifest_path=None, enrollment=False):
     """Revalidate the installed profile and custody inputs without reading secrets."""
     artifact = artifact_identity()
     if artifact["record_sha256"] != value["artifact_record_sha256"]:
         raise ValueError("exact installed artifact required")
-    validate_profile(value["deployment_profile"], value, artifact)
+    if manifest_path is None:
+        manifest_path = value["deployment_profile"]["entrypoint"]["manifest_path"]
+    validate_profile(value["deployment_profile"], value, artifact, manifest_path)
     if value["deployment_profile_sha256"] != profile_sha256(
         value["deployment_profile"]
     ):
@@ -182,7 +249,7 @@ def load_manifest(path, *, enrollment=False):
             validate_semantic_config(value["semantic"], configs=value["configs"])
         else:
             validate_semantic_config(value["semantic"])
-    validate_deployment_inputs(value, enrollment=enrollment)
+    validate_deployment_inputs(value, manifest_path=path, enrollment=enrollment)
     # Policy validation occurs independently in the protected evidence owner.
     return value
 
@@ -874,8 +941,11 @@ def main(argv=None):
         try:
             if args.serve or args.private_supervisor:
                 raise ValueError("exclusive witness enrollment required")
+            manifest_path = validate_launch_invocation(
+                "--enroll-witness", args.enroll_witness
+            )
             report = enroll_witness(
-                load_manifest(args.enroll_witness, enrollment=True)
+                load_manifest(manifest_path, enrollment=True)
             )
             print(_json(report), flush=True)
             return 0
@@ -918,7 +988,8 @@ def main(argv=None):
     deployment = None
     try:
         if not args.private_supervisor:
-            load_manifest(args.serve)
+            manifest_path = validate_launch_invocation("--serve", args.serve)
+            load_manifest(manifest_path)
             mapping = Path("/proc/self/uid_map").read_text().split()
             if os.getuid() == 0 and (len(mapping) != 3 or mapping[2] != "1"):
                 raise KernelUnavailable("unprivileged operator required")
@@ -946,7 +1017,7 @@ def main(argv=None):
                         "orion.pilot.deployment",
                         "--private-supervisor",
                         "--serve",
-                        args.serve,
+                        manifest_path,
                         "--baseline-net-fd",
                         str(descriptors[0]),
                         "--baseline-user-fd",
@@ -954,6 +1025,8 @@ def main(argv=None):
                     ],
                     close_fds=True,
                     pass_fds=descriptors,
+                    cwd=HOST_WORKING_DIRECTORY,
+                    env={"PATH": os.defpath},
                 )
                 for signum in (signal.SIGTERM, signal.SIGINT):
                     signal.signal(signum, lambda number, frame: process.send_signal(number))
@@ -962,6 +1035,12 @@ def main(argv=None):
                 for descriptor in descriptors:
                     os.close(descriptor)
         # Kernel namespace descriptors, never spoofable strings from config/env.
+        manifest_path = validate_launch_invocation(
+            "--serve",
+            args.serve,
+            private_supervisor=True,
+            baseline_fds=(args.baseline_net_fd, args.baseline_user_fd),
+        )
         protect_parent()
         # Close BEFORE loading keys or spawning custody; no host handles reach them.
         baseline_net = os.readlink("/proc/self/fd/" + str(args.baseline_net_fd))
@@ -970,7 +1049,7 @@ def main(argv=None):
             raise KernelUnavailable("kernel namespace baseline required")
         os.close(args.baseline_net_fd)
         os.close(args.baseline_user_fd)
-        manifest = load_manifest(args.serve)
+        manifest = load_manifest(manifest_path)
         deployment = Deployment(manifest, baseline_net=baseline_net, baseline_user=baseline_user)
         signal.signal(signal.SIGTERM, lambda *unused: (_ for _ in ()).throw(KeyboardInterrupt()))
         signal.signal(signal.SIGINT, lambda *unused: (_ for _ in ()).throw(KeyboardInterrupt()))

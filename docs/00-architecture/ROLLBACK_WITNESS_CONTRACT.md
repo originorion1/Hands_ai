@@ -58,7 +58,7 @@ One witness contract is bound to:
 Enrollment is an explicit, one-time operator action:
 
 ```text
-orion-runtime --enroll-witness PRIVATE_MANIFEST
+python -I -m orion.pilot.deployment --enroll-witness PRIVATE_MANIFEST
 ```
 
 Enrollment verifies or initializes the existing custody stores, derives every

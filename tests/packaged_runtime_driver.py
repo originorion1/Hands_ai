@@ -395,19 +395,94 @@ def controller(value):
     from orion.pilot.deployment_profile import profile_for_manifest, profile_sha256
     from orion.pilot.progress_witness import deployment_identity_for_manifest
 
-    manifest["deployment_identity"] = deployment_identity_for_manifest(manifest, identity)
-    manifest["deployment_profile"] = profile_for_manifest(manifest, identity)
-    manifest["deployment_profile_sha256"] = profile_sha256(manifest["deployment_profile"])
     manifest_path = root / "manifest.json"
+    manifest["deployment_identity"] = deployment_identity_for_manifest(manifest, identity)
+    manifest["deployment_profile"] = profile_for_manifest(manifest, identity, manifest_path)
+    manifest["deployment_profile_sha256"] = profile_sha256(manifest["deployment_profile"])
     manifest_path.write_text(json.dumps(manifest))
     manifest_path.chmod(0o600)
-    runtime_entrypoint = str(Path(sys.executable).with_name("orion-runtime"))
+    runtime_entrypoint = [sys.executable, "-I", "-m", "orion.pilot.deployment"]
+    launch_checks = {}
+    if value["case"] == "security":
+        copied_manifest = root / "copied-manifest.json"
+        copied_manifest.write_bytes(manifest_path.read_bytes())
+        copied_manifest.chmod(0o600)
+        unsupported = {
+            "console_script_mutating_launch_denied": (
+                [
+                    str(Path(sys.executable).with_name("orion-runtime")),
+                    "--enroll-witness",
+                    str(manifest_path),
+                ],
+                "/",
+                {"PATH": os.defpath},
+            ),
+            "nonisolated_module_launch_denied": (
+                [
+                    sys.executable,
+                    "-m",
+                    "orion.pilot.deployment",
+                    "--enroll-witness",
+                    str(manifest_path),
+                ],
+                "/",
+                {"PATH": os.defpath},
+            ),
+            "private_supervisor_without_descriptors_denied": (
+                [
+                    *runtime_entrypoint,
+                    "--private-supervisor",
+                    "--serve",
+                    str(manifest_path),
+                ],
+                "/",
+                {"PATH": os.defpath},
+            ),
+            "extra_launch_arguments_denied": (
+                [
+                    *runtime_entrypoint,
+                    "--artifact",
+                    "--enroll-witness",
+                    str(manifest_path),
+                ],
+                "/",
+                {"PATH": os.defpath},
+            ),
+            "wrong_working_directory_launch_denied": (
+                [*runtime_entrypoint, "--enroll-witness", str(manifest_path)],
+                str(root),
+                {"PATH": os.defpath},
+            ),
+            "copied_manifest_launch_denied": (
+                [*runtime_entrypoint, "--enroll-witness", str(copied_manifest)],
+                "/",
+                {"PATH": os.defpath},
+            ),
+            "python_environment_launch_denied": (
+                [*runtime_entrypoint, "--enroll-witness", str(manifest_path)],
+                "/",
+                {"PATH": os.defpath, "PYTHONPATH": "/unauthorized/source"},
+            ),
+        }
+        for name, (launch_command, working_directory, environment) in unsupported.items():
+            denied = subprocess.run(
+                launch_command,
+                cwd=working_directory,
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+            report = json.loads(denied.stdout)
+            launch_checks[name] = denied.returncode == 2 and report["status"] == "BLOCKED"
+        launch_checks["denied_launches_leave_no_witness_or_enrollment"] = not (
+            (state / "witness-enrollment").exists()
+            or (witness / "progress-witness.db").exists()
+        )
     enrolled = subprocess.run(
-        [
-            runtime_entrypoint,
-            "--enroll-witness",
-            str(manifest_path),
-        ],
+        [*runtime_entrypoint, "--enroll-witness", str(manifest_path)],
+        cwd="/",
         capture_output=True,
         text=True,
         env={"PATH": os.defpath},
@@ -429,16 +504,19 @@ def controller(value):
         invalid_manifest["deployment_identity"] = deployment_identity_for_manifest(
             invalid_manifest, identity
         )
-        invalid_manifest["deployment_profile"] = profile_for_manifest(invalid_manifest, identity)
+        invalid_path = root / "invalid-placement.json"
+        invalid_manifest["deployment_profile"] = profile_for_manifest(
+            invalid_manifest, identity, invalid_path
+        )
         invalid_manifest["deployment_profile_sha256"] = profile_sha256(
             invalid_manifest["deployment_profile"]
         )
-        invalid_path = root / "invalid-placement.json"
         invalid_path.write_text(json.dumps(invalid_manifest))
         invalid_path.chmod(0o600)
         rejected = subprocess.run(
             [sys.executable, "-I", "-m", "orion.pilot.deployment", "--serve", str(invalid_path)],
-            capture_output=True, text=True, env={"PATH": os.defpath}, timeout=10, check=False,
+            cwd="/", capture_output=True, text=True, env={"PATH": os.defpath},
+            timeout=10, check=False,
         )
         placement_result = json.loads(rejected.stdout)
         misplaced_denied = (
@@ -448,10 +526,8 @@ def controller(value):
             and placement_result.get("failure_boundary") == "validate_protected_paths"
         )
     baseline_fds = []
-    runtime_command = [sys.executable, "-I", "-m", "orion.pilot.deployment", "--serve", str(manifest_path)]
+    runtime_command = [*runtime_entrypoint, "--serve", str(manifest_path)]
     if semantic_case or independent_case:
-        runtime_command = [str(Path(sys.executable).with_name("orion-runtime")),
-                           "--serve", str(manifest_path)]
         for field, invalid in (("evaluator_version", "unreviewed"),
                                ("policy_sha256", "0" * 64)):
             invalid_manifest = dict(manifest, semantic=dict(manifest["semantic"], **{field: invalid}))
@@ -459,8 +535,8 @@ def controller(value):
             invalid_path.write_text(json.dumps(invalid_manifest))
             invalid_path.chmod(0o600)
             rejected = subprocess.run(
-                [runtime_command[0], "--serve", str(invalid_path)],
-                capture_output=True, text=True, env={"PATH": os.defpath},
+                [*runtime_entrypoint, "--serve", str(invalid_path)],
+                cwd="/", capture_output=True, text=True, env={"PATH": os.defpath},
                 timeout=10, check=False,
             )
             rejection = json.loads(rejected.stdout)
@@ -479,6 +555,7 @@ def controller(value):
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        cwd="/",
         env={"PATH": os.defpath},
         close_fds=True,
         pass_fds=baseline_fds,
@@ -552,6 +629,7 @@ def controller(value):
             for role, items in ready["checks"].items()
             for name, passed in items.items()
         }
+        checks.update(launch_checks)
         checks["ordinary_source_has_no_orion_dependency"] = source_ready["orion_imports"] == []
         if value["case"] == "security":
             checks["installed_prefix_original_path_custody_denied_at_startup"] = misplaced_denied
@@ -1118,6 +1196,7 @@ def controller(value):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                cwd="/",
                 env={"PATH": os.defpath},
                 close_fds=True,
             )
@@ -1128,7 +1207,8 @@ def controller(value):
                 and command(server, {"command": "stats"}) == before_io
             )
             reenrollment = subprocess.run(
-                [runtime_entrypoint, "--enroll-witness", str(manifest_path)],
+                [*runtime_entrypoint, "--enroll-witness", str(manifest_path)],
+                cwd="/",
                 capture_output=True,
                 text=True,
                 env={"PATH": os.defpath},
@@ -1152,6 +1232,7 @@ def controller(value):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                cwd="/",
                 env={"PATH": os.defpath},
                 close_fds=True,
             )
@@ -1344,7 +1425,8 @@ def controller(value):
             runtime.wait(timeout=10)
             runtime = subprocess.Popen(
                 runtime_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, text=True, env={"PATH": os.defpath}, close_fds=True,
+                stderr=subprocess.PIPE, text=True, cwd="/", env={"PATH": os.defpath},
+                close_fds=True,
             )
             restored_start = read_frame(runtime.stdout)
             checks["fresh_process_restore_zero_source_io"] = (
@@ -1478,7 +1560,8 @@ def controller(value):
             server = None
             runtime = subprocess.Popen(
                 runtime_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE, text=True, env={"PATH": os.defpath}, close_fds=True,
+                stderr=subprocess.PIPE, text=True, cwd="/", env={"PATH": os.defpath},
+                close_fds=True,
             )
             restored_start = read_frame(runtime.stdout)
             checks["actual_entrypoint_process_restart_recovers_graph"] = (

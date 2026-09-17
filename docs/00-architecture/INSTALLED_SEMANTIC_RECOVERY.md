@@ -18,7 +18,8 @@ The study scope is the canonical tenant/company/source already shared by the
 separate metadata and record grants, not caller-selected output scope.
 
 Explicitly enroll the witness once, then start the clean installed
-`orion-runtime --serve PRIVATE_MANIFEST` through its existing private supervisor.
+`python -I -m orion.pilot.deployment --serve PRIVATE_MANIFEST` through its
+existing private supervisor and profile-bound wheel-only launch contract.
 Governed metadata discovery and separately armed record acquisition retain their
 original authorization, budget, admission and provenance flow. Protected admission
 publishes transport observations separately from `semantic_assessment`. The
