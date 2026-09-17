@@ -17,12 +17,8 @@ from .progress_witness import (
     witness_streams,
 )
 
-PROFILE_VERSION = 2
-ENTRYPOINT = {
-    "console_script": "orion-runtime",
-    "module": "orion.pilot.deployment",
-    "interpreter_mode": "isolated_python",
-}
+PROFILE_VERSION = 3
+ENTRYPOINT_MODULE = "orion.pilot.deployment"
 
 ROLE_POLICY = {
     "witness": {
@@ -79,7 +75,7 @@ SECRET_OWNERS = {
 }
 
 
-def profile_for_manifest(manifest, artifact):
+def profile_for_manifest(manifest, artifact, manifest_path):
     """Return the canonical profile derived from already validated inputs."""
     root = str(Path(manifest["state_directory"]).absolute())
     keys = str(Path(manifest["keys_directory"]).absolute())
@@ -87,6 +83,7 @@ def profile_for_manifest(manifest, artifact):
     expected_identity = deployment_identity_for_manifest(manifest, artifact)
     if manifest.get("deployment_identity") != expected_identity:
         raise ValueError("stable deployment identity required")
+    manifest_path = str(Path(manifest_path).resolve())
     roles = {
         name: {
             "identity": policy["identity"],
@@ -107,8 +104,19 @@ def profile_for_manifest(manifest, artifact):
             "name": artifact["name"],
             "version": artifact["version"],
             "record_sha256": artifact["record_sha256"],
+            "installed_prefix": artifact["installed_prefix"],
+            "package_root": artifact["package_root"],
         },
-        "entrypoint": dict(ENTRYPOINT),
+        "entrypoint": {
+            "console_script": "orion-runtime",
+            "console_script_scope": "inspection_only",
+            "module": ENTRYPOINT_MODULE,
+            "interpreter": artifact["interpreter"],
+            "interpreter_mode": "isolated_python_module",
+            "manifest_path": manifest_path,
+            "working_directory": "/",
+            "environment": "reject_python_and_loader_controls",
+        },
         "roles": roles,
         "filesystem": {
             "state_directory": root,
@@ -153,9 +161,9 @@ def profile_for_manifest(manifest, artifact):
     }
 
 
-def validate_profile(profile, manifest, artifact):
+def validate_profile(profile, manifest, artifact, manifest_path):
     """Validate the complete profile before private paths or services are used."""
-    expected = profile_for_manifest(manifest, artifact)
+    expected = profile_for_manifest(manifest, artifact, manifest_path)
     shape = exact(
         profile,
         (

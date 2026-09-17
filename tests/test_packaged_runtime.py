@@ -113,6 +113,23 @@ def test_wheel_contains_runtime_without_checkout_or_fixture_dependencies(clean_a
     assert json.loads(entrypoint.stdout) == identity
 
 
+def test_installed_identity_rejects_source_tree_substitution(clean_artifact):
+    root, _, python = clean_artifact
+    substituted = subprocess.run(
+        [str(python), "-m", "orion.pilot.deployment", "--artifact"],
+        cwd=root,
+        env={"PATH": os.defpath, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert substituted.returncode == 2
+    report = json.loads(substituted.stdout)
+    assert report["status"] == "startup_denied"
+    assert report["LIVE_PILOT_READY"] is False
+
+
 def test_clean_installed_startup_fails_closed_without_valid_private_deployment(clean_artifact):
     for arguments in ((), ("--health",), ("--serve", "/nonexistent/manifest.json")):
         completed = installed_run(clean_artifact, *arguments)

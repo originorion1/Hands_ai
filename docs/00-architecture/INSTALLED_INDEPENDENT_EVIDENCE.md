@@ -99,7 +99,8 @@ publication or acquisition; it does not trigger unlimited retries or collection.
 
 An operator prepares a private, versioned synthetic manifest and reviewed registry,
 installs the verified wheel, explicitly enrolls its retained witness once, and
-starts `orion-runtime --serve MANIFEST` using the existing private network fabric.
+starts `python -I -m orion.pilot.deployment --serve MANIFEST` in isolated mode
+using the existing private network fabric and profile-bound manifest path.
 Startup is unarmed. Explicitly arm metadata,
 admit discovery, then separately arm and read structural/instrument operations.
 The existing `semantic` evaluate/restore commands publish knowledge only. Use the

@@ -59,10 +59,25 @@ storage; normal startup, restart and repeated enrollment never create replacemen
 history. The witness service mounts that receipt read-only; application and
 custody roles cannot write it.
 
+Mutating candidate-host launch is narrower than the inspection console script.
+Deployment profile version 3 binds the installed prefix/package root,
+interpreter, isolated module, canonical private-manifest path, working directory
+and environment policy. Enrollment and service start must use the exact commands
+below from `/`; the generated `orion-runtime` console script is inspection-only
+and rejects `--enroll-witness` and `--serve`.
+
 ```sh
-/operator/runtime/bin/orion-runtime --enroll-witness /operator/private/runtime-manifest.json
-/operator/runtime/bin/orion-runtime --serve /operator/private/runtime-manifest.json
+cd /
+env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  /operator/runtime/bin/python -I -m orion.pilot.deployment \
+  --enroll-witness /operator/private/runtime-manifest.json
+env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  /operator/runtime/bin/python -I -m orion.pilot.deployment \
+  --serve /operator/private/runtime-manifest.json
 ```
+
+See `WHEEL_ONLY_CANDIDATE_LAUNCH.md` for the exact service record, denial
+boundary and trusted-host-administrator limitation.
 
 Startup creates its own rootless user/network fabric, without PYTHONPATH, checkout,
 tests, source fixture or host-network join. Bubblewrap, unshare/nsenter, ip, nft,
