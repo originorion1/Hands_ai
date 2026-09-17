@@ -49,9 +49,12 @@ from .isolation import (
 )
 from .journal import JournalDenied
 from .progress_witness import (
+    ENROLLMENT_FILENAME,
     ProgressWitness,
+    enrollment_path,
     progress_state,
     stream_for,
+    verify_enrollment_receipt,
     witness_contract,
 )
 from .readiness import release_report
@@ -103,7 +106,7 @@ def private_directory(path):
     return path
 
 
-def validate_deployment_inputs(value):
+def validate_deployment_inputs(value, *, enrollment=False):
     """Revalidate the installed profile and custody inputs without reading secrets."""
     artifact = artifact_identity()
     if artifact["record_sha256"] != value["artifact_record_sha256"]:
@@ -125,10 +128,14 @@ def validate_deployment_inputs(value):
         != value["certificate_sha256"]
     ):
         raise ValueError("pinned source trust required")
+    if not enrollment:
+        verify_enrollment_receipt(
+            enrollment_path(value["state_directory"]), witness_contract(value)
+        )
     return artifact
 
 
-def load_manifest(path):
+def load_manifest(path, *, enrollment=False):
     if not all(
         shutil.which(tool, path=LAB_PATH)
         for tool in ("unshare", "nsenter", "ip", "nft", "bwrap", "curl")
@@ -175,7 +182,7 @@ def load_manifest(path):
             validate_semantic_config(value["semantic"], configs=value["configs"])
         else:
             validate_semantic_config(value["semantic"])
-    validate_deployment_inputs(value)
+    validate_deployment_inputs(value, enrollment=enrollment)
     # Policy validation occurs independently in the protected evidence owner.
     return value
 
@@ -193,7 +200,7 @@ def enroll_witness(manifest):
     from .custody import AuditCustody
     from .evidence_custody import EvidenceCustody
 
-    validate_deployment_inputs(manifest)
+    validate_deployment_inputs(manifest, enrollment=True)
     root, keys = Path(manifest["state_directory"]), Path(manifest["keys_directory"])
     for directory in (root / "audit", root / "evidence"):
         directory.mkdir(mode=0o700, exist_ok=True)
@@ -238,6 +245,7 @@ def enroll_witness(manifest):
         private_bytes(keys / "witness-signing"),
         witness_contract(manifest),
         states,
+        root,
     )
     status = witness.dispatch("owner", "status", None)
     return dict(
@@ -361,6 +369,9 @@ class Deployment:
                 "evidence": self.caps["witness-evidence"],
             }
             readonly.append((self.keys / "witness-signing", "/private/signing-key"))
+            readonly.append(
+                (self.root / ENROLLMENT_FILENAME, "/private/witness-enrollment")
+            )
             writable.append((self.witness_root, "/state"))
             boot["witness_contract"] = witness_contract(self.manifest)
         elif role == "audit":
@@ -863,7 +874,9 @@ def main(argv=None):
         try:
             if args.serve or args.private_supervisor:
                 raise ValueError("exclusive witness enrollment required")
-            report = enroll_witness(load_manifest(args.enroll_witness))
+            report = enroll_witness(
+                load_manifest(args.enroll_witness, enrollment=True)
+            )
             print(_json(report), flush=True)
             return 0
         except Exception as error:  # noqa: BLE001 - no bootstrap input is printed

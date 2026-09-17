@@ -20,6 +20,7 @@ from .journal import JournalDenied
 
 WITNESS_VERSION = 1
 WITNESS_FILENAME = "progress-witness.db"
+ENROLLMENT_FILENAME = "witness-enrollment"
 ZERO_HEAD = "0" * 64
 
 
@@ -142,16 +143,51 @@ def progress_state(stream, sequence, head):
     }
 
 
+def enrollment_receipt(contract):
+    """Return the immutable marker that makes bootstrap non-repeatable."""
+    contract = ProgressWitness._contract(contract)
+    return {
+        "version": WITNESS_VERSION,
+        "witness_identity": contract["witness_identity"],
+        "deployment_identity": contract["deployment_identity"],
+        "contract_sha256": digest(contract),
+        "lifecycle": "enrolled_no_automatic_replacement",
+    }
+
+
+def enrollment_path(state_directory):
+    return Path(state_directory) / ENROLLMENT_FILENAME
+
+
+def verify_enrollment_receipt(path, contract):
+    """Require the exact protected enrollment marker before witness use."""
+    path = Path(path)
+    info = path.lstat()
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or info.st_uid != os.getuid()
+        or stat.S_IMODE(info.st_mode) != 0o600
+        or info.st_nlink != 1
+        or path.is_symlink()
+    ):
+        raise JournalDenied("private witness enrollment receipt required")
+    expected = ProgressWitness._json(enrollment_receipt(contract)).encode()
+    if path.read_bytes() != expected:
+        raise JournalDenied("witness enrollment receipt mismatch")
+    return path
+
+
 class ProgressWitness:
     """Single-writer conditional high-water marks outside custody rollback state."""
 
-    def __init__(self, directory, key, contract):
+    def __init__(self, directory, key, contract, receipt):
         if type(key) is not bytes or len(key) < 32:
             raise JournalDenied("independent witness key required")
         self.directory = Path(directory)
         self.path = self.directory / WITNESS_FILENAME
         self.key = key
         self.contract = self._contract(contract)
+        self.receipt = verify_enrollment_receipt(receipt, self.contract)
         self.lock = threading.RLock()
         self._private_directory()
         self._private_database()
@@ -159,7 +195,7 @@ class ProgressWitness:
             self._verify(database)
 
     @classmethod
-    def enroll(cls, directory, key, contract, states):
+    def enroll(cls, directory, key, contract, states, enrollment_directory):
         """Explicit one-time bootstrap; never called by normal runtime startup."""
         directory = Path(directory)
         if type(key) is not bytes or len(key) < 32:
@@ -173,27 +209,57 @@ class ProgressWitness:
         ):
             raise JournalDenied("private witness directory required")
         path = directory / WITNESS_FILENAME
-        descriptor = os.open(
-            path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
-        )
-        os.close(descriptor)
+        receipt = enrollment_path(enrollment_directory)
+        owner = cls.__new__(cls)
+        owner.directory, owner.path, owner.key = directory, path, key
+        owner.contract = owner._contract(contract)
+        owner.lock = threading.RLock()
+        expected = {stream["identity"]: stream for stream in owner.contract["streams"]}
+        if type(states) is not list or len(states) != len(expected):
+            raise JournalDenied("complete witness enrollment state required")
+        normalized = {}
+        for state in states:
+            state = owner._state(state)
+            stream = expected.get(state["identity"])
+            if stream is None or any(state[name] != stream[name] for name in stream):
+                raise JournalDenied("witness enrollment scope mismatch")
+            if state["identity"] in normalized:
+                raise JournalDenied("duplicate witness enrollment state")
+            normalized[state["identity"]] = state
         try:
-            owner = cls.__new__(cls)
-            owner.directory, owner.path, owner.key = directory, path, key
-            owner.contract = owner._contract(contract)
-            owner.lock = threading.RLock()
-            expected = {stream["identity"]: stream for stream in owner.contract["streams"]}
-            if type(states) is not list or len(states) != len(expected):
-                raise JournalDenied("complete witness enrollment state required")
-            normalized = {}
-            for state in states:
-                state = owner._state(state)
-                stream = expected.get(state["identity"])
-                if stream is None or any(state[name] != stream[name] for name in stream):
-                    raise JournalDenied("witness enrollment scope mismatch")
-                if state["identity"] in normalized:
-                    raise JournalDenied("duplicate witness enrollment state")
-                normalized[state["identity"]] = state
+            path.lstat()
+        except FileNotFoundError:
+            pass
+        else:
+            raise FileExistsError("witness storage already exists")
+        enrollment_directory = Path(enrollment_directory)
+        info = enrollment_directory.lstat()
+        if (
+            not stat.S_ISDIR(info.st_mode)
+            or info.st_uid != os.getuid()
+            or stat.S_IMODE(info.st_mode) & 0o077
+            or enrollment_directory.is_symlink()
+        ):
+            raise JournalDenied("private enrollment directory required")
+        receipt_descriptor = os.open(
+            receipt, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+        )
+        with os.fdopen(receipt_descriptor, "wb") as stream:
+            stream.write(owner._json(enrollment_receipt(owner.contract)).encode())
+            stream.flush()
+            os.fsync(stream.fileno())
+        directory_descriptor = os.open(
+            enrollment_directory, os.O_RDONLY | os.O_DIRECTORY
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+        try:
+            descriptor = os.open(
+                path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+            )
+            os.close(descriptor)
             with owner._connect() as database:
                 database.execute(
                     "CREATE TABLE metadata (singleton INTEGER PRIMARY KEY, body TEXT NOT NULL, mac TEXT NOT NULL)"
@@ -222,7 +288,7 @@ class ProgressWitness:
                 os.fsync(descriptor)
             finally:
                 os.close(descriptor)
-            return cls(directory, key, contract)
+            return cls(directory, key, contract, receipt)
         except Exception:
             try:
                 path.unlink()

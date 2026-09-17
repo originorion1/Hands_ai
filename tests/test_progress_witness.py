@@ -14,6 +14,7 @@ from orion.pilot.evidence_custody import EvidenceCustody
 from orion.pilot.journal import JournalDenied
 from orion.pilot.progress_witness import (
     ProgressWitness,
+    enrollment_path,
     progress_state,
     stream_for,
     witness_contract,
@@ -48,15 +49,17 @@ def _states(manifest):
 def witness(tmp_path):
     manifest = _manifest(tmp_path)
     directory = tmp_path / "witness"
+    state = tmp_path / "state"
     directory.mkdir(mode=0o700)
+    state.mkdir(mode=0o700)
     owner = ProgressWitness.enroll(
-        directory, KEY, witness_contract(manifest), _states(manifest)
+        directory, KEY, witness_contract(manifest), _states(manifest), state
     )
-    return manifest, directory, owner
+    return manifest, directory, state, owner
 
 
 def test_explicit_enrollment_binds_identity_scopes_and_same_host_limit(witness):
-    manifest, directory, owner = witness
+    manifest, directory, state, owner = witness
     status = owner.dispatch("owner", "status", None)
     assert status == {
         "version": 1,
@@ -69,33 +72,43 @@ def test_explicit_enrollment_binds_identity_scopes_and_same_host_limit(witness):
     assert (directory / "progress-witness.db").stat().st_mode & 0o777 == 0o600
     with pytest.raises(FileExistsError):
         ProgressWitness.enroll(
-            directory, KEY, witness_contract(manifest), _states(manifest)
+            directory, KEY, witness_contract(manifest), _states(manifest), state
         )
 
 
 def test_missing_corrupt_or_substituted_witness_fails_closed(witness):
-    manifest, directory, _ = witness
+    manifest, directory, state, _ = witness
     path = directory / "progress-witness.db"
     backup = directory / "witness-backup.db"
     shutil.copyfile(path, backup)
     path.unlink()
     with pytest.raises(OSError):
-        ProgressWitness(directory, KEY, witness_contract(manifest))
+        ProgressWitness(
+            directory, KEY, witness_contract(manifest), enrollment_path(state)
+        )
+    with pytest.raises(FileExistsError):
+        ProgressWitness.enroll(
+            directory, KEY, witness_contract(manifest), _states(manifest), state
+        )
     shutil.copyfile(backup, path)
     path.chmod(0o600)
     with sqlite3.connect(path) as database:
         database.execute("UPDATE metadata SET body='{}'")
     with pytest.raises((JournalDenied, KeyError)):
-        ProgressWitness(directory, KEY, witness_contract(manifest))
+        ProgressWitness(
+            directory, KEY, witness_contract(manifest), enrollment_path(state)
+        )
     shutil.copyfile(backup, path)
     path.chmod(0o600)
     changed = dict(manifest, deployment_profile_sha256="d" * 64)
-    with pytest.raises(JournalDenied, match="deployment binding"):
-        ProgressWitness(directory, KEY, witness_contract(changed))
+    with pytest.raises(JournalDenied, match="enrollment receipt mismatch"):
+        ProgressWitness(
+            directory, KEY, witness_contract(changed), enrollment_path(state)
+        )
 
 
 def test_conditional_advance_duplicate_and_rollback_rejection(witness):
-    manifest, _, owner = witness
+    manifest, _, _, owner = witness
     stream = stream_for(manifest["configs"], "audit", digest(manifest["configs"][0]))
     first = next(state for state in _states(manifest) if state["identity"] == stream["identity"])
     second = progress_state(stream, 2, "d" * 64)
@@ -122,7 +135,7 @@ def test_conditional_advance_duplicate_and_rollback_rejection(witness):
     (("evidence", "caller"), ("audit", "scope"), ("audit", "identity"), ("audit", "shape")),
 )
 def test_wrong_caller_scope_identity_and_malformed_requests_reject(witness, role, mutation):
-    manifest, _, owner = witness
+    manifest, _, _, owner = witness
     stream = stream_for(manifest["configs"], "audit", digest(manifest["configs"][0]))
     state = next(state for state in _states(manifest) if state["identity"] == stream["identity"])
     request = {"state": dict(state)}
@@ -137,7 +150,7 @@ def test_wrong_caller_scope_identity_and_malformed_requests_reject(witness, role
 
 
 def test_concurrent_competing_writers_accept_exactly_one_successor(witness):
-    manifest, _, owner = witness
+    manifest, _, _, owner = witness
     stream = stream_for(manifest["configs"], "audit", digest(manifest["configs"][0]))
     first = next(state for state in _states(manifest) if state["identity"] == stream["identity"])
     barrier = threading.Barrier(2)
@@ -176,8 +189,12 @@ def _enrolled_for_configs(tmp_path, configs, states):
         "witness_directory": str(tmp_path / "witness"),
     }
     directory = tmp_path / "witness"
+    state = tmp_path / "state"
     directory.mkdir(mode=0o700)
-    owner = ProgressWitness.enroll(directory, KEY, witness_contract(manifest), states)
+    state.mkdir(mode=0o700)
+    owner = ProgressWitness.enroll(
+        directory, KEY, witness_contract(manifest), states, state
+    )
     return manifest, owner
 
 

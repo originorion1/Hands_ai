@@ -53,7 +53,11 @@ installed RECORD digest and bounded archive policy. Mode must be
 `synthetic_read_only`; host must be the fixed approved documentation IPv4 or
 private IPv6 address. No arbitrary hostname/port, proxy, redirect, executable or
 force-live selector exists. Before first startup, the operator explicitly enrolls
-the witness once; normal startup and restart never create replacement history.
+the witness once. Enrollment durably leaves a runtime-nonreplaceable receipt
+outside the audit/evidence rollback subdirectories before creating witness
+storage; normal startup, restart and repeated enrollment never create replacement
+history. The witness service mounts that receipt read-only; application and
+custody roles cannot write it.
 
 ```sh
 /operator/runtime/bin/orion-runtime --enroll-witness /operator/private/runtime-manifest.json

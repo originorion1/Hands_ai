@@ -10,8 +10,9 @@ source acquisition or semantic publication can succeed.
 
 This is deliberately a narrow same-host claim. The implementation does **not**
 protect against rollback of the whole host, a VM or filesystem snapshot that
-also restores the witness, loss or privileged replacement of both the witness
-database and its key, or rollback of independently retained backups. A
+also restores the witness, privileged removal or replacement of the enrollment
+receipt together with the witness database and key, or rollback of independently
+retained backups. A
 qualification host must supply genuinely independent retention if those threats
 are in scope. `LIVE_PILOT_READY=false` and `execution_allowed=false` remain
 unchanged.
@@ -27,15 +28,19 @@ The rollback set is the deployment's configured state directory:
 
 The witness set is configured separately:
 
+- `<state_directory>/witness-enrollment` is a durable, runtime-nonreplaceable
+  enrollment receipt outside the `audit/**` and `evidence/**` rollback
+  subdirectories;
 - `<witness_directory>/progress-witness.db` stores authenticated deployment,
   stream, sequence and chain-head metadata;
 - `<keys_directory>/witness-signing` authenticates that metadata;
 - the dedicated witness service alone mounts witness storage read-write and
-  receives its signing key.
+  receives its signing key; it receives the enrollment receipt read-only.
 
 The deployment validator rejects overlapping state, key and witness roots. The
-application roles cannot read or modify witness storage, read the witness key,
-or invoke witness owner/advance operations with their capabilities. The witness
+application and custody roles cannot write the enrollment receipt or witness
+storage, read the witness key, or invoke witness owner/advance operations with
+their capabilities. The witness
 stores digests and monotonic positions, not source credentials, evidence
 payloads, grants or authority.
 
@@ -57,9 +62,12 @@ orion-runtime --enroll-witness PRIVATE_MANIFEST
 ```
 
 Enrollment verifies or initializes the existing custody stores, derives every
-current sequence/head pair, and creates the witness database with exclusive
-creation. Normal startup and restart never enroll, reset or infer replacement
-witness state. An existing database cannot be enrolled again. Missing,
+current sequence/head pair, durably creates the enrollment receipt with exclusive
+creation, and only then creates the witness database. The receipt is never removed
+on partial enrollment failure. Normal startup and restart require its exact
+deployment/contract binding and never enroll, reset or infer replacement witness
+state. An existing receipt or database cannot be enrolled again, so deleting the
+witness database does not enable bootstrap against rolled-back custody. Missing,
 malformed, unauthenticated, substituted or differently bound witness state
 causes startup or restart to use the existing cutoff behavior.
 

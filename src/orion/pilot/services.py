@@ -120,7 +120,10 @@ def serve(value):
     keys = capabilities("/private/capabilities")
     if role == "witness":
         owner = ProgressWitness(
-            "/state", private_bytes("/private/signing-key"), value["witness_contract"]
+            "/state",
+            private_bytes("/private/signing-key"),
+            value["witness_contract"],
+            "/private/witness-enrollment",
         )
         dispatch = owner.dispatch
     elif role == "audit":

@@ -401,9 +401,10 @@ def controller(value):
     manifest_path = root / "manifest.json"
     manifest_path.write_text(json.dumps(manifest))
     manifest_path.chmod(0o600)
+    runtime_entrypoint = str(Path(sys.executable).with_name("orion-runtime"))
     enrolled = subprocess.run(
         [
-            str(Path(sys.executable).with_name("orion-runtime")),
+            runtime_entrypoint,
             "--enroll-witness",
             str(manifest_path),
         ],
@@ -1124,6 +1125,21 @@ def controller(value):
             checks["missing_enrolled_witness_denies_fresh_runtime"] = (
                 runtime.wait(timeout=10) == 2
                 and missing["status"] == "BLOCKED"
+                and command(server, {"command": "stats"}) == before_io
+            )
+            reenrollment = subprocess.run(
+                [runtime_entrypoint, "--enroll-witness", str(manifest_path)],
+                capture_output=True,
+                text=True,
+                env={"PATH": os.defpath},
+                timeout=15,
+                check=False,
+            )
+            reenrollment_report = json.loads(reenrollment.stdout)
+            checks["missing_enrolled_witness_cannot_reset_history"] = (
+                reenrollment.returncode == 2
+                and reenrollment_report["status"] == "BLOCKED"
+                and not witness_path.exists()
                 and command(server, {"command": "stats"}) == before_io
             )
             shutil.copyfile(backup, witness_path)

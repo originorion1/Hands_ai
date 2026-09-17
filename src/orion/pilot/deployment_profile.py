@@ -118,6 +118,7 @@ def profile_for_manifest(manifest, artifact):
             "secret_file_mode": "0600",
             "persistent_state": ["audit", "evidence"],
             "independent_witness_state": "witness",
+            "witness_enrollment_receipt": str(Path(root) / "witness-enrollment"),
         },
         "witness": {
             "version": WITNESS_VERSION,
