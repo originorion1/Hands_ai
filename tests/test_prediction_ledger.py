@@ -1,9 +1,15 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
 
-from orion.learning.prediction_ledger import Outcome, Prediction, PredictionLedger
+from orion.learning.prediction_ledger import (
+    ModelRevision,
+    Outcome,
+    Prediction,
+    PredictionLedger,
+)
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
 REF = UUID('00000000-0000-4000-8000-000000000001')
@@ -111,8 +117,6 @@ def test_offline_demonstration_is_repeatable_and_reports_all_outcomes():
 
 
 def test_cohorts_are_never_silently_pooled(tmp_path):
-    from dataclasses import replace
-
     ledger = PredictionLedger(tmp_path / 'ledger.db', clock=lambda: NOW)
     first = prediction()
     ledger.record(first)
@@ -143,3 +147,52 @@ def test_cohort_filters_must_be_complete_and_valid(tmp_path, filters):
     ledger = PredictionLedger(tmp_path / 'ledger.db', clock=lambda: NOW)
     with pytest.raises(ValueError):
         ledger.score('tenant-a', **filters)
+
+
+def test_revision_requires_resolved_prior_outcome_evidence_and_order(tmp_path):
+    path = tmp_path / 'ledger.db'
+    ledger = PredictionLedger(path, clock=lambda: NOW)
+    ledger.record(prediction())
+    later = NOW + timedelta(days=1)
+    ledger = PredictionLedger(path, clock=lambda: later)
+    ledger.resolve(Outcome('tenant-a', 'p1', later, True, (REF,)))
+    revision = ModelRevision(
+        'tenant-a', 'revision-1', 'stockout-within-24h-v1', 'binary', 86400,
+        'baseline-v1', 'revised-v1', 0.8, 0.9, later, (REF,),
+    )
+    ledger.record_revision(revision)
+    ledger.record_revision(revision)
+    assert ledger.revisions('tenant-a') == (revision,)
+    with pytest.raises(ValueError, match='conflict'):
+        ledger.record_revision(replace(revision, revised_probability=0.7))
+    with pytest.raises(ValueError, match='evidence'):
+        ledger.record_revision(replace(
+            revision, revision_id='revision-2',
+            evidence_ids=(UUID('00000000-0000-4000-8000-000000000099'),),
+        ))
+    with pytest.raises(ValueError, match='precede'):
+        ledger.record_revision(replace(
+            revision, revision_id='revision-3', decided_at=NOW,
+        ))
+
+
+def test_paired_score_requires_same_case_outcome_evidence_unit_and_horizon(tmp_path):
+    path = tmp_path / 'ledger.db'
+    ledger = PredictionLedger(path, clock=lambda: NOW)
+    for identity, model, probability in (
+        ('prior', 'baseline-v1', 0.5), ('revised', 'revised-v1', 0.75),
+    ):
+        ledger.record(Prediction(
+            'tenant-a', identity, 'target-v1', model, NOW, NOW,
+            NOW + timedelta(days=1), probability, (REF,), 'USD', 'case-1',
+        ))
+    later = PredictionLedger(path, clock=lambda: NOW + timedelta(days=1))
+    later.resolve(Outcome('tenant-a', 'prior', NOW + timedelta(days=1), True, (REF,)))
+    later.resolve(Outcome('tenant-a', 'revised', NOW + timedelta(days=1), True, (REF,)))
+    comparison = later.paired_score(
+        'tenant-a', target_definition='target-v1', unit='USD',
+        prior_model_version='baseline-v1', revised_model_version='revised-v1',
+    )
+    assert comparison['prior_brier'] == pytest.approx(0.25)
+    assert comparison['revised_brier'] == pytest.approx(0.0625)
+    assert comparison['prediction_improved'] is True
