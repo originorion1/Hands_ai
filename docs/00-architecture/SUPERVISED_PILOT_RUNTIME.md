@@ -48,12 +48,19 @@ the console entrypoint; integrity checking is not publisher-signature attestatio
 
 For synthetic deployment only, the trusted unprivileged operator provides a
 private manifest, existing canonical separately approved metadata/read configs,
-private keys/state, pinned TLS certificate, installed RECORD digest and bounded
-archive policy. Mode must be `synthetic_read_only`; host must be the fixed approved
-documentation IPv4 or private IPv6 address. No arbitrary hostname/port, proxy,
-redirect, executable or force-live selector exists.
+private keys/state, separately retained witness storage, pinned TLS certificate,
+installed RECORD digest and bounded archive policy. Mode must be
+`synthetic_read_only`; host must be the fixed approved documentation IPv4 or
+private IPv6 address. No arbitrary hostname/port, proxy, redirect, executable or
+force-live selector exists. Before first startup, the operator explicitly enrolls
+the witness once. Enrollment durably leaves a runtime-nonreplaceable receipt
+outside the audit/evidence rollback subdirectories before creating witness
+storage; normal startup, restart and repeated enrollment never create replacement
+history. The witness service mounts that receipt read-only; application and
+custody roles cannot write it.
 
 ```sh
+/operator/runtime/bin/orion-runtime --enroll-witness /operator/private/runtime-manifest.json
 /operator/runtime/bin/orion-runtime --serve /operator/private/runtime-manifest.json
 ```
 
@@ -73,6 +80,7 @@ to production or host network is created.
 | Process | Network / selectively mounted custody |
 | --- | --- |
 | Trusted operator supervisor | Private control fabric; operator/issuer inputs and fresh role capabilities |
+| Progress witness | Separate zero-network jail; witness key and writable monotonic deployment/scope/head positions only |
 | Authorization/admission | Zero-network jail; issuer material, opaque normalizer secret, audit/archive IPC; no source credential |
 | Audit custody | Separate zero-network jail; independent key, canonical writable journal and fsync accepted tip |
 | Evidence custody | Separate zero-network jail; independent key, bounded archive/revision index and fsync accepted tip |
@@ -131,10 +139,12 @@ Emergency stop removes egress first, then attempts durable controls for both
 journals. Failed nft commands or missing acknowledgements report BLOCKED without
 skipping termination/controls or claiming successful kernel/durability proof.
 
-Restart revalidates the artifact and reconstructs protected journal/archive owners;
-attempts, bytes, stop/revocation and revisions remain. Armed authority and discovery
-completion never restore. Tip/database/config/key/scope/payload mismatch denies
-recovery; orphaned pending reservations are not repaired, retried or refunded.
+Restart revalidates the artifact, deployment profile, artifact binding, secret
+layout and separately retained witness before reconstructing protected
+journal/archive owners. Attempts, bytes, stop/revocation and revisions remain.
+Armed authority and discovery completion never restore. Witness disagreement or
+tip/database/config/key/scope/payload mismatch denies recovery; orphaned pending
+reservations are not repaired, retried or refunded.
 
 ## Exact-artifact evidence, trust and remaining gates
 
@@ -152,8 +162,11 @@ Trusted: reviewed kernel/host/setup and operator, private key custody,
 authorization/admission and its sealed normalizer, gateway/audit/archive owners,
 interpreter/native tools, TLS/source-body/classification truth, clock and verifier.
 The normalizer's opaque seal is not the source credential. A hostile privileged
-host/custody owner is not contained by HMAC. Simultaneous rollback/deletion of a
-database and protected accepted tip needs an external monotonic witness.
+host/custody owner is not contained by HMAC. The separately retained progress
+witness detects rollback of an audit/evidence database together with its protected
+accepted tip while the witness database, key and deployment binding remain intact.
+It does not prove whole-host or VM/filesystem-snapshot rollback protection; see
+`ROLLBACK_WITNESS_CONTRACT.md`.
 
 All 19 release categories stay critical. SECURITY/SECRETS remain FAIL for legacy
 same-process APIs. Others stay BLOCKED for independent issuer/operator/IPC identity
@@ -223,9 +236,10 @@ I/O or protected-history mutation. Fabricating one's own secret/grant is not acc
 to the real issuer or source credential. Imported methods alone are not containment.
 
 Trusted host/operator, interpreter/native tools, kernel and custody services remain
-outside this application-compromise claim. Privileged custody/host compromise,
-external monotonic rollback attestation, production key/operator identity and OS
-CPU/memory quotas are not proven. Request/byte/rate budgets are not CPU quotas.
+outside this application-compromise claim. The retained witness closes only the
+specified custody-directory rollback case; whole-host rollback, compromised
+trusted custody, production key/operator identity and OS CPU/memory quotas are not
+proven. Request/byte/rate budgets are not CPU quotas.
 SECURITY and SECRETS therefore retain their broader repository FAIL requirements;
 all other seventeen critical release gates remain BLOCKED as enumerated in the
 unchanged executable gate report. Synthetic installed-boundary proof does not

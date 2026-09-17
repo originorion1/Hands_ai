@@ -17,13 +17,14 @@ registry. A manifest cannot supply rules, instruments, callbacks or origins.
 The study scope is the canonical tenant/company/source already shared by the
 separate metadata and record grants, not caller-selected output scope.
 
-Start the clean installed `orion-runtime --serve PRIVATE_MANIFEST` through its
-existing private supervisor. Governed metadata discovery and separately armed
-record acquisition retain their original authorization, budget, admission and
-provenance flow. Protected admission publishes transport observations separately
-from `semantic_assessment`. The assessment is canonical UNKNOWN, with graph node
-identities/status/provenance, evidence references, scope and evaluator/policy
-identity. `AVAILABLE` means evaluation and durable custody acceptance succeeded,
+Explicitly enroll the witness once, then start the clean installed
+`orion-runtime --serve PRIVATE_MANIFEST` through its existing private supervisor.
+Governed metadata discovery and separately armed record acquisition retain their
+original authorization, budget, admission and provenance flow. Protected admission
+publishes transport observations separately from `semantic_assessment`. The
+assessment is canonical UNKNOWN, with graph node identities/status/provenance,
+evidence references, scope and evaluator/policy identity. `AVAILABLE` means
+evaluation, durable custody acceptance and retained-witness advancement succeeded,
 not that business meaning is validated. `UNAVAILABLE` has no cached world model.
 
 Before successful publication, sequence 1 is committed in the existing semantic
@@ -65,13 +66,16 @@ termination/fresh startup, retained budgets/no re-arm, emergency stop, failed
 append, and missing/changed/expired archive originals. Existing WSL regressions
 remain required; a skip is NOT PROVEN, never containment certification.
 
-The host/operator, custody owner, clock and reviewed artifact remain trusted.
-Simultaneous privileged rollback of database and accepted custody tip is NOT
-PROVEN. Production collector-root/rollback attestations, commercial meaning and
-the complete release-candidate evidence cannot be manufactured here. This does
-not close the complete WORLD_MODEL gate, SECURITY or SECRETS. Every existing
-release requirement/status/scanner remains unchanged; the historical WORLD_MODEL
-reason is conservative, not an inventory of this implemented subset.
+The host/operator, custody owner, clock and reviewed artifact remain trusted. The
+separately retained witness now rejects simultaneous rollback of this evidence
+database and accepted custody tip while the witness database, key and deployment
+binding remain intact. It does not prove whole-host or snapshot rollback
+protection; `ROLLBACK_WITNESS_CONTRACT.md` defines the exact claim. Production
+collector-root and whole-host rollback attestations, commercial meaning and the
+complete release-candidate evidence cannot be manufactured here. This does not
+close the complete WORLD_MODEL gate, SECURITY or SECRETS. Every existing release
+requirement/status/scanner remains unchanged; the historical WORLD_MODEL reason
+is conservative, not an inventory of this implemented subset.
 
 `LIVE_PILOT_READY=false`; `execution_allowed=false`. No customer access, customer
 credentials, business-system writes, merge or activation is authorized.

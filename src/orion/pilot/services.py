@@ -18,6 +18,7 @@ from .gateway import CredentialGateway
 from .ipc import Endpoint, rpc
 from .isolation import net_child
 from .journal import JournalDenied
+from .progress_witness import ProgressWitness, stream_for
 from .runtime import SupervisedReadOnlyRuntime
 from .semantic_runtime import RuntimeSemanticCustody
 
@@ -117,10 +118,27 @@ def serve(value):
     role = value["role"]
     configs = decode(private_bytes("/private/configs"))
     keys = capabilities("/private/capabilities")
-    if role == "audit":
+    if role == "witness":
+        owner = ProgressWitness(
+            "/state",
+            private_bytes("/private/signing-key"),
+            value["witness_contract"],
+            "/private/witness-enrollment",
+        )
+        dispatch = owner.dispatch
+    elif role == "audit":
+        def witness_client(action, data):
+            return rpc(
+                "/witness/service", "audit", keys["witness"], action, data
+            )
+
         owners = {
             digest(c): AuditCustody(
-                Path("/state") / c["operation"], private_bytes("/private/signing-key"), c
+                Path("/state") / c["operation"],
+                private_bytes("/private/signing-key"),
+                c,
+                witness=witness_client,
+                witness_stream=stream_for(configs, "audit", digest(c)),
             )
             for c in configs
         }
@@ -130,9 +148,16 @@ def serve(value):
                 raise JournalDenied("audit binding denied")
             return owners[data["binding"]].dispatch(caller, action, data)
     elif role == "evidence":
+        def witness_client(action, data):
+            return rpc(
+                "/witness/service", "evidence", keys["witness"], action, data
+            )
+
         owner = EvidenceCustody(
             "/state", private_bytes("/private/signing-key"), configs, policy=value["policy"],
             semantic_limit=100 if value.get("semantic", {}).get("version") == 2 else 1,
+            witness=witness_client,
+            witness_stream=stream_for(configs, "evidence"),
         )
         if "semantic" in value:
             semantic_owner = RuntimeSemanticCustody(owner, value["semantic"])

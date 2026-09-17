@@ -15,6 +15,7 @@ from orion.pilot.deployment_profile import (
     validate_profile,
     validate_secret_layout,
 )
+from orion.pilot.progress_witness import deployment_identity_for_manifest
 
 
 def _inputs(tmp_path):
@@ -24,6 +25,7 @@ def _inputs(tmp_path):
         "configs": [{"operation": "metadata"}, {"operation": "read"}],
         "state_directory": str(tmp_path / "state"),
         "keys_directory": str(tmp_path / "keys"),
+        "witness_directory": str(tmp_path / "witness"),
         "certificate": str(tmp_path / "certificate.pem"),
         "certificate_sha256": "0" * 64,
         "artifact_record_sha256": "a" * 64,
@@ -31,6 +33,7 @@ def _inputs(tmp_path):
         "policy": {"max_entries": 20, "max_bytes": 1024, "ttl_seconds": 60},
     }
     artifact = {"name": "orion-core", "version": "0.1.0", "record_sha256": "a" * 64}
+    manifest["deployment_identity"] = deployment_identity_for_manifest(manifest, artifact)
     profile = profile_for_manifest(manifest, artifact)
     manifest["deployment_profile"] = profile
     manifest["deployment_profile_sha256"] = profile_sha256(profile)
@@ -47,6 +50,7 @@ def test_profile_binds_artifact_roles_mounts_network_and_secret_owners(tmp_path)
         "interpreter_mode": "isolated_python",
     }
     assert validated["roles"]["gateway"]["network"] == "approved-destination-only"
+    assert validated["roles"]["witness"]["state"] == "witness:rw"
     assert validated["roles"]["reasoning"]["secret_refs"] == []
     assert validated["secret_references"]["source-credential"]["owner_role"] == "gateway"
     assert validated["lifecycle"]["authority_restore"] == "forbidden"
@@ -108,8 +112,10 @@ def test_restart_revalidates_profile_and_secret_custody_before_reconstruction(
     manifest, artifact = _inputs(tmp_path)
     state = Path(manifest["state_directory"])
     keys = Path(manifest["keys_directory"])
+    witness = Path(manifest["witness_directory"])
     state.mkdir(mode=0o700)
     keys.mkdir(mode=0o700)
+    witness.mkdir(mode=0o700)
     for name in manifest["deployment_profile"]["secret_references"]:
         path = keys / name
         path.write_text("synthetic-private-input")

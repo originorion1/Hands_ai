@@ -63,6 +63,12 @@ def validate_protected_paths(*paths):
             ):
                 raise KernelUnavailable("ambient custody exposure denied")
             protected.append(actual)
+        if any(
+            left.is_relative_to(right) or right.is_relative_to(left)
+            for index, left in enumerate(protected)
+            for right in protected[index + 1 :]
+        ):
+            raise KernelUnavailable("overlapping custody roots denied")
         return tuple(protected)
     except OSError:
         raise KernelUnavailable("protected custody placement unavailable") from None

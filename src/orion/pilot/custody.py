@@ -20,6 +20,7 @@ from ..contracts import utc_now
 from .broker import Broker
 from .broker_contract import MAX_FRAME, authenticate, digest, exact
 from .journal import AttemptJournal, JournalDenied, TransportLimits
+from .progress_witness import progress_state
 
 
 class AuditCustody:
@@ -30,7 +31,7 @@ class AuditCustody:
     Both storage and the anchor are outside the hostile broker's writable namespace.
     """
 
-    def __init__(self, directory, key, config):
+    def __init__(self, directory, key, config, *, witness=None, witness_stream=None):
         self.directory = Path(directory)
         self.anchor = self.directory / "accepted-head"
         self.binding = digest(config)
@@ -44,8 +45,38 @@ class AuditCustody:
             limits=TransportLimits(**limits),
             expected_head=self.anchor.read_text() if self.anchor.exists() else None,
         )
+        if (witness is None) != (witness_stream is None):
+            raise JournalDenied("complete audit witness required")
+        self.witness, self.witness_stream = witness, witness_stream
         self.lock = threading.RLock()
+        self._verify_witness()
         self.pin()
+
+    def _progress(self):
+        if self.witness_stream is None:
+            return None
+        sequence, head = self.journal.progress()
+        return progress_state(self.witness_stream, sequence, head)
+
+    def _verify_witness(self):
+        if self.witness is not None:
+            self.witness("verify", {"state": self._progress()})
+
+    def _advance_witness(self, previous):
+        if self.witness is None:
+            return
+        current = self._progress()
+        if current == previous:
+            self.witness("verify", {"state": current})
+            return
+        self.witness(
+            "advance",
+            {
+                "expected_sequence": previous["sequence"],
+                "expected_head": previous["head"],
+                "state": current,
+            },
+        )
 
     def pin(self):
         temporary = self.directory / "next-head"
@@ -69,6 +100,8 @@ class AuditCustody:
             raise JournalDenied("audit scope denied")
         args = value["arguments"]
         with self.lock:
+            previous = self._progress()
+            self._verify_witness()
             if action == "inspect":
                 exact(args, ())
                 result = self.journal.inspect()
@@ -107,6 +140,7 @@ class AuditCustody:
             else:
                 raise JournalDenied("audit operation denied")
             self.pin()
+            self._advance_witness(previous)
             return result
 
 

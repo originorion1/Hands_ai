@@ -152,6 +152,12 @@ class AttemptJournal:
                 'stopped':any(e['event']=='stop' for e in events),
                 'pending':events[-1]['event']=='attempt','head':self.head}
 
+    def progress(self):
+        """Verified chain position for the separately retained witness."""
+        with self._connect() as db:
+            events = self._verify(db)
+        return len(events), self.head
+
     def lifecycle(self, event, *, at, references):
         """Bounded digest-only broker events; no records, paths or secret values.
 
