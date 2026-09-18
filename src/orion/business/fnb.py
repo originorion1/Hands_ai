@@ -30,7 +30,7 @@ FNB_RULES = tuple(_rule(role, 'number', unit, 'aggregate') for role, unit in (
     ('recorded_waste', 'kg'), ('unit_cost', 'USD_per_kg'),
 )) + (_rule('business_event_date', 'date', 'calendar', 'temporal'),) + tuple(
     _rule(role, 'reference', 'identity', 'relationship') for role in (
-        'served_item', 'ingredient', 'prepared_item'))
+        'served_item', 'ingredient', 'prepared_item', 'sales_header'))
 
 VERSION = 'fnb-sample-assessment-v1'
 
@@ -159,7 +159,33 @@ def _assess_restaurant(study, *, tenant_id, company, source_id):
         c = r['cells'][role]
         return c['target_resource'], c['value']
 
-    sales = select('gross_sales', 'served_units', 'served_item', 'business_event_date')
+    flat_sales = select('gross_sales', 'served_units', 'served_item', 'business_event_date')
+    split_sales = select('gross_sales', 'served_units', 'served_item')
+    split_sales = [row for row in split_sales if 'business_event_date' not in row['cells']]
+    joined_sales = []
+    joined_incomplete = False
+    for detail in split_sales:
+        if 'sales_header' not in detail['cells']:
+            joined_incomplete = True
+            continue
+        matches = [row for row in normalized
+                   if (row['resource'], row['identity']) == target(detail, 'sales_header')
+                   and 'business_event_date' in row['cells']]
+        if len(matches) != 1:
+            joined_incomplete = True
+            continue
+        header = matches[0]
+        joined_sales.append({
+            'resource': detail['resource'], 'identity': detail['identity'],
+            'cells': {**detail['cells'],
+                      'business_event_date': header['cells']['business_event_date']},
+            'evidence_ids': sorted(set(detail['evidence_ids'] + header['evidence_ids'])),
+            'read_window': detail['read_window'],
+        })
+    if joined_incomplete:
+        joined_sales = []
+        unknowns.add('Missing or ambiguous sales-header relationship prevents sales normalization.')
+    sales = flat_sales + joined_sales
     servings = select('served_units', 'served_item', 'business_event_date')
     purchases = select('received_quantity', 'ingredient', 'business_event_date')
     purchase_costs = select('receipt_cost', 'ingredient', 'business_event_date')
@@ -304,7 +330,7 @@ def _assess_restaurant(study, *, tenant_id, company, source_id):
                       'target_resource': cell['target_resource'], 'target_identity': cell['value'],
                       'status': cell['status'], 'evidence_ids': cell['evidence_ids']}
                      for r in normalized for role, cell in r['cells'].items()
-                     if role in ('served_item', 'ingredient', 'prepared_item')]
+                     if role in ('served_item', 'ingredient', 'prepared_item', 'sales_header')]
     result = {'version': VERSION, 'tenant': tenant_id, 'company': company, 'source': source_id,
         'scope': 'IDENTIFIED_ADMITTED_SAMPLES_ONLY', 'execution_allowed': False,
         'allow_live_customer_access': False, 'action_authority': 'NONE',

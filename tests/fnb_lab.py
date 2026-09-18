@@ -33,17 +33,24 @@ from orion.understanding.semantic_study import (
 
 class Restaurant(Organization):
     def __init__(self, seed=41, *, tenant='t_synthetic', reorder=False, note='',
-                 source='https://restaurant.test', structural_variant=False):
+                 source='https://restaurant.test', structural_variant=False,
+                 header_detail=False, ambiguous_header=False):
         rng = random.Random(seed)
         opaque = lambda prefix: prefix + format(rng.getrandbits(64), 'x')
-        self.resources = tuple(opaque('r_') for _ in range(6))
-        self.kinds = (
+        if ambiguous_header and not header_detail:
+            raise ValueError('ambiguous header relationship requires header/detail representation')
+        self.resources = tuple(opaque('r_') for _ in range(7 if header_detail else 6))
+        flat_kinds = (
             ('Float', 'Float', 'Date', 'Date', 'Date', 'Link'),
             ('Float', 'Float', 'Date', 'Date', 'Date', 'Link'),
             ('Float', 'Date', 'Date', 'Date', 'Link'),
             ('Float', 'Date', 'Date', 'Date', 'Link', 'Link'),
             ('Float', 'Date', 'Date', 'Date', 'Link'),
             ('Float', 'Date', 'Date', 'Date'))
+        self.kinds = ((('Date', 'Date', 'Date'),
+                       ('Float', 'Float', 'Link', 'Link')
+                       + (('Link',) if ambiguous_header else ()) + ('Date',),
+                       *flat_kinds[1:]) if header_detail else flat_kinds)
         if structural_variant:
             self.kinds = (self.kinds[0] + ('Float',), *self.kinds[1:])
         self.columns = tuple(tuple(opaque('f_') for _ in kinds) for kinds in self.kinds)
@@ -57,7 +64,8 @@ class Restaurant(Organization):
             Instrument('https://witness.test', 'r_b2', 'synthetic-witness',
                        ('aggregate', 'temporal', 'relationship')))
         request = MetadataRequest(tenant, self.company, self.source)
-        grant = MetadataAuthorization('m_fnb', request, NOW + timedelta(hours=1), True, 9, 6, ())
+        grant = MetadataAuthorization(
+            'm_fnb', request, NOW + timedelta(hours=1), True, 9, len(self.resources), ())
         discovered = launch_pilot_metadata(request, authorization_id='m_fnb',
             lookup=lambda _: grant, adapter=ERPNextPilotMetadataReader(source_id=self.source,
                 api_key='fixture', api_secret='fixture', opener=self.metadata), clock=lambda: self.now)
@@ -67,7 +75,7 @@ class Restaurant(Organization):
                                   evidence_lookup=self.archive.get, rules=FNB_RULES)
         self.discovered = discovered
         # Source rows are an opaque encoding of the synthetic operational ledger.
-        self.values = (
+        flat_values = (
             ((100, 10, '2024-06-01', '2024-06-04', '2024-06-05', 'p_0'),
              (144, 12, '2024-06-02', '2024-06-04', '2024-06-05', 'p_1'),
              (121, 11, '2024-06-03', '2024-06-04', '2024-06-05', 'p_0')),
@@ -82,10 +90,18 @@ class Restaurant(Organization):
             ((7, '2024-06-01', '2024-06-04', '2024-06-05'),
              (9, '2024-06-01', '2024-06-04', '2024-06-05'),
              (4, '2024-06-01', '2024-06-04', '2024-06-05')))
+        self.values = (((('2024-06-01', '2024-06-04', '2024-06-05'),
+                         ('2024-06-02', '2024-06-04', '2024-06-05'),
+                         ('2024-06-03', '2024-06-04', '2024-06-05')),
+                        tuple((amount, units, f'x_{index}', item,
+                               *((f'x_{index}',) if ambiguous_header else ()), '2024-06-04')
+                              for index, (amount, units, *_, item) in
+                              enumerate(flat_values[0])),
+                        *flat_values[1:]) if header_detail else flat_values)
         if structural_variant:
             self.values = (tuple((*row, 999) for row in self.values[0]), *self.values[1:])
         # Independent process witness values: no reading self.values or field lookup.
-        self.process = (
+        flat_process = (
             {'gross_sales': (100, 144, 121), 'served_units': (10, 12, 11),
              'business_event_date': ('2024-06-01', '2024-06-02', '2024-06-03'),
              'served_item': ('p_0', 'p_1', 'p_0')},
@@ -98,8 +114,14 @@ class Restaurant(Organization):
             {'recorded_waste': (1, 2), 'business_event_date': ('2024-06-02', '2024-06-03'),
              'ingredient': ('p_2', 'p_2')},
             {'unit_cost': (7, 9, 4), 'business_event_date': ('2024-06-01',) * 3})
+        self.process = ((
+            {'business_event_date': ('2024-06-01', '2024-06-02', '2024-06-03')},
+            {'gross_sales': (100, 144, 121), 'served_units': (10, 12, 11),
+             'sales_header': ('x_0', 'x_1', 'x_2'),
+             'served_item': ('p_0', 'p_1', 'p_0')},
+            *flat_process[1:]) if header_detail else flat_process)
         # A second synthetic collector's independently supplied reconciliation components.
-        self.components = (
+        flat_components = (
             {'gross_sales': ((40, 60), (70, 74), (60, 61)),
              'served_units': ((4, 6), (5, 7), (5, 6))},
             {'receipt_cost': ((9, 11), (15, 17)), 'received_quantity': ((2, 3), (3, 5))},
@@ -107,7 +129,9 @@ class Restaurant(Organization):
             {'recipe_quantity': ((0.1, 0.1), (0.125, 0.175))},
             {'recorded_waste': ((0.5, 0.5), (1, 1))},
             {'unit_cost': ((3, 4), (4, 5), (2, 2))})
-        self.witness = (
+        self.components = (({}, flat_components[0], *flat_components[1:])
+                           if header_detail else flat_components)
+        flat_witness = (
             {'business_event_date': ('2024-06-01', '2024-06-02', '2024-06-03'),
              'served_item': ('p_0', 'p_1', 'p_0')},
             {'business_event_date': ('2024-06-01', '2024-06-02'), 'ingredient': ('p_2', 'p_2')},
@@ -116,6 +140,14 @@ class Restaurant(Organization):
              'prepared_item': ('p_0', 'p_1'), 'ingredient': ('p_2', 'p_2')},
             {'business_event_date': ('2024-06-02', '2024-06-03'), 'ingredient': ('p_2', 'p_2')},
             {'business_event_date': ('2024-06-01',) * 3})
+        self.witness = ((
+            {'business_event_date': ('2024-06-01', '2024-06-02', '2024-06-03')},
+            {'gross_sales': (100, 144, 121), 'served_units': (10, 12, 11),
+             'sales_header': ('x_0', 'x_1', 'x_2'),
+             'served_item': ('p_0', 'p_1', 'p_0')},
+            *flat_witness[1:]) if header_detail else flat_witness)
+        self.header_detail = header_detail
+        self.product_index = len(self.resources) - 1
 
     def metadata(self, req, timeout):
         self.calls.append('metadata')
@@ -133,7 +165,7 @@ class Restaurant(Organization):
     def records(self):
         for n, resource in enumerate(self.resources):
             rows = [dict(zip((*self.columns[n], self.identity, self.partition),
-                (*v, f'p_{i}' if n == 5 else f'x_{i}', self.company), strict=True))
+                (*v, f'p_{i}' if n == self.product_index else f'x_{i}', self.company), strict=True))
                 for i, v in enumerate(self.values[n])]
             when = self.columns[n][self.kinds[n].index('Date')]
             observations, scope = self.admit(self.source, resource,
@@ -155,8 +187,11 @@ class Restaurant(Organization):
                         value = (sum(parts) if parts else self.witness[n][role][i]) if j else expected
                         row = dict(zip(ANCHOR_FIELDS, (f'a_{self.counter}', self.company,
                             '2024-06-06', self.source, self.resources[n],
-                            f'p_{i}' if n == 5 else f'x_{i}', *rule.required[j], value,
-                            self.resources[5] if rule.kind == 'reference' else '', ''), strict=True))
+                            f'p_{i}' if n == self.product_index else f'x_{i}',
+                            *rule.required[j], value,
+                            (self.resources[0] if role == 'sales_header'
+                             else self.resources[self.product_index])
+                            if rule.kind == 'reference' else '', ''), strict=True))
                         if units and role in units:
                             row['dimension'] = units[role]
                         if parts:

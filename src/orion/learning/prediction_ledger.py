@@ -6,6 +6,7 @@ evidence store. This ledger checks time and identity, not source authenticity.
 
 from __future__ import annotations
 
+import hmac
 import json
 import math
 import sqlite3
@@ -16,6 +17,7 @@ from pathlib import Path
 from uuid import UUID
 
 from ..contracts import utc_now
+from ..understanding.role_checkpoint import checkpoint_sha256
 
 
 def _time(value: datetime) -> datetime:
@@ -135,7 +137,36 @@ class Outcome:
         _references(self.evidence_ids)
 
 
-def _json(record: Prediction | Outcome | ModelRevision) -> str:
+@dataclass(frozen=True, slots=True)
+class LearningCycleCheckpoint:
+    """Reference-only interrupted-cycle state; authority is deliberately absent."""
+
+    tenant_id: str
+    cycle_id: str
+    prediction_id: str
+    state: str
+    created_at: datetime
+    plan_json: str
+    plan_sha256: str
+
+    def __post_init__(self) -> None:
+        for value in (self.tenant_id, self.cycle_id, self.prediction_id):
+            _identity(value)
+        if self.state != 'DEVELOPMENT_PENDING':
+            raise ValueError('unsupported learning-cycle checkpoint state')
+        _time(self.created_at)
+        if not isinstance(self.plan_json, str):
+            raise TypeError('checkpoint plan must be JSON text')
+        try:
+            plan = json.loads(self.plan_json)
+        except json.JSONDecodeError as error:
+            raise ValueError('checkpoint plan must be valid JSON') from error
+        if not isinstance(plan, dict) or not hmac.compare_digest(
+                checkpoint_sha256(self.plan_json), self.plan_sha256):
+            raise ValueError('learning-cycle checkpoint integrity mismatch')
+
+
+def _json(record: Prediction | Outcome | ModelRevision | LearningCycleCheckpoint) -> str:
     def encode(value):
         if isinstance(value, datetime):
             return _time(value).isoformat()
@@ -170,8 +201,98 @@ class PredictionLedger:
                     tenant TEXT NOT NULL, identity TEXT NOT NULL, payload TEXT NOT NULL,
                     recorded_at TEXT NOT NULL, PRIMARY KEY (tenant, identity)
                 );
+                CREATE TABLE IF NOT EXISTS learning_cycle_checkpoints (
+                    tenant TEXT NOT NULL, identity TEXT NOT NULL,
+                    prediction_identity TEXT NOT NULL, payload TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL, PRIMARY KEY (tenant, identity),
+                    FOREIGN KEY (tenant, prediction_identity)
+                        REFERENCES predictions(tenant, identity)
+                );
             ''')
             connection.commit()
+
+    def record_cycle_checkpoint(self, checkpoint: LearningCycleCheckpoint) -> None:
+        """Bind an immutable reference-only plan to one still-pending prediction."""
+        if not isinstance(checkpoint, LearningCycleCheckpoint):
+            raise TypeError('checkpoint must be LearningCycleCheckpoint')
+        payload = _json(checkpoint)
+        with self._connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            prediction = connection.execute('''
+                SELECT p.identity, o.identity FROM predictions p
+                LEFT JOIN prediction_outcomes o
+                  ON p.tenant=o.tenant AND p.identity=o.identity
+                WHERE p.tenant=? AND p.identity=?
+            ''', (checkpoint.tenant_id, checkpoint.prediction_id)).fetchone()
+            if prediction is None or prediction[1] is not None:
+                raise ValueError('learning-cycle checkpoint requires a pending prediction')
+            existing = connection.execute(
+                'SELECT payload FROM learning_cycle_checkpoints WHERE tenant=? AND identity=?',
+                (checkpoint.tenant_id, checkpoint.cycle_id),
+            ).fetchone()
+            if existing:
+                if existing[0] != payload:
+                    raise ValueError('learning-cycle checkpoint replay conflict')
+                return
+            now = _time(self.clock())
+            if _time(checkpoint.created_at) > now:
+                raise ValueError('learning-cycle checkpoint cannot be created in the future')
+            connection.execute(
+                'INSERT INTO learning_cycle_checkpoints VALUES (?, ?, ?, ?, ?)',
+                (checkpoint.tenant_id, checkpoint.cycle_id, checkpoint.prediction_id,
+                 payload, now.isoformat()),
+            )
+            connection.commit()
+
+    def cycle_checkpoint(self, tenant_id: str, cycle_id: str) -> LearningCycleCheckpoint:
+        """Load one integrity-checked plan without restoring an acquisition port."""
+        _identity(tenant_id)
+        _identity(cycle_id)
+        with self._connect() as connection:
+            row = connection.execute(
+                'SELECT payload FROM learning_cycle_checkpoints WHERE tenant=? AND identity=?',
+                (tenant_id, cycle_id),
+            ).fetchone()
+        if row is None:
+            raise ValueError('unknown learning-cycle checkpoint')
+        value = json.loads(row[0])
+        return LearningCycleCheckpoint(
+            tenant_id=value['tenant_id'], cycle_id=value['cycle_id'],
+            prediction_id=value['prediction_id'], state=value['state'],
+            created_at=datetime.fromisoformat(value['created_at']),
+            plan_json=value['plan_json'], plan_sha256=value['plan_sha256'],
+        )
+
+    def pending_prediction(self, tenant_id: str, prediction_id: str) -> Prediction:
+        """Recover the canonical pending prediction exactly as committed."""
+        _identity(tenant_id)
+        _identity(prediction_id)
+        with self._connect() as connection:
+            row = connection.execute('''
+                SELECT p.payload, o.identity FROM predictions p
+                LEFT JOIN prediction_outcomes o
+                  ON p.tenant=o.tenant AND p.identity=o.identity
+                WHERE p.tenant=? AND p.identity=?
+            ''', (tenant_id, prediction_id)).fetchone()
+        if row is None or row[1] is not None:
+            raise ValueError('checkpoint prediction is missing or no longer pending')
+        value = json.loads(row[0])
+        cohort = value.get('cohort')
+        return Prediction(
+            tenant_id=value['tenant_id'], prediction_id=value['prediction_id'],
+            target_definition=value['target_definition'], model_version=value['model_version'],
+            issued_at=datetime.fromisoformat(value['issued_at']),
+            evidence_cutoff=datetime.fromisoformat(value['evidence_cutoff']),
+            horizon_end=datetime.fromisoformat(value['horizon_end']),
+            probability=value['probability'],
+            evidence_ids=tuple(UUID(item) for item in value['evidence_ids']),
+            unit=value.get('unit', 'binary'),
+            cohort=(BusinessCohort(
+                cohort['entity_id'], cohort['location_id'],
+                datetime.fromisoformat(cohort['window_start']),
+                datetime.fromisoformat(cohort['window_end']),
+            ) if cohort is not None else None),
+        )
 
     def record_revision(self, revision: ModelRevision) -> None:
         """Commit a revision only when its evidence is in resolved prior outcomes."""

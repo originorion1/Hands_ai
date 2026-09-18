@@ -26,9 +26,11 @@ from ..events import (
     route_enterprise_event,
     run_event_worker,
 )
+from ..understanding.role_checkpoint import checkpoint_sha256
 from .event_outcome import OutcomeEventHandler, OutcomeReceipt
 from .prediction_ledger import (
     BusinessCohort,
+    LearningCycleCheckpoint,
     ModelRevision,
     Outcome,
     Prediction,
@@ -45,12 +47,21 @@ MAX_OUTCOME_RECORDS = 100
 class OperationalLayout:
     tenant_id: str
     company: str
-    resource: str
+    representation: str
+    value_resource: str
     value_field: str
+    date_resource: str
     date_field: str
+    relationship_field: str | None
+    relationship_role: str | None
     unit: str
     evidence_ids: tuple[UUID, ...]
     completeness_limitations: tuple[str, ...]
+
+    @property
+    def resource(self) -> str:
+        """Compatibility alias for the resource carrying the measured value."""
+        return self.value_resource
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +99,19 @@ class NormalizedOutcome:
     record_provenance: tuple[Mapping[str, object], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class LearningCyclePlan:
+    assessment_id: str | None
+    evaluation_assessment_id: str | None
+    question: PredictionQuestion
+    evaluation_question: PredictionQuestion
+    development_layout: OperationalLayout
+    evaluation_layout: OperationalLayout
+    development_topology_sha256: str
+    evaluation_topology_sha256: str
+    discovery_contradictions: tuple[Mapping[str, object], ...]
+
+
 OutcomeAcquirer = Callable[[tuple[OutcomeQuery, ...]], tuple[Observation, ...]]
 
 
@@ -110,8 +134,10 @@ def select_operational_layout(assessment: Mapping[str, object]) -> OperationalLa
     """Derive the later-record normalization layout from validated discovery."""
     if not isinstance(assessment, Mapping):
         raise TypeError('assessment must be a mapping')
+    records = tuple(row for row in assessment.get('normalized_records', ())
+                    if isinstance(row, Mapping) and isinstance(row.get('cells'), Mapping))
     candidates = []
-    for row in assessment.get('normalized_records', ()):
+    for row in records:
         if not isinstance(row, Mapping) or not isinstance(row.get('cells'), Mapping):
             continue
         cells = row['cells']
@@ -121,23 +147,67 @@ def select_operational_layout(assessment: Mapping[str, object]) -> OperationalLa
                     'VALIDATED_SEMANTIC_ROLE', 'VALIDATED_SEMANTIC_ROLE'):
                 continue
             candidates.append((
-                str(row['resource']), str(sales['field']), str(occurred['field']),
-                str(sales['unit']), tuple(UUID(str(value)) for value in
-                                         (*sales['evidence_ids'], *occurred['evidence_ids'])),
+                'flat', str(row['resource']), str(sales['field']), str(row['resource']),
+                str(occurred['field']), None, None, str(sales['unit']),
+                tuple(UUID(str(value)) for value in
+                      (*sales['evidence_ids'], *occurred['evidence_ids'])),
             ))
-    contracts = {(resource, value_field, date_field, unit)
-                 for resource, value_field, date_field, unit, _ in candidates}
+    relationships = tuple(item for item in assessment.get('relationships', ())
+                          if isinstance(item, Mapping)
+                          and item.get('role') == 'sales_header'
+                          and item.get('status') == 'VALIDATED_SEMANTIC_ROLE')
+    date_fields: dict[str, set[str]] = defaultdict(set)
+    date_evidence: dict[tuple[str, str], set[UUID]] = defaultdict(set)
+    for row in records:
+        occurred = row['cells'].get('business_event_date')
+        if isinstance(occurred, Mapping) \
+                and occurred.get('status') == 'VALIDATED_SEMANTIC_ROLE':
+            resource, field = str(row['resource']), str(occurred['field'])
+            date_fields[resource].add(field)
+            date_evidence[(resource, field)].update(
+                UUID(str(value)) for value in occurred['evidence_ids'])
+    for row in records:
+        cells = row['cells']
+        sales, relation = cells.get('gross_sales'), cells.get('sales_header')
+        if not isinstance(sales, Mapping) or not isinstance(relation, Mapping):
+            continue
+        if (sales.get('status'), relation.get('status')) != (
+                'VALIDATED_SEMANTIC_ROLE', 'VALIDATED_SEMANTIC_ROLE'):
+            continue
+        matching = [item for item in relationships
+                    if (str(item.get('resource')), str(item.get('identity')),
+                        str(item.get('target_resource')), str(item.get('target_identity')))
+                    == (str(row['resource']), str(row['identity']),
+                        str(relation.get('target_resource')), str(relation.get('value')))]
+        target_resource = str(relation.get('target_resource'))
+        if len(matching) != 1 or len(date_fields[target_resource]) != 1:
+            continue
+        date_field = next(iter(date_fields[target_resource]))
+        evidence = {
+            *(UUID(str(value)) for value in sales['evidence_ids']),
+            *(UUID(str(value)) for value in relation['evidence_ids']),
+            *(UUID(str(value)) for value in matching[0]['evidence_ids']),
+            *date_evidence[(target_resource, date_field)],
+        }
+        candidates.append((
+            'related_header_detail', str(row['resource']), str(sales['field']),
+            target_resource, date_field, str(relation['field']), 'sales_header',
+            str(sales['unit']), tuple(sorted(evidence)),
+        ))
+    contracts = {candidate[:-1] for candidate in candidates}
     if len(contracts) != 1:
         raise ValueError('exactly one validated operational sales layout required')
-    resource, value_field, date_field, unit = next(iter(contracts))
-    evidence = tuple(sorted({item for candidate in candidates for item in candidate[4]}))
+    (representation, value_resource, value_field, date_resource, date_field,
+     relationship_field, relationship_role, unit) = next(iter(contracts))
+    evidence = tuple(sorted({item for candidate in candidates for item in candidate[-1]}))
     limitations = tuple(dict.fromkeys(
         str(value) for value in assessment.get('unknowns', ()) if str(value).strip()))
     tenant, company = assessment.get('tenant'), assessment.get('company')
     if not isinstance(tenant, str) or not tenant or not isinstance(company, str) or not company:
         raise ValueError('assessment tenant and company are required')
     return OperationalLayout(
-        tenant, company, resource, value_field, date_field, unit, evidence, limitations)
+        tenant, company, representation, value_resource, value_field, date_resource,
+        date_field, relationship_field, relationship_role, unit, evidence, limitations)
 
 
 def select_prediction_question(assessment: Mapping[str, object]) -> PredictionQuestion:
@@ -207,6 +277,178 @@ def _topology(assessment: Mapping[str, object]) -> tuple[str, tuple[tuple[object
     return digest, topology_tuple
 
 
+def _unknown(reason: str) -> dict[str, object]:
+    return {
+        'version': 'organizational-learning-cycle-v3', 'status': 'UNKNOWN',
+        'reason': reason, 'learning_cycle_integration': False,
+        'unfamiliar_environment_evaluation': False,
+        'predictive_improvement': None, 'execution_allowed': False,
+        'allow_live_customer_access': False, 'LIVE_PILOT_READY': False,
+    }
+
+
+def _prepare_plan(
+    assessment: Mapping[str, object], evaluation_assessment: Mapping[str, object],
+) -> LearningCyclePlan | dict[str, object]:
+    question = select_prediction_question(assessment)
+    evaluation_question = select_prediction_question(evaluation_assessment)
+    if question.status == 'UNKNOWN' or evaluation_question.status == 'UNKNOWN':
+        return _unknown(question.reason if question.status == 'UNKNOWN'
+                        else evaluation_question.reason)
+    if not (question.tenant_id and question.company and question.target_definition
+            and question.unit and question.threshold):
+        raise ValueError('supported question is missing required fields')
+    if ((evaluation_question.tenant_id, evaluation_question.company,
+         evaluation_question.target_definition, evaluation_question.unit,
+         evaluation_question.threshold)
+            != (question.tenant_id, question.company, question.target_definition,
+                question.unit, question.threshold)):
+        raise ValueError('evaluation discovery does not support the frozen question contract')
+    development_signature, development_topology = _topology(assessment)
+    evaluation_signature, evaluation_topology = _topology(evaluation_assessment)
+    development_layout = select_operational_layout(assessment)
+    evaluation_layout = select_operational_layout(evaluation_assessment)
+    if (not development_topology or not evaluation_topology
+            or development_layout.representation == evaluation_layout.representation):
+        raise ValueError(
+            'evaluation requires a materially different operational representation')
+    contradictions = tuple(item for item in assessment.get('contradictions', ())
+                           if isinstance(item, Mapping))
+    return LearningCyclePlan(
+        str(assessment['assessment_id']) if assessment.get('assessment_id') else None,
+        (str(evaluation_assessment['assessment_id'])
+         if evaluation_assessment.get('assessment_id') else None),
+        question, evaluation_question, development_layout, evaluation_layout,
+        development_signature, evaluation_signature, contradictions,
+    )
+
+
+def _question_document(question: PredictionQuestion) -> dict[str, object]:
+    return {
+        'status': question.status, 'reason': question.reason,
+        'tenant_id': question.tenant_id, 'company': question.company,
+        'target_definition': question.target_definition, 'unit': question.unit,
+        'threshold': question.threshold,
+        'relationship': dict(question.relationship or {}),
+        'evidence_ids': tuple(map(str, question.evidence_ids)),
+    }
+
+
+def _layout_document(layout: OperationalLayout) -> dict[str, object]:
+    return {
+        'tenant_id': layout.tenant_id, 'company': layout.company,
+        'representation': layout.representation,
+        'value_resource': layout.value_resource, 'value_field': layout.value_field,
+        'date_resource': layout.date_resource, 'date_field': layout.date_field,
+        'relationship_field': layout.relationship_field,
+        'relationship_role': layout.relationship_role, 'unit': layout.unit,
+        'evidence_ids': tuple(map(str, layout.evidence_ids)),
+        'completeness_limitations': layout.completeness_limitations,
+    }
+
+
+def _plan_json(plan: LearningCyclePlan) -> str:
+    return json.dumps({
+        'version': 1, 'assessment_id': plan.assessment_id,
+        'evaluation_assessment_id': plan.evaluation_assessment_id,
+        'question': _question_document(plan.question),
+        'evaluation_question': _question_document(plan.evaluation_question),
+        'development_layout': _layout_document(plan.development_layout),
+        'evaluation_layout': _layout_document(plan.evaluation_layout),
+        'development_topology_sha256': plan.development_topology_sha256,
+        'evaluation_topology_sha256': plan.evaluation_topology_sha256,
+        'discovery_contradictions': plan.discovery_contradictions,
+    }, sort_keys=True, separators=(',', ':'), allow_nan=False)
+
+
+def _require_keys(value: object, keys: set[str], label: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping) or set(value) != keys:
+        raise ValueError(f'invalid persisted {label} contract')
+    return value
+
+
+def _question_from_document(value: object) -> PredictionQuestion:
+    document = _require_keys(value, {
+        'status', 'reason', 'tenant_id', 'company', 'target_definition', 'unit',
+        'threshold', 'relationship', 'evidence_ids',
+    }, 'question')
+    if document['status'] != 'SUPPORTED' or not isinstance(document['relationship'], Mapping) \
+            or not isinstance(document['evidence_ids'], list):
+        raise ValueError('persisted question is not supported or evidence-linked')
+    return PredictionQuestion(
+        str(document['status']), str(document['reason']), str(document['tenant_id']),
+        str(document['company']), str(document['target_definition']), str(document['unit']),
+        str(document['threshold']), dict(document['relationship']),
+        tuple(UUID(str(item)) for item in document['evidence_ids']),
+    )
+
+
+def _layout_from_document(value: object) -> OperationalLayout:
+    document = _require_keys(value, {
+        'tenant_id', 'company', 'representation', 'value_resource', 'value_field',
+        'date_resource', 'date_field', 'relationship_field', 'relationship_role', 'unit',
+        'evidence_ids', 'completeness_limitations',
+    }, 'operational layout')
+    if not isinstance(document['evidence_ids'], list) \
+            or not isinstance(document['completeness_limitations'], list):
+        raise TypeError('invalid persisted operational layout evidence')
+    relationship_field = document['relationship_field']
+    relationship_role = document['relationship_role']
+    if relationship_field is not None and not isinstance(relationship_field, str):
+        raise ValueError('invalid persisted relationship field')
+    if relationship_role is not None and not isinstance(relationship_role, str):
+        raise ValueError('invalid persisted relationship role')
+    layout = OperationalLayout(
+        str(document['tenant_id']), str(document['company']),
+        str(document['representation']), str(document['value_resource']),
+        str(document['value_field']), str(document['date_resource']),
+        str(document['date_field']), relationship_field, relationship_role,
+        str(document['unit']), tuple(UUID(str(item)) for item in document['evidence_ids']),
+        tuple(str(item) for item in document['completeness_limitations']),
+    )
+    if ((layout.representation == 'flat'
+         and (layout.value_resource != layout.date_resource
+              or layout.relationship_field is not None or layout.relationship_role is not None))
+            or (layout.representation == 'related_header_detail'
+                and (layout.value_resource == layout.date_resource
+                     or not layout.relationship_field
+                     or layout.relationship_role != 'sales_header'))):
+        raise ValueError('persisted operational representation contract is invalid')
+    return layout
+
+
+def _plan_from_json(payload: str) -> LearningCyclePlan:
+    document = _require_keys(json.loads(payload), {
+        'version', 'assessment_id', 'evaluation_assessment_id', 'question',
+        'evaluation_question', 'development_layout', 'evaluation_layout',
+        'development_topology_sha256', 'evaluation_topology_sha256',
+        'discovery_contradictions',
+    }, 'learning-cycle plan')
+    if document['version'] != 1 or not isinstance(document['discovery_contradictions'], list):
+        raise ValueError('unsupported persisted learning-cycle plan')
+    question = _question_from_document(document['question'])
+    evaluation_question = _question_from_document(document['evaluation_question'])
+    development_layout = _layout_from_document(document['development_layout'])
+    evaluation_layout = _layout_from_document(document['evaluation_layout'])
+    if ((question.tenant_id, question.company, question.target_definition, question.unit,
+         question.threshold)
+            != (evaluation_question.tenant_id, evaluation_question.company,
+                evaluation_question.target_definition, evaluation_question.unit,
+                evaluation_question.threshold)
+            or development_layout.representation == evaluation_layout.representation):
+        raise ValueError('persisted learning-cycle plan no longer satisfies frozen contract')
+    return LearningCyclePlan(
+        (str(document['assessment_id']) if document['assessment_id'] is not None else None),
+        (str(document['evaluation_assessment_id'])
+         if document['evaluation_assessment_id'] is not None else None),
+        question, evaluation_question, development_layout, evaluation_layout,
+        str(document['development_topology_sha256']),
+        str(document['evaluation_topology_sha256']),
+        tuple(dict(item) for item in document['discovery_contradictions']
+              if isinstance(item, Mapping)),
+    )
+
+
 def _admitted_outcomes(
     observations: tuple[Observation, ...], queries: tuple[OutcomeQuery, ...],
     *, layout: OperationalLayout, threshold: Decimal,
@@ -217,7 +459,8 @@ def _admitted_outcomes(
     expected = {_cohort_key(query.cohort): query for query in queries}
     if len(expected) != len(queries):
         raise ValueError('duplicate outcome cohorts are forbidden')
-    grouped: dict[str, list[tuple[Observation, Decimal]]] = defaultdict(list)
+    grouped: dict[str, list[tuple[Observation, Decimal, Observation | None]]] = defaultdict(list)
+    admitted: list[tuple[Observation, Mapping[str, object], Mapping[str, object]]] = []
     record_ids = set()
     for observation in observations:
         if not isinstance(observation, Observation) or observation.mode is not ObservationMode.READ_ONLY:
@@ -231,26 +474,58 @@ def _admitted_outcomes(
         if not isinstance(payload, Mapping) or set(payload) != {'resource', 'record', 'provenance'}:
             raise ValueError('outcome must pass canonical pilot admission')
         record, provenance = payload['record'], payload['provenance']
-        if payload['resource'] != layout.resource or not isinstance(record, Mapping):
+        if payload['resource'] not in {layout.value_resource, layout.date_resource} \
+                or not isinstance(record, Mapping):
             raise ValueError('operational outcome resource does not match discovered layout')
-        if layout.value_field not in record or layout.date_field not in record:
-            raise ValueError('discovered operational fields are absent')
         if not isinstance(provenance, Mapping) or not provenance.get('authorization_id') \
                 or not provenance.get('source_id') or not provenance.get('source_record_id'):
             raise ValueError('authorized record-level outcome provenance required')
         source_record_id = str(provenance['source_record_id'])
-        if source_record_id in record_ids:
+        record_key = (str(payload['resource']), source_record_id)
+        if record_key in record_ids:
             raise ValueError('duplicate operational source record')
-        record_ids.add(source_record_id)
+        record_ids.add(record_key)
+        admitted.append((observation, record, provenance))
+    headers: dict[str, tuple[Observation, Mapping[str, object]]] = {}
+    if layout.representation == 'related_header_detail':
+        for observation, record, provenance in admitted:
+            if observation.evidence.payload['resource'] != layout.date_resource:
+                continue
+            if layout.date_field not in record:
+                raise ValueError('discovered header date field is absent')
+            identity = str(provenance['source_record_id'])
+            if identity in headers:
+                raise ValueError('ambiguous operational header identity')
+            headers[identity] = (observation, record)
+    for observation, record, _provenance in admitted:
+        resource = observation.evidence.payload['resource']
+        if resource != layout.value_resource:
+            continue
+        if layout.value_field not in record:
+            raise ValueError('discovered operational value field is absent')
+        header = None
+        if layout.representation == 'flat':
+            if layout.date_field not in record:
+                raise ValueError('discovered operational date field is absent')
+            occurred = record[layout.date_field]
+        elif layout.representation == 'related_header_detail':
+            if not layout.relationship_field or layout.relationship_field not in record:
+                raise ValueError('discovered operational relationship field is absent')
+            header = headers.get(str(record[layout.relationship_field]))
+            if header is None:
+                raise ValueError('operational detail lacks one admitted related header')
+            occurred = header[1][layout.date_field]
+        else:
+            raise ValueError('unsupported operational representation')
         candidates = [(_cohort_key(query.cohort), query) for query in queries
-                      if (query.cohort.entity_id, query.cohort.location_id,
-                          record[layout.date_field])
+                      if (query.cohort.entity_id, query.cohort.location_id, occurred)
                       == (layout.tenant_id, layout.company,
                           query.cohort.window_end.date().isoformat())]
         if len(candidates) != 1:
             raise ValueError('operational record does not match one committed business cohort')
         key, query = candidates[0]
-        if evidence.observed_at < query.horizon_end:
+        if observation.evidence.observed_at < query.horizon_end \
+                or (header and header[0].evidence.observed_at < query.horizon_end):
             raise ValueError('operational outcome became observable before prediction horizon')
         try:
             value = Decimal(str(record[layout.value_field]))
@@ -258,23 +533,33 @@ def _admitted_outcomes(
             raise ValueError('operational outcome value must be numeric') from error
         if not value.is_finite():
             raise ValueError('operational outcome value must be finite')
-        grouped[key].append((observation, value))
+        grouped[key].append((observation, value, header[0] if header else None))
     normalized = []
     for key, query in sorted(expected.items(), key=lambda item: item[1].case_id):
         records = grouped.get(key, ())
         if not records:
             raise ValueError('one or more committed cohort outcomes are unavailable')
-        total = sum((value for _, value in records), Decimal(0))
+        total = sum((value for _, value, _ in records), Decimal(0))
+        contributing_by_id = {
+            observation.evidence.evidence_id: observation
+            for detail, _, header in records
+            for observation in (detail, header) if observation is not None
+        }
+        contributing = tuple(contributing_by_id[key] for key in sorted(contributing_by_id))
         evidence_ids = tuple(sorted({*layout.evidence_ids,
-                                     *(item.evidence.evidence_id for item, _ in records)}))
+                                     *(item.evidence.evidence_id for item in contributing)}))
         provenance = tuple({
-            'source_record_id': str(observation.evidence.payload['provenance']['source_record_id']),
-            'evidence_id': str(observation.evidence.evidence_id),
+            'source_record_id': str(detail.evidence.payload['provenance']['source_record_id']),
+            'evidence_id': str(detail.evidence.evidence_id),
             'normalized_value': format(value, 'f'), 'unit': layout.unit,
-        } for observation, value in records)
+            **({'relationship_role': layout.relationship_role,
+                'related_source_record_id': str(
+                    header.evidence.payload['provenance']['source_record_id']),
+                'related_evidence_id': str(header.evidence.evidence_id)} if header else {}),
+        } for detail, value, header in records)
         normalized.append(NormalizedOutcome(
             query, total >= threshold, total, evidence_ids,
-            tuple(observation for observation, _ in records), provenance,
+            contributing, provenance,
         ))
     return tuple(normalized)
 
@@ -336,78 +621,154 @@ def _outcome_report(rows: Sequence[NormalizedOutcome], layout: OperationalLayout
                    'window_start': row.query.cohort.window_start.isoformat(),
                    'window_end': row.query.cohort.window_end.isoformat()},
         'normalized_total': format(row.total, 'f'), 'unit': layout.unit,
+        'representation': layout.representation,
+        'relationship_role': layout.relationship_role,
         'actual': row.actual, 'record_provenance': row.record_provenance,
         'completeness_limitations': layout.completeness_limitations,
     } for row in rows)
 
 
-def run_learning_cycle(
+def begin_learning_cycle(
     assessment: Mapping[str, object], evaluation_assessment: Mapping[str, object], *,
-    ledger_path: str | Path, queue_path: str | Path,
-    acquire_development: OutcomeAcquirer, acquire_evaluation: OutcomeAcquirer,
+    ledger_path: str | Path, clock: Callable[[], datetime],
+) -> dict[str, object]:
+    """Commit the first prediction and a reference-only continuation checkpoint."""
+    plan = _prepare_plan(assessment, evaluation_assessment)
+    if isinstance(plan, dict):
+        return plan
+    if not callable(clock):
+        raise TypeError('a clock is required')
+    question = plan.question
+    tenant, target = question.tenant_id, question.target_definition
+    if tenant is None or target is None or question.unit is None:
+        raise ValueError('supported question is incomplete')
+    issued = clock()
+    query = _query('development-1', question, issued)
+    cohort_key = _cohort_key(query.cohort)
+    prediction_id = _stable('prediction', tenant, target, BASELINE_MODEL, cohort_key)
+    ledger = PredictionLedger(ledger_path, clock=clock)
+    prediction = Prediction(
+        tenant, prediction_id, target, BASELINE_MODEL, issued, issued, query.horizon_end,
+        0.5, question.evidence_ids, question.unit, query.cohort,
+    )
+    ledger.record(prediction)
+    payload = _plan_json(plan)
+    cycle_id = _stable('learning-cycle', tenant, target, prediction_id)
+    ledger.record_cycle_checkpoint(LearningCycleCheckpoint(
+        tenant, cycle_id, prediction_id, 'DEVELOPMENT_PENDING', issued,
+        payload, checkpoint_sha256(payload),
+    ))
+    return {
+        'version': 'organizational-learning-cycle-v3', 'status': 'PENDING',
+        'tenant_id': tenant, 'cycle_id': cycle_id, 'prediction_id': prediction_id,
+        'target_definition': target, 'unit': question.unit,
+        'evidence_ids': tuple(map(str, question.evidence_ids)),
+        'cohort': {**asdict(query.cohort),
+                   'window_start': query.cohort.window_start.isoformat(),
+                   'window_end': query.cohort.window_end.isoformat()},
+        'horizon_seconds': int(HORIZON.total_seconds()),
+        'authority_persisted': False, 'execution_allowed': False,
+        'allow_live_customer_access': False, 'LIVE_PILOT_READY': False,
+    }
+
+
+def _recover_cycle(
+    ledger: PredictionLedger, *, tenant_id: str, cycle_id: str,
+) -> tuple[LearningCyclePlan, Prediction, dict[str, object]]:
+    checkpoint = ledger.cycle_checkpoint(tenant_id, cycle_id)
+    plan = _plan_from_json(checkpoint.plan_json)
+    prediction = ledger.pending_prediction(tenant_id, checkpoint.prediction_id)
+    question = plan.question
+    if question.target_definition is None or question.unit is None:
+        raise ValueError('persisted supported question is incomplete')
+    expected_query = _query('development-1', question, prediction.issued_at)
+    expected = Prediction(
+        tenant_id, checkpoint.prediction_id, question.target_definition, BASELINE_MODEL,
+        prediction.issued_at, prediction.issued_at, expected_query.horizon_end, 0.5,
+        question.evidence_ids, question.unit, expected_query.cohort,
+    )
+    if prediction != expected:
+        raise ValueError('persisted cycle plan does not match canonical prediction')
+    summary = {
+        'cycle_id': cycle_id, 'prediction_id': prediction.prediction_id,
+        'target_definition': prediction.target_definition, 'unit': prediction.unit,
+        'evidence_ids': tuple(map(str, prediction.evidence_ids)),
+        'cohort': {**asdict(expected_query.cohort),
+                   'window_start': expected_query.cohort.window_start.isoformat(),
+                   'window_end': expected_query.cohort.window_end.isoformat()},
+        'horizon_end': prediction.horizon_end.isoformat(),
+        'authority_restored': False, 'acquisition_available': False,
+        'execution_allowed': False,
+    }
+    return plan, prediction, summary
+
+
+def recover_interrupted_learning_cycle(
+    ledger_path: str | Path, *, tenant_id: str, cycle_id: str,
+) -> dict[str, object]:
+    """Reconstruct a pending cycle without restoring authority or source access."""
+    _, _, summary = _recover_cycle(
+        PredictionLedger(ledger_path), tenant_id=tenant_id, cycle_id=cycle_id)
+    return summary
+
+
+def resume_learning_cycle(
+    *, ledger_path: str | Path, queue_path: str | Path, tenant_id: str, cycle_id: str,
+    acquire_development: OutcomeAcquirer | None,
+    acquire_evaluation: OutcomeAcquirer | None,
     clock: Callable[[], datetime],
 ) -> dict[str, object]:
-    """Run one finite offline cycle; acquisition callbacks retain authorization."""
-    question = select_prediction_question(assessment)
-    evaluation_question = select_prediction_question(evaluation_assessment)
-    if question.status == 'UNKNOWN' or evaluation_question.status == 'UNKNOWN':
-        return {
-            'version': 'organizational-learning-cycle-v2', 'status': 'UNKNOWN',
-            'reason': (question.reason if question.status == 'UNKNOWN'
-                       else evaluation_question.reason),
-            'learning_cycle_integration': False,
-            'unfamiliar_environment_evaluation': False,
-            'predictive_improvement': None, 'execution_allowed': False,
-            'allow_live_customer_access': False, 'LIVE_PILOT_READY': False,
-        }
-    if not callable(acquire_development) or not callable(acquire_evaluation) or not callable(clock):
-        raise TypeError('two authorized acquisition ports and a clock are required')
-    if not (question.tenant_id and question.company and question.target_definition
-            and question.unit and question.threshold):
-        raise ValueError('supported question is missing required fields')
-    if ((evaluation_question.tenant_id, evaluation_question.company,
-         evaluation_question.target_definition, evaluation_question.unit,
-         evaluation_question.threshold)
-            != (question.tenant_id, question.company, question.target_definition,
-                question.unit, question.threshold)):
-        raise ValueError('evaluation discovery does not support the frozen question contract')
-    development_signature, development_topology = _topology(assessment)
-    evaluation_signature, evaluation_topology = _topology(evaluation_assessment)
-    if not development_topology or development_topology == evaluation_topology:
-        raise ValueError('evaluation environment must have a structurally different topology')
-    development_layout = select_operational_layout(assessment)
-    evaluation_layout = select_operational_layout(evaluation_assessment)
-    tenant, target = question.tenant_id, question.target_definition
-    threshold = Decimal(question.threshold)
+    """Resume only from canonical pending state and newly supplied acquisition ports."""
+    if not callable(clock):
+        raise TypeError('a clock is required')
     ledger = PredictionLedger(ledger_path, clock=clock)
+    plan, first_prediction, recovered = _recover_cycle(
+        ledger, tenant_id=tenant_id, cycle_id=cycle_id)
+    if not callable(acquire_development) or not callable(acquire_evaluation):
+        raise PermissionError('separate acquisition authorization is required to continue')
+    question, evaluation_question = plan.question, plan.evaluation_question
+    development_layout, evaluation_layout = plan.development_layout, plan.evaluation_layout
+    target, unit, threshold_text = (question.target_definition, question.unit,
+                                    question.threshold)
+    if target is None or unit is None or threshold_text is None:
+        raise ValueError('persisted supported question is incomplete')
+    threshold = Decimal(threshold_text)
     queue = SQLiteEventQueue(queue_path)
     development_rows: list[NormalizedOutcome] = []
     development_workers = []
-    development_ids = {}
-    for index in (1, 2):
-        issued = clock()
-        query = _query(f'development-{index}', question, issued)
-        cohort_key = _cohort_key(query.cohort)
-        identity = _stable('prediction', tenant, target, BASELINE_MODEL, cohort_key)
-        development_ids[cohort_key] = (identity,)
-        ledger.record(Prediction(
-            tenant, identity, target, BASELINE_MODEL, issued, issued, query.horizon_end,
-            0.5, question.evidence_ids, question.unit, query.cohort,
-        ))
-        normalized = _admitted_outcomes(
-            acquire_development((query,)), (query,), layout=development_layout,
-            threshold=threshold,
-        )
-        development_rows.extend(normalized)
-        development_workers.append(_resolve(
-            ledger, queue, normalized, development_ids, tenant_id=tenant))
+    first_query = _query('development-1', question, first_prediction.issued_at)
+    first_key = _cohort_key(first_query.cohort)
+    development_ids = {first_key: (first_prediction.prediction_id,)}
+    normalized = _admitted_outcomes(
+        acquire_development((first_query,)), (first_query,), layout=development_layout,
+        threshold=threshold,
+    )
+    development_rows.extend(normalized)
+    development_workers.append(_resolve(
+        ledger, queue, normalized, development_ids, tenant_id=tenant_id))
+    issued = clock()
+    second_query = _query('development-2', question, issued)
+    second_key = _cohort_key(second_query.cohort)
+    second_id = _stable('prediction', tenant_id, target, BASELINE_MODEL, second_key)
+    development_ids[second_key] = (second_id,)
+    ledger.record(Prediction(
+        tenant_id, second_id, target, BASELINE_MODEL, issued, issued,
+        second_query.horizon_end, 0.5, question.evidence_ids, unit, second_query.cohort,
+    ))
+    normalized = _admitted_outcomes(
+        acquire_development((second_query,)), (second_query,), layout=development_layout,
+        threshold=threshold,
+    )
+    development_rows.extend(normalized)
+    development_workers.append(_resolve(
+        ledger, queue, normalized, development_ids, tenant_id=tenant_id))
     development_domains = _provenance_domains(development_rows)
     labels = tuple(row.actual for row in development_rows)
     outcome_refs = tuple(sorted({value for row in development_rows for value in row.evidence_ids}))
     revised_probability = (1 + sum(labels)) / (2 + len(labels))
     decided = clock()
     revision = ModelRevision(
-        tenant, _stable('revision', tenant, target, REVISED_MODEL), target, question.unit,
+        tenant_id, _stable('revision', tenant_id, target, REVISED_MODEL), target, unit,
         int(HORIZON.total_seconds()), BASELINE_MODEL, REVISED_MODEL, 0.5,
         revised_probability, decided, outcome_refs,
     )
@@ -423,12 +784,12 @@ def run_learning_cycle(
         arms = []
         for model, probability in ((BASELINE_MODEL, 0.5),
                                    (REVISED_MODEL, revised_probability)):
-            identity = _stable('prediction', tenant, target, model, cohort_key)
+            identity = _stable('prediction', tenant_id, target, model, cohort_key)
             arms.append(identity)
             ledger.record(Prediction(
-                tenant, identity, target, model, issued, decided, query.horizon_end,
+                tenant_id, identity, target, model, issued, decided, query.horizon_end,
                 probability, tuple(sorted(set(evaluation_question.evidence_ids)
-                                          | set(outcome_refs))), question.unit, query.cohort,
+                                          | set(outcome_refs))), unit, query.cohort,
             ))
         evaluation_ids[cohort_key] = tuple(arms)
         normalized = _admitted_outcomes(
@@ -442,17 +803,17 @@ def run_learning_cycle(
             raise ValueError('development and evaluation require distinct authorizations and sources')
         evaluation_rows.extend(normalized)
         evaluation_workers.append(_resolve(
-            ledger, queue, normalized, evaluation_ids, tenant_id=tenant))
+            ledger, queue, normalized, evaluation_ids, tenant_id=tenant_id))
     evaluation_domains = _provenance_domains(evaluation_rows)
     comparison = ledger.paired_score(
-        tenant, target_definition=target, unit=question.unit,
+        tenant_id, target_definition=target, unit=unit,
         prior_model_version=BASELINE_MODEL, revised_model_version=REVISED_MODEL,
         evaluation_after=decided,
     )
     failed = tuple(row.query.case_id for row in (*development_rows, *evaluation_rows)
                    if row.actual is False)
     reopened = recover_learning_assessment(
-        ledger_path, tenant_id=tenant, target_definition=target, unit=question.unit,
+        ledger_path, tenant_id=tenant_id, target_definition=target, unit=unit,
         prior_model_version=BASELINE_MODEL, revised_model_version=REVISED_MODEL,
     )
     remaining_unknowns = tuple(dict.fromkeys((
@@ -462,13 +823,13 @@ def run_learning_cycle(
         'Shared fixture and engine authorship is not independent evidence.',
     )))
     return {
-        'version': 'organizational-learning-cycle-v2', 'status': 'MEASURED',
-        'assessment_id': assessment.get('assessment_id'),
-        'evaluation_assessment_id': evaluation_assessment.get('assessment_id'),
-        'organization': {'tenant': tenant, 'company': question.company, 'synthetic': True},
+        'version': 'organizational-learning-cycle-v3', 'status': 'MEASURED',
+        'assessment_id': plan.assessment_id,
+        'evaluation_assessment_id': plan.evaluation_assessment_id,
+        'organization': {'tenant': tenant_id, 'company': question.company, 'synthetic': True},
         'relationship': dict(question.relationship or {}),
-        'question': {'target_definition': target, 'threshold': question.threshold,
-                     'unit': question.unit, 'horizon_seconds': int(HORIZON.total_seconds()),
+        'question': {'target_definition': target, 'threshold': threshold_text,
+                     'unit': unit, 'horizon_seconds': int(HORIZON.total_seconds()),
                      'source_finding_was_prospective': False},
         'development': {
             'cases': len(development_rows), 'baseline_probability': 0.5,
@@ -485,17 +846,25 @@ def run_learning_cycle(
             'operational_outcomes': _outcome_report(evaluation_rows, evaluation_layout),
             'workers': tuple(evaluation_workers),
         },
+        'interrupted_cycle_recovery': {**recovered, 'resumed_from_checkpoint': True},
         'durable_completed_state_reopen': reopened,
         'learning_cycle_integration': True,
         'unfamiliar_environment_evaluation': {
-            'works': True, 'development_topology_sha256': development_signature,
-            'evaluation_topology_sha256': evaluation_signature,
+            'works': True,
+            'development_topology_sha256': plan.development_topology_sha256,
+            'evaluation_topology_sha256': plan.evaluation_topology_sha256,
             'topologies_differ': True,
+            'representation_difference': {
+                'development': development_layout.representation,
+                'evaluation': evaluation_layout.representation,
+                'relationship_role': evaluation_layout.relationship_role,
+            },
+            'irrelevant_field_only': False,
             'separate_access_grants_are_independence_proof': False,
         },
         'predictive_improvement': comparison['prediction_improved'],
         'failed_prediction_cases': failed,
-        'discovery_contradictions': tuple(assessment.get('contradictions', ())),
+        'discovery_contradictions': plan.discovery_contradictions,
         'remaining_unknowns': remaining_unknowns,
         'shared_fixture_engine_authorship': True,
         'synthetic_generalization_proven': False,
@@ -503,6 +872,25 @@ def run_learning_cycle(
         'action_authority': 'NONE', 'execution_allowed': False,
         'allow_live_customer_access': False, 'LIVE_PILOT_READY': False,
     }
+
+
+def run_learning_cycle(
+    assessment: Mapping[str, object], evaluation_assessment: Mapping[str, object], *,
+    ledger_path: str | Path, queue_path: str | Path,
+    acquire_development: OutcomeAcquirer, acquire_evaluation: OutcomeAcquirer,
+    clock: Callable[[], datetime],
+) -> dict[str, object]:
+    """Compatibility composition of the explicit commit and resume boundaries."""
+    started = begin_learning_cycle(
+        assessment, evaluation_assessment, ledger_path=ledger_path, clock=clock)
+    if started['status'] == 'UNKNOWN':
+        return started
+    return resume_learning_cycle(
+        ledger_path=ledger_path, queue_path=queue_path,
+        tenant_id=str(started['tenant_id']), cycle_id=str(started['cycle_id']),
+        acquire_development=acquire_development, acquire_evaluation=acquire_evaluation,
+        clock=clock,
+    )
 
 
 def recover_committed_measurement(
@@ -562,12 +950,16 @@ __all__ = [
     'BASELINE_MODEL',
     'HORIZON',
     'REVISED_MODEL',
+    'LearningCyclePlan',
     'OperationalLayout',
     'OutcomeQuery',
     'PredictionQuestion',
+    'begin_learning_cycle',
     'owner_report',
     'recover_committed_measurement',
+    'recover_interrupted_learning_cycle',
     'recover_learning_assessment',
+    'resume_learning_cycle',
     'run_learning_cycle',
     'select_operational_layout',
     'select_prediction_question',
