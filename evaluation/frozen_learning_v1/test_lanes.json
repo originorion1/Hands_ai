@@ -1,0 +1,87 @@
+{
+  "version": "orion-pytest-lanes-v1",
+  "baseline": {
+    "commit": "fc771c5be47cdfcca5cd02004bf2962ee18d55cc",
+    "default_collection_count": 1961,
+    "inventory_command": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "--collect-only",
+      "-q"
+    ]
+  },
+  "lanes": {
+    "contract": {
+      "purpose": "Preflight, review binding, frozen identity, and release-order validation.",
+      "selection": [
+        "tests/test_frozen_learning_evaluation.py::test_protocol_freezes_exact_pr181_learner_components",
+        "tests/test_frozen_learning_evaluation.py::test_missing_independent_material_is_blocked_without_product_claims",
+        "tests/test_frozen_learning_evaluation.py::test_schema_is_machine_readable_and_forbids_undeclared_top_level_material",
+        "tests/test_frozen_learning_evaluation.py::test_record_preflight_rejects_precomputed_answers",
+        "tests/test_frozen_learning_evaluation.py::test_self_authored_or_unreviewed_package_cannot_be_qualified",
+        "tests/test_frozen_learning_evaluation.py::test_release_gate_denies_mismatch_early_release_and_missing_grant_before_io",
+        "tests/test_frozen_learning_evaluation.py::test_independent_execution_requires_available_review_evidence",
+        "tests/test_frozen_learning_evaluation.py::test_review_evidence_must_be_available_and_bound",
+        "tests/test_frozen_learning_evaluation.py::test_engine_hash_drift_blocks_execution"
+      ]
+    },
+    "learning": {
+      "purpose": "Canonical ledger, event, normalization, UNKNOWN, and recovery behavior.",
+      "selection": [
+        "tests/test_prediction_ledger.py",
+        "tests/test_event_outcome.py",
+        "tests/test_organizational_learning_cycle.py",
+        "tests/test_frozen_learning_evaluation.py::test_self_authored_fixture_executes_bridge_without_independence_claim",
+        "tests/test_frozen_learning_evaluation.py::test_unsupported_semantics_remain_unknown_without_outcome_release",
+        "tests/test_semantic_restart.py::test_semantic_restart_in_a_new_process_without_authority",
+        "tests/test_pilot_recovery.py::test_fresh_process_restores_epistemic_state_but_not_authority"
+      ]
+    },
+    "installed": {
+      "purpose": "Clean-wheel identity, namespace, custody, transport, and installed-runtime cases on a capable host.",
+      "selection": [
+        "tests/test_packaged_runtime.py"
+      ],
+      "prerequisites": [
+        "Set ORION_BUILD_PYTHON to the approved builder interpreter.",
+        "Confirm required native namespace and network-isolation tools before execution.",
+        "Run serially; the selected module retains its module-scoped clean_artifact wheel build."
+      ]
+    },
+    "full": {
+      "purpose": "Unchanged unfiltered repository suite; required static, demo, scan, and diff checks remain separate final-campaign commands.",
+      "selection": [],
+      "pytest_command": [
+        ".venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "--durations=20"
+      ]
+    },
+    "independent_evaluation": {
+      "purpose": "One registered product experiment after external material and review exist; never a pytest or default-CI lane.",
+      "pytest": false,
+      "environment": {
+        "PYTHONPATH": "src"
+      },
+      "command": [
+        ".venv/bin/python",
+        "tools/frozen_learning_evaluation.py",
+        "run",
+        "/path/to/package.json",
+        "--review-evidence",
+        "/path/to/review-evidence.json",
+        "--state-dir",
+        "/path/to/new-empty-state",
+        "--output",
+        "/path/to/result.json",
+        "--owner-report",
+        "/path/to/owner-report.txt"
+      ]
+    }
+  },
+  "unknown_or_shared_dependency_impact": "Use the full lane; path-based selection cannot certify completeness.",
+  "default_pytest_collection_must_remain_unfiltered": true
+}

@@ -31,3 +31,18 @@ one independently authored, chronologically frozen package conforming to
 `dataset.schema.json`, plus the referenced review-evidence JSON whose raw digest
 and fields bind it to that package, protocol, authorship, freeze time and review
 scope. Until those artifacts exist, `INDEPENDENT_EVALUATION=BLOCKED`.
+
+## Issue #184 handoff and test-lane evidence
+
+| Obligation | New, existing, or inherited evidence | Status |
+| --- | --- | --- |
+| Pinned author/reviewer packet without fixture answers | New `handoff/` instructions and public wire contract; `MANIFEST.sha256` binds the unchanged protocol/schema and packet documents; prohibited fixture/result terms scan clean | FRESH PASS; NOT SENT |
+| Truthful author/reviewer independence | New separate author and reviewer obligations; digest binding explicitly does not authenticate people; no material or review is fabricated | SATISFIED FOR HANDOFF; EXTERNAL MATERIAL BLOCKED |
+| Contract feasibility and chronology | Existing `validate_package`/`verify_review_evidence` inspected; handoff documents the exact combined authorship/synthetic ordering and stop condition | SATISFIED WITH DISCLOSED V1 CONSTRAINT |
+| Contract lane | New explicit nine-node selection; dry-run collected 9 and focused execution passed 9 | FRESH PASS |
+| Learning lane | New existing-test selection; dry-run collected 44 and focused execution passed 44 | FRESH PASS |
+| Installed lane and wheel-build reuse | Existing `tests/test_packaged_runtime.py` and module-scoped `clean_artifact`; dry-run collected 29; unchanged runtime evidence from #178/#183 remains applicable | FRESH INVENTORY; RUNTIME INHERITED, NOT RERUN |
+| Full/default collection unchanged | Baseline and final dry-run node inventories both contain the same 1,961 tests; no pytest or CI configuration changed | FRESH PASS |
+| Unknown/shared impact cannot omit tests | New change-to-evidence map routes unknown/shared impact to the unfiltered full lane | SATISFIED |
+| Independent evaluation is outside routine tests | New lane manifest declares `pytest=false`; existing blocked result and runner remain unchanged; no independent run occurred | SATISFIED; EVALUATION BLOCKED |
+| Frozen learner/protocol/schema | Existing PR #183 identities; fresh hashes and diff show no change to `src/orion`, protocol, or schema | FRESH PASS |

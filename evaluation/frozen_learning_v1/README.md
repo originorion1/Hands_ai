@@ -18,6 +18,11 @@ relabeled as independent. The checked-in `result.json` is therefore a
 machine-readable blocked result, not a score. The execution bridge is now
 runnable; its self-authored contract fixture is infrastructure evidence only.
 
+Issue #184 adds a pinned, unsent author/reviewer handoff packet under
+`handoff/` and an explicit scoped-test inventory in `test_lanes.json` and
+`TEST_LANES.md`. These materials do not supply an independent package, review,
+or evaluation result. Default pytest collection remains unfiltered.
+
 ## Frozen boundary
 
 `protocol.json` fixes:
