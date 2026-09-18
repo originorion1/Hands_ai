@@ -1,0 +1,200 @@
+{
+  "protocol_version": "orion-frozen-learning-evaluation-v1",
+  "issue": 182,
+  "status": "PRE_REGISTERED_BLOCKED_PENDING_INDEPENDENT_MATERIAL",
+  "frozen_learner": {
+    "artifact_kind": "git-source-tree",
+    "source_commit": "7ab613ebe6ea4fdd0ab16a2e2d60baf23d135d62",
+    "source_tree": "73776d74d32d9de72b528740aa977ba6d673daa8",
+    "component_sha256": {
+      "src/orion/business/fnb.py": "e8f48d815f597674fdeab2ef76fe7beea88455dda2500e155fd16dbb7229eb3e",
+      "src/orion/discovery/erpnext_pilot_metadata.py": "febe5045ec990999260751c9cd1b7438d72c499325678c80ccf2a1f05519eb5c",
+      "src/orion/discovery/pilot_metadata.py": "4b0c3fc07bba162485c6ef09a787f876fc03a747f41dcc1770853225f5c81218",
+      "src/orion/discovery/pilot_read.py": "bf8fc2979669224120973f9702f2602c3ce4ff3d60531e86ecd011e6c4646a1f",
+      "src/orion/discovery/read_window.py": "00213fa0624fec1c204b4906470ee31066695dde18adbc25ac6fbb3fce26d0e0",
+      "src/orion/learning/event_outcome.py": "1bd8e2642e7a815c6ded56a74deb31fccc157bb725441e89a4f960619d002c89",
+      "src/orion/learning/organizational_cycle.py": "bb08ce2032f61e2fc0036275aa879ea4268da5464e09481fe8ea85044cd7ad9d",
+      "src/orion/learning/prediction_ledger.py": "705d3229baf1784e0c2c8ed538088cd8245f34d16af941f9354c38c28ddeef3e",
+      "src/orion/understanding/role_study.py": "e2965c29eaa226cd1ac86b6738cfe77d70177a45c444e0ccfcc8fb764f92407b",
+      "src/orion/understanding/semantic_rules.py": "aa794a9981c6227c2b1c9a94054da07da012771694d487fb285e0a5e77bb37c5",
+      "src/orion/understanding/semantic_study.py": "0d72eb9525c2902ff93b37c9c7931f9f6a214c60279f00ec806fcc7e3713f047"
+    },
+    "semantic_evaluator_version": "semantic-rules-v1",
+    "fnb_assessment_version": "fnb-sample-assessment-v1",
+    "fnb_rules_sha256": "48469b14a295c47249b13df11b104b70fd6fe0ef9b7feef7ea0fdf34ebba1c4e",
+    "question_selection": {
+      "owner": "orion.learning.organizational_cycle.select_prediction_question",
+      "policy": "Select the sole next_day_sample_sales finding only when a validated served_item relationship and exactly one validated operational sales layout support the same dynamic unit; otherwise return UNKNOWN.",
+      "post_outcome_selection_forbidden": true
+    },
+    "normalization": {
+      "owner": "orion.learning.organizational_cycle._admitted_outcomes",
+      "representations": [
+        "flat",
+        "related_header_detail"
+      ],
+      "relationship_role": "sales_header",
+      "aggregation": "sum admitted finite record values within the exact committed entity/location/one-day cohort",
+      "unsupported_or_ambiguous_join": "REJECT_OR_UNKNOWN",
+      "direct_totals_forbidden": true,
+      "maximum_records_per_batch": 100
+    },
+    "prediction": {
+      "target": "next-day admitted sample sales greater than or equal to the discovery-derived arithmetic-mean threshold",
+      "unit": "discovery-validated dynamic unit",
+      "cohort": "tenant/company entity-location and one-day UTC window",
+      "horizon_seconds": 86400,
+      "baseline_model": "frozen-laplace-prior-v1",
+      "baseline_probability": 0.5,
+      "commitment": "durable before release of the matching future operational records"
+    },
+    "revision": {
+      "model": "resolved-laplace-revision-v1",
+      "rule": "(1 + resolved positive development outcomes) / (2 + resolved development outcomes)",
+      "training_cases": 2,
+      "uses_only_resolved_prior_outcomes": true
+    },
+    "scoring": {
+      "metric": "Brier score",
+      "evaluation_cases": 2,
+      "comparison": "frozen prior and revised methods on identical resolved later cohorts, outcomes, evidence, units and horizons",
+      "improvement_rule": "revised_brier < prior_brier",
+      "metric_change_after_release_forbidden": true
+    },
+    "outcome_matching": {
+      "owner": "orion.learning.prediction_ledger.PredictionLedger.paired_score",
+      "required_equalities": [
+        "tenant",
+        "target_definition",
+        "unit",
+        "business_cohort",
+        "horizon",
+        "actual_outcome",
+        "outcome_evidence"
+      ],
+      "duplicate_or_mismatched_cohort": "REJECT"
+    }
+  },
+  "experiment": {
+    "claim": "The frozen ORION learner can discover one supported operational relationship in an unfamiliar synthetic restaurant, commit prospective predictions, reconstruct later outcomes from admitted records, revise only from resolved evidence, and measure the revision honestly on subsequent unseen cohorts.",
+    "permitted_learner_inputs": [
+      "governed opaque metadata",
+      "bounded admitted historical operational records",
+      "separately authorized process, aggregate, temporal and relationship evidence",
+      "only the currently released bounded future operational records"
+    ],
+    "forbidden_learner_inputs": [
+      "resource or field mappings",
+      "business-role answers",
+      "precomputed target totals",
+      "future records before their release stage",
+      "evaluator labels or expected scores",
+      "answer-encoding identifiers or metadata"
+    ],
+    "semantic_support": "Each accepted role must satisfy the frozen FNB rule with at least two independently rooted evidence sources and at least two subjects; relationship identity and target resource must be evidenced.",
+    "unknown_conditions": [
+      "no unique supported question",
+      "missing or competing semantic grounding",
+      "missing or ambiguous header/detail relationship",
+      "inconsistent unit",
+      "unsupported representation",
+      "missing or partial cohort outcome",
+      "scope, provenance, horizon or cohort mismatch"
+    ],
+    "chronology": [
+      "discovery and semantic evidence cutoff",
+      "development prediction commitment",
+      "matching development outcome release",
+      "second development prediction and outcome",
+      "revision commitment",
+      "paired prior/revised evaluation prediction commitment",
+      "matching evaluation outcome release",
+      "second paired prediction and outcome",
+      "scoring"
+    ],
+    "missing_or_partial_outcome_treatment": "Retain the prediction as pending and classify the evaluation as INSUFFICIENT_EVIDENCE; do not impute, drop, or score the case.",
+    "abstention_reporting": "Report every UNKNOWN, its reason, whether any supported question was answered, and the evidence plus separate authorization needed next.",
+    "sample": {
+      "development_cases": 2,
+      "evaluation_cases": 2,
+      "limitations": "Four cohorts can demonstrate ordering and arithmetic but cannot establish calibration, statistical significance, economic value or generalization."
+    },
+    "criteria": {
+      "learning_loop_integrity": {
+        "pass": "All four predictions are committed before release; admitted record provenance reconstructs every eligible outcome; the revision uses only the two resolved development outcomes; paired scoring uses the same later observations.",
+        "fail": "Any chronological, commitment, provenance, revision-evidence or paired-scoring invariant is violated.",
+        "blocked": "A conforming independently authored package or required authorization is unavailable."
+      },
+      "semantic_understanding": {
+        "supported_within_tested_scope": "The frozen semantic rules support a unique useful relationship from admitted independently rooted evidence in the package.",
+        "unknown": "The frozen engine abstains because evidence is insufficient or ambiguous.",
+        "not_proven": "No independently authored package is executed."
+      },
+      "predictive_improvement": {
+        "demonstrated": "The revised Brier score is strictly lower than the frozen baseline on both identical eligible later cohorts.",
+        "not_demonstrated": "The revised Brier score is equal or higher.",
+        "insufficient_evidence": "Fewer than two complete paired evaluation outcomes remain eligible."
+      },
+      "revision_helped_later": "Use only the registered paired Brier comparison; report improvement, equality, worsening or insufficient evidence without changing the fixture or metric.",
+      "economic_value": "NOT_PROVEN unless a separately preregistered operational-value criterion and required evidence are supplied before outcome release.",
+      "real_organization_generalization": "NOT_PROVEN"
+    }
+  },
+  "independent_material": {
+    "schema": "dataset.schema.json",
+    "required_authorship_evidence": [
+      "named preparer and role",
+      "preparation and freeze timestamps",
+      "source and prior ORION results visible before freezing",
+      "learner-visible versus evaluator-retained material",
+      "sealed expected-result commitment",
+      "independent reviewer verification of those facts"
+    ],
+    "current_status": "MISSING",
+    "current_evidence": "Existing F&B fixtures and the learning engine share repository authorship; no independently authored package or verified authorship record was found."
+  },
+  "separation": {
+    "boundary": "Trusted local evaluator stages fixed JSON material and invokes existing governed adapters; learner inputs and persisted learner state exclude evaluator-only commitments and unreleased stages.",
+    "malicious_process_isolation_claimed": false,
+    "trusted_acquisition_callback_retained": true,
+    "future_stage_release_must_follow_prediction_commit": true
+  },
+  "required_output_statuses": {
+    "LEARNING_LOOP_INTEGRITY": [
+      "PASS",
+      "FAIL",
+      "BLOCKED"
+    ],
+    "INDEPENDENT_EVALUATION": [
+      "PASS",
+      "FAIL",
+      "BLOCKED"
+    ],
+    "SEMANTIC_UNDERSTANDING": [
+      "SUPPORTED_WITHIN_TESTED_SCOPE",
+      "UNKNOWN",
+      "NOT_PROVEN"
+    ],
+    "PREDICTIVE_IMPROVEMENT": [
+      "DEMONSTRATED_IN_THIS_EVALUATION",
+      "NOT_DEMONSTRATED",
+      "INSUFFICIENT_EVIDENCE"
+    ],
+    "ECONOMIC_VALUE": [
+      "DEMONSTRATED_WITH_STATED_BASIS",
+      "NOT_PROVEN"
+    ],
+    "REAL_ORGANIZATION_GENERALIZATION": [
+      "NOT_PROVEN"
+    ]
+  },
+  "safety": {
+    "execution_allowed": false,
+    "allow_live_customer_access": false,
+    "LIVE_PILOT_READY": false,
+    "candidate_host_qualification": "UNRESOLVED",
+    "customer_access": false,
+    "production_networking": false,
+    "business_writes": false
+  }
+}
