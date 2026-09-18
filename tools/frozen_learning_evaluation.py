@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Preflight the frozen ORION learning evaluation without exposing outcomes.
+"""Preflight and execute the frozen ORION learning evaluation offline.
 
-This utility verifies the frozen learner and an evaluator-supplied package. It
-does not turn JSON into authority, issue grants, or execute a self-authored
-fixture. A conforming package is an external prerequisite for the single run
-through the existing governed adapters and organizational-cycle entry points.
+This utility verifies the frozen learner and an evaluator-supplied package. A
+trusted local controller translates package mechanics into bounded synthetic
+authorizations; package authorization identifiers are references, never grants.
+Future releases stay evaluator-side until durable prediction commitments match.
+No package-supplied code is imported or executed.
 """
 
 from __future__ import annotations
@@ -13,28 +14,54 @@ import argparse
 import hashlib
 import json
 import re
+import sqlite3
+from collections.abc import Callable, Mapping
 from dataclasses import asdict
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
-from orion.business.fnb import FNB_RULES
+from orion.business.fnb import FNB_RULES, assess_restaurant
 from orion.business.fnb import VERSION as FNB_VERSION
+from orion.contracts import Evidence, EvidenceKind, Observation
+from orion.discovery.pilot_metadata import (
+    MetadataAuthorization,
+    MetadataRequest,
+    ScopeProposal,
+    launch_pilot_metadata,
+)
+from orion.discovery.pilot_read import (
+    PilotAuthorization,
+    PilotRequest,
+    launch_pilot_read,
+)
+from orion.discovery.read_window import ReviewedReadWindow
 from orion.learning.organizational_cycle import (
     BASELINE_MODEL,
     HORIZON,
     MAX_OUTCOME_RECORDS,
     REVISED_MODEL,
+    begin_learning_cycle,
+    resume_learning_cycle,
+    select_prediction_question,
 )
+from orion.learning.prediction_ledger import BusinessCohort
+from orion.understanding.role_study import RoleStudy
+from orion.understanding.schema_evidence import FieldDeclaration, interpret_schema
 from orion.understanding.semantic_study import (
     AGGREGATE_FIELDS,
     ANCHOR_FIELDS,
     SEMANTIC_EVALUATOR_VERSION,
+    Instrument,
+    Origin,
+    SemanticStudy,
 )
 
 PROTOCOL_VERSION = "orion-frozen-learning-evaluation-v1"
 PACKAGE_VERSION = "orion-independent-restaurant-dataset-v1"
+REVIEW_VERSION = "orion-independent-review-evidence-v1"
 OPAQUE = re.compile(r"^[a-z]_[a-f0-9]{16,64}$")
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 SYNTHETIC_ORIGIN = re.compile(r"^s-[a-f0-9]{16,64}\.synthetic\.test$")
@@ -432,6 +459,7 @@ def _validate_release(
 
 def validate_package(
     package: dict[str, Any], *, protocol: dict[str, Any], protocol_sha256: str,
+    require_independent: bool = True,
 ) -> dict[str, object]:
     package = _exact(package, {
         "package_version", "dataset_id", "protocol", "authorship", "timeline",
@@ -465,10 +493,22 @@ def validate_package(
     for key in ("engine_source_seen_before_fixing", "engine_results_seen_before_fixing"):
         if type(authorship[key]) is not bool:
             raise ContractError(f"authorship.{key} must be boolean")
-    if authorship["preparer_is_engine_implementer"] is not False \
-            or authorship["shared_fixture_engine_authorship"] is not False \
-            or authorship["answers_fixed_before_execution"] is not True:
+    for key in ("preparer_is_engine_implementer", "shared_fixture_engine_authorship",
+                "answers_fixed_before_execution"):
+        if type(authorship[key]) is not bool:
+            raise ContractError(f"authorship.{key} must be boolean")
+    if authorship["answers_fixed_before_execution"] is not True:
+        raise ContractError("answers must be fixed before execution")
+    if require_independent and (
+        authorship["preparer_is_engine_implementer"] is not False
+        or authorship["shared_fixture_engine_authorship"] is not False
+    ):
         raise ContractError("dataset does not establish independent precommitted authorship")
+    if not require_independent and not (
+        authorship["preparer_is_engine_implementer"] is True
+        or authorship["shared_fixture_engine_authorship"] is True
+    ):
+        raise ContractError("infrastructure fixture must disclose shared implementation authorship")
     for key in ("learner_visible_material", "evaluator_retained_material"):
         values = authorship[key]
         if not isinstance(values, list) or not values or len(values) != len(set(values)):
@@ -480,8 +520,10 @@ def validate_package(
     review = _exact(authorship["review"], {
         "status", "reviewed_by", "reviewer_role", "reviewed_at", "evidence_sha256",
     }, "authorship.review")
-    if review["status"] != "VERIFIED":
-        raise ContractError("independent authorship review is not verified")
+    if review["status"] not in {"VERIFIED", "NOT_PROVEN"}:
+        raise ContractError("authorship review status is invalid")
+    if require_independent and review["status"] != "VERIFIED":
+        raise ContractError("independent authorship review is not declared verified")
     _text(review["reviewed_by"], "authorship.review.reviewed_by")
     _text(review["reviewer_role"], "authorship.review.reviewer_role")
     reviewed_at = _timestamp(review["reviewed_at"], "authorship.review.reviewed_at")
@@ -513,6 +555,8 @@ def validate_package(
     if development["source_id"] == evaluation["source_id"] \
             or development["instrument_sources"] & evaluation["instrument_sources"]:
         raise ContractError("development and evaluation source domains must be distinct")
+    if development["authorizations"] & evaluation["authorizations"]:
+        raise ContractError("development and evaluation authorizations must be distinct")
     if development["topology"] == evaluation["topology"]:
         raise ContractError("evaluation metadata must have a materially different topology")
     releases = _exact(
@@ -570,13 +614,549 @@ def validate_package(
         "protocol_sha256": protocol_sha256,
         "dataset_id": dataset_id,
         "dataset_material_sha256": content_identity,
-        "authorship_review": "VERIFIED",
+        "authorship_review": (
+            "DECLARED_PENDING_EVIDENCE" if require_independent else "NOT_PROVEN"
+        ),
         "release_cases": [case_id for case_id, _ in release_results],
         "economic_value_criterion_preregistered": criterion is not None,
         "execution_allowed": False,
         "allow_live_customer_access": False,
         "LIVE_PILOT_READY": False,
     }
+
+
+def verify_review_evidence(
+    package: Mapping[str, object], validation: Mapping[str, object], path: Path,
+) -> dict[str, object]:
+    """Bind an available review record to the frozen package without authenticating people."""
+    document = _exact(_load(path), {
+        "review_version", "dataset_id", "protocol_sha256", "dataset_material_sha256",
+        "prepared_by", "fixed_at", "reviewed_by", "reviewed_at", "review_scope",
+    }, "review evidence")
+    authorship = package["authorship"]
+    if not isinstance(authorship, Mapping):
+        raise ContractError("package authorship is missing")
+    review = authorship["review"]
+    if not isinstance(review, Mapping):
+        raise ContractError("package review is missing")
+    expected = {
+        "review_version": REVIEW_VERSION,
+        "dataset_id": validation["dataset_id"],
+        "protocol_sha256": validation["protocol_sha256"],
+        "dataset_material_sha256": validation["dataset_material_sha256"],
+        "prepared_by": authorship["prepared_by"],
+        "fixed_at": authorship["fixed_at"],
+        "reviewed_by": review["reviewed_by"],
+        "reviewed_at": review["reviewed_at"],
+    }
+    for key, value in expected.items():
+        if document[key] != value:
+            raise ContractError(f"review evidence {key} does not bind the package")
+    _text(document["review_scope"], "review evidence scope")
+    actual = _digest_file(path)
+    if actual != review["evidence_sha256"]:
+        raise ContractError("review evidence digest does not match the package")
+    return {
+        "status": "AVAILABLE_AND_PACKAGE_BOUND",
+        "sha256": actual,
+        "identity_authentication": "NOT_PROVEN_BY_DIGEST_ALONE",
+    }
+
+
+class _PackageMetadataAdapter:
+    """Translate opaque structural declarations through canonical metadata admission."""
+
+    def __init__(self, environment: Mapping[str, object], calls: list[dict[str, str]]):
+        self.source_id = str(environment["source_id"])
+        self._resources = {
+            str(resource["id"]): resource for resource in environment["resources"]
+        }
+        self._calls = calls
+
+    def catalog(self, permit: object, requested: int) -> tuple[tuple[str, ...], bool]:
+        permit.claim_io(self.source_id)
+        self._calls.append({"kind": "metadata_catalog", "source": self.source_id})
+        catalog = tuple(sorted(self._resources))
+        return catalog[:requested], len(catalog) < requested
+
+    def schema(self, permit: object, resource: str) -> ScopeProposal:
+        permit.claim_io(self.source_id)
+        self._calls.append({"kind": "metadata_schema", "source": self.source_id})
+        declaration = self._resources[resource]
+        kinds = {
+            "Int": "number", "Float": "number", "Currency": "number",
+            "Percent": "number", "Date": "date", "Link": "reference",
+        }
+        fields = tuple(FieldDeclaration(
+            resource, str(field["id"]), kinds[str(field["kind"])], str(field["kind"])
+        ) for field in declaration["fields"])
+        dates = tuple(field.name for field in fields if field.kind == "date")
+        return ScopeProposal(
+            resource, tuple(field.name for field in fields), dates,
+            interpret_schema(resource, fields),
+        )
+
+
+class _PackageRecordReader:
+    def __init__(
+        self, source_id: str, provenance_source: str,
+        resource: str, records: tuple[Mapping[str, object], ...],
+        clock: Callable[[], datetime], calls: list[dict[str, str]],
+    ) -> None:
+        self.source_id = source_id
+        self._provenance_source = provenance_source
+        self._resource = resource
+        self._records = records
+        self._clock = clock
+        self._calls = calls
+
+    def read(self, permit: object) -> tuple[Observation, ...]:
+        request, _ = permit.claim_io(self.source_id)
+        if request.resource != self._resource:
+            raise ValueError("package reader resource mismatch")
+        self._calls.append({"kind": "record_batch", "source": self.source_id})
+        return tuple(Observation(Evidence(
+            EvidenceKind.EXPERIMENT, self._provenance_source,
+            {"resource": self._resource, "record": dict(record)},
+            observed_at=self._clock(), tenant_id=request.tenant_id,
+        )) for record in self._records)
+
+
+def _record_dates(batch: Mapping[str, object]) -> tuple[date, date]:
+    field = str(batch["date_field"])
+    values = tuple(date.fromisoformat(str(record[field])) for record in batch["records"])
+    return min(values), max(values)
+
+
+def _admit_batch(
+    batch: Mapping[str, object], *, tenant: str, company: str, source: str,
+    clock: Callable[[], datetime], authorized_ids: frozenset[str],
+    calls: list[dict[str, str]],
+) -> tuple[tuple[Observation, ...], PilotRequest]:
+    records = tuple(dict(record) for record in batch["records"])
+    fields = tuple(records[0])
+    start, end = _record_dates(batch)
+    request = PilotRequest(
+        tenant, company, source, str(batch["resource_id"]), fields,
+        str(batch["date_field"]), start, end, len(records),
+    )
+    grant = PilotAuthorization(
+        str(batch["authorization_id"]), source,
+        ReviewedReadWindow(
+            tenant, company, str(batch["resource_id"]), fields,
+            str(batch["date_field"]), start, end, clock() + timedelta(hours=1),
+        ),
+        str(batch["identity_field"]), str(batch["company_field"]),
+        str(batch["provenance_source"]), EvidenceKind.EXPERIMENT, len(records),
+    )
+    observations = launch_pilot_read(
+        request, authorization_id=grant.authorization_id,
+        lookup=lambda identity: (
+            grant if identity == grant.authorization_id and identity in authorized_ids else None
+        ),
+        adapter=_PackageRecordReader(
+            source, grant.provenance_source, request.resource, records, clock, calls,
+        ),
+        clock=clock,
+    )
+    return observations, request
+
+
+def package_authorization_references(package: Mapping[str, object]) -> frozenset[str]:
+    """Collect references for the trusted controller; this does not issue grants."""
+    learner = package["learner_inputs"]
+    releases = package["outcome_releases"]
+    if not isinstance(learner, Mapping) or not isinstance(releases, Mapping):
+        raise ContractError("validated package structure required")
+    identities = set()
+    for phase in ("development", "evaluation"):
+        environment = learner[phase]
+        identities.add(str(environment["metadata_authorization_id"]))
+        identities.update(
+            str(resource["historical_batch"]["authorization_id"])
+            for resource in environment["resources"]
+        )
+        identities.update(
+            str(instrument["authorization_id"])
+            for instrument in environment["instruments"]
+        )
+        identities.update(
+            str(batch["authorization_id"])
+            for release in releases[phase] for batch in release["batches"]
+        )
+    return frozenset(identities)
+
+
+def _instrument_batch(instrument: Mapping[str, object]) -> dict[str, object]:
+    records = tuple(dict(record) for record in instrument["records"])
+    return {
+        "resource_id": instrument["resource_id"],
+        "authorization_id": instrument["authorization_id"],
+        "provenance_source": instrument["provenance_source"],
+        "identity_field": "id", "company_field": "partition", "date_field": "on",
+        "records": records,
+    }
+
+
+def _discover_environment(
+    environment: Mapping[str, object], *, tenant: str, company: str,
+    evidence_time: datetime, authorized_ids: frozenset[str],
+    calls: list[dict[str, str]],
+) -> dict[str, object]:
+    clock = lambda: evidence_time
+    source = str(environment["source_id"])
+    metadata_request = MetadataRequest(tenant, company, source)
+    metadata_id = str(environment["metadata_authorization_id"])
+    metadata_grant = MetadataAuthorization(
+        metadata_id, metadata_request, evidence_time + timedelta(hours=1), True,
+        len(environment["resources"]), len(environment["resources"]), (),
+    )
+    discovered = launch_pilot_metadata(
+        metadata_request, authorization_id=metadata_id,
+        lookup=lambda identity: (
+            metadata_grant
+            if identity == metadata_id and identity in authorized_ids else None
+        ),
+        adapter=_PackageMetadataAdapter(environment, calls), clock=clock,
+    )
+    archive: dict[object, object] = {
+        observation.evidence.evidence_id: observation
+        for observation in discovered.observations
+    }
+    base = RoleStudy(discovered.observations[0], evidence_lookup=archive.get)
+    for resource in environment["resources"]:
+        observations, request = _admit_batch(
+            resource["historical_batch"], tenant=tenant, company=company,
+            source=source, clock=clock, authorized_ids=authorized_ids, calls=calls,
+        )
+        for observation in observations:
+            archive[observation.evidence.evidence_id] = observation
+            archive[("scope", observation.evidence.evidence_id)] = request
+        base.observe(observations, request=request)
+    instruments = tuple(Instrument(
+        str(item["source_id"]), str(item["resource_id"]),
+        str(item["provenance_source"]), tuple(map(str, item["classes"])),
+    ) for item in environment["instruments"])
+    study = SemanticStudy(
+        base, instruments=instruments, evidence_lookup=archive.get, rules=FNB_RULES,
+    )
+    for item in environment["instruments"]:
+        origins = {str(origin["record_id"]): origin for origin in item["origins"]}
+        grouped: dict[tuple[str, ...], list[Mapping[str, object]]] = {}
+        for record in item["records"]:
+            grouped.setdefault(tuple(record), []).append(record)
+        for records in grouped.values():
+            batch = _instrument_batch({**item, "records": records})
+            observations, request = _admit_batch(
+                batch, tenant=tenant, company=company, source=str(item["source_id"]),
+                clock=clock, authorized_ids=authorized_ids, calls=calls,
+            )
+            for observation in observations:
+                archive[observation.evidence.evidence_id] = observation
+                archive[("scope", observation.evidence.evidence_id)] = request
+                record_id = str(
+                    observation.evidence.payload["provenance"]["source_record_id"]
+                )
+                origin = origins[record_id]
+                archive[("origin", observation.evidence.evidence_id)] = Origin(
+                    tuple(tuple(map(str, root)) for root in origin["roots"]),
+                    tuple(UUID(str(parent)) for parent in origin["parents"]),
+                )
+            study.observe(observations)
+    return assess_restaurant(study, tenant_id=tenant, company=company, source_id=source)
+
+
+def _cohort_document(cohort: BusinessCohort) -> dict[str, object]:
+    return {
+        "entity_id": cohort.entity_id, "location_id": cohort.location_id,
+        "window_start": cohort.window_start.isoformat(),
+        "window_end": cohort.window_end.isoformat(),
+    }
+
+
+def _pending_commitments(
+    ledger_path: Path, *, tenant: str, target: str, unit: str,
+    cohort: BusinessCohort, models: tuple[str, ...],
+) -> tuple[str, ...]:
+    expected_cohort = _cohort_document(cohort)
+    with sqlite3.connect(ledger_path) as database:
+        rows = database.execute("""
+            SELECT p.payload, o.identity FROM predictions p
+            LEFT JOIN prediction_outcomes o
+              ON p.tenant=o.tenant AND p.identity=o.identity
+            WHERE p.tenant=? ORDER BY p.identity
+        """, (tenant,)).fetchall()
+    matches = []
+    for payload, outcome_id in rows:
+        prediction = json.loads(payload)
+        if (
+            outcome_id is None
+            and prediction["target_definition"] == target
+            and prediction["unit"] == unit
+            and prediction["cohort"] == expected_cohort
+            and prediction["model_version"] in models
+            and prediction["horizon_end"] == cohort.window_end.isoformat()
+        ):
+            matches.append((prediction["model_version"], prediction["prediction_id"]))
+    if tuple(sorted(model for model, _ in matches)) != tuple(sorted(models)):
+        raise ContractError("matching durable pending prediction commitment is required")
+    return tuple(identity for _, identity in sorted(matches))
+
+
+class _StagedReleaseController:
+    """Evaluator-side release gate; it holds records and grants outside learner state."""
+
+    def __init__(
+        self, *, phase: str, releases: tuple[Mapping[str, object], ...],
+        ledger_path: Path, tenant: str, target: str, unit: str,
+        company: str, state: dict[str, datetime], authorized_ids: frozenset[str],
+        calls: list[dict[str, str]],
+    ) -> None:
+        self.phase = phase
+        self.releases = releases
+        self.ledger_path = ledger_path
+        self.tenant = tenant
+        self.target = target
+        self.unit = unit
+        self.company = company
+        self.state = state
+        self.authorized_ids = authorized_ids
+        self.calls = calls
+        self.index = 0
+        self.checks: list[dict[str, object]] = []
+
+    def acquire(self, queries: tuple[object, ...]) -> tuple[Observation, ...]:
+        before = len(self.calls)
+        if len(queries) != 1 or self.index >= len(self.releases):
+            raise ContractError("one ordered staged outcome query is required")
+        query = queries[0]
+        release = self.releases[self.index]
+        expected_case = f"{self.phase}-{self.index + 1}"
+        if query.case_id != expected_case or release["case_id"] != expected_case:
+            raise ContractError("outcome release does not match the requested case")
+        available = _timestamp(release["available_at"], f"{expected_case}.available_at")
+        if available != query.horizon_end or query.target_definition != self.target \
+                or query.unit != self.unit:
+            raise ContractError("outcome release does not match target, unit or horizon")
+        models = ((BASELINE_MODEL,) if self.phase == "development"
+                  else (BASELINE_MODEL, REVISED_MODEL))
+        prediction_ids = _pending_commitments(
+            self.ledger_path, tenant=self.tenant, target=self.target, unit=self.unit,
+            cohort=query.cohort, models=models,
+        )
+        if self.state["now"] >= available:
+            raise ContractError("outcome release is not prospective")
+        self.state["now"] = available
+        observations = []
+        for batch in release["batches"]:
+            admitted, _ = _admit_batch(
+                batch, tenant=self.tenant, company=self.company,
+                source=str(release["source_id"]), clock=lambda: self.state["now"],
+                authorized_ids=self.authorized_ids, calls=self.calls,
+            )
+            observations.extend(admitted)
+        self.checks.append({
+            "case_id": expected_case, "prediction_ids": prediction_ids,
+            "prediction_committed_before_release": True,
+            "source_io_count": len(self.calls) - before,
+        })
+        self.index += 1
+        return tuple(observations)
+
+
+def _prediction_documents(ledger_path: Path) -> tuple[dict[str, object], ...]:
+    with sqlite3.connect(ledger_path) as database:
+        rows = database.execute(
+            "SELECT payload FROM predictions ORDER BY recorded_at, identity"
+        ).fetchall()
+    return tuple(json.loads(payload) for (payload,) in rows)
+
+
+def _unknown_execution_result(
+    *, validation: Mapping[str, object], frozen_before: Mapping[str, object],
+    frozen_after: Mapping[str, object], started: Mapping[str, object],
+    independent: bool, calls: list[dict[str, str]],
+) -> dict[str, object]:
+    return {
+        "version": PROTOCOL_VERSION, "status": "UNKNOWN",
+        "protocol_sha256": validation["protocol_sha256"],
+        "dataset_identity": validation["dataset_id"],
+        "frozen_learner_before": frozen_before,
+        "frozen_learner_after": frozen_after,
+        "learning_cycle": dict(started),
+        "WHAT_ORION_DISCOVERED": "No uniquely supported operational question.",
+        "WHAT_USEFUL_RELATIONSHIP_WAS_SUPPORTED": None,
+        "WHAT_WAS_PREDICTED_AND_WHEN": (), "WHAT_ACTUALLY_HAPPENED": (),
+        "LEARNING_LOOP_INTEGRITY": "BLOCKED",
+        "INDEPENDENT_EVALUATION": "PASS" if independent else "BLOCKED",
+        "SEMANTIC_UNDERSTANDING": "UNKNOWN",
+        "PREDICTIVE_IMPROVEMENT": "INSUFFICIENT_EVIDENCE",
+        "ECONOMIC_VALUE": "NOT_PROVEN",
+        "REAL_ORGANIZATION_GENERALIZATION": "NOT_PROVEN",
+        "source_io_count": len(calls), "outcome_source_io_count": 0,
+        "execution_allowed": False, "allow_live_customer_access": False,
+        "LIVE_PILOT_READY": False, "candidate_host_qualification": "UNRESOLVED",
+    }
+
+
+def execute_package(
+    package: dict[str, Any], *, protocol: dict[str, Any], protocol_sha256: str,
+    repository: Path, state_dir: Path, independent: bool,
+    review_evidence: Path | None = None,
+    authorized_ids: frozenset[str] | None = None,
+) -> dict[str, object]:
+    """Run one package through the frozen learner using trusted local separation."""
+    frozen_before = verify_frozen_learner(protocol, repository)
+    validation = validate_package(
+        package, protocol=protocol, protocol_sha256=protocol_sha256,
+        require_independent=independent,
+    )
+    review_result = {"status": "NOT_PROVEN"}
+    if independent:
+        if review_evidence is None:
+            raise ContractError("independent execution requires available review evidence")
+        review_result = verify_review_evidence(package, validation, review_evidence)
+    elif review_evidence is not None:
+        raise ContractError("infrastructure exercise cannot claim independent review evidence")
+    references = package_authorization_references(package)
+    authorized = references if authorized_ids is None else authorized_ids
+    if not authorized <= references:
+        raise ContractError("trusted controller contains an unknown authorization reference")
+    if state_dir.exists() and any(state_dir.iterdir()):
+        raise ContractError("evaluation state directory must be new and empty")
+    state_dir.mkdir(parents=True, exist_ok=True)
+    ledger_path = state_dir / "predictions.sqlite3"
+    queue_path = state_dir / "events.sqlite3"
+    if ledger_path.exists() or queue_path.exists():
+        raise ContractError("evaluation state directory must not contain prior canonical state")
+    learner = package["learner_inputs"]
+    tenant, company = str(learner["tenant_id"]), str(learner["company_id"])
+    cutoff = _timestamp(package["timeline"]["discovery_evidence_cutoff"], "cutoff")
+    start = _timestamp(package["timeline"]["evaluation_clock_start"], "start")
+    calls: list[dict[str, str]] = []
+    development = _discover_environment(
+        learner["development"], tenant=tenant, company=company, evidence_time=cutoff,
+        authorized_ids=authorized, calls=calls,
+    )
+    evaluation = _discover_environment(
+        learner["evaluation"], tenant=tenant, company=company, evidence_time=cutoff,
+        authorized_ids=authorized, calls=calls,
+    )
+    state = {"now": start}
+    started = begin_learning_cycle(
+        development, evaluation, ledger_path=ledger_path, clock=lambda: state["now"],
+    )
+    if started["status"] == "UNKNOWN":
+        frozen_after = verify_frozen_learner(protocol, repository)
+        return _unknown_execution_result(
+            validation=validation, frozen_before=frozen_before,
+            frozen_after=frozen_after, started=started,
+            independent=independent, calls=calls,
+        )
+    question = select_prediction_question(development)
+    if question.status != "SUPPORTED" or question.target_definition is None \
+            or question.unit is None:
+        raise ContractError("committed cycle lacks its supported frozen question")
+    outcome_call_start = len(calls)
+    releases = package["outcome_releases"]
+    controllers = {
+        phase: _StagedReleaseController(
+            phase=phase, releases=tuple(releases[phase]), ledger_path=ledger_path,
+            tenant=tenant, target=question.target_definition, unit=question.unit,
+            company=company, state=state, authorized_ids=authorized, calls=calls,
+        ) for phase in ("development", "evaluation")
+    }
+    measured = resume_learning_cycle(
+        ledger_path=ledger_path, queue_path=queue_path,
+        tenant_id=str(started["tenant_id"]), cycle_id=str(started["cycle_id"]),
+        acquire_development=controllers["development"].acquire,
+        acquire_evaluation=controllers["evaluation"].acquire,
+        clock=lambda: state["now"],
+    )
+    frozen_after = verify_frozen_learner(protocol, repository)
+    if frozen_after != frozen_before:
+        raise ContractError("frozen learner identity changed during evaluation")
+    commitment = package["evaluator_only_commitment"]
+    state_bytes = ledger_path.read_bytes() + queue_path.read_bytes()
+    forbidden = (
+        str(commitment["sealed_expected_results_sha256"]), str(commitment["held_by"])
+    )
+    if any(value.encode() in state_bytes for value in forbidden):
+        raise ContractError("evaluator-only commitment entered learner state")
+    predictions = _prediction_documents(ledger_path)
+    improved = bool(measured["predictive_improvement"])
+    result = {
+        "version": PROTOCOL_VERSION,
+        "status": "COMPLETED" if independent else "INFRASTRUCTURE_VERIFIED",
+        "protocol_sha256": protocol_sha256,
+        "dataset_identity": validation["dataset_id"],
+        "dataset_material_sha256": validation["dataset_material_sha256"],
+        "evaluation_mode": "INDEPENDENT" if independent else "SELF_AUTHORED_INFRASTRUCTURE",
+        "authorship_review": review_result,
+        "frozen_learner_before": frozen_before, "frozen_learner_after": frozen_after,
+        "WHAT_ORION_DISCOVERED": {
+            "development_assessment_id": measured["assessment_id"],
+            "evaluation_assessment_id": measured["evaluation_assessment_id"],
+        },
+        "WHAT_USEFUL_RELATIONSHIP_WAS_SUPPORTED": measured["relationship"],
+        "WHY_THE_QUESTION_WAS_SELECTED": measured["question"],
+        "WHAT_WAS_PREDICTED_AND_WHEN": predictions,
+        "WHAT_ACTUALLY_HAPPENED": {
+            "development": measured["development"]["operational_outcomes"],
+            "evaluation": measured["evaluation"]["operational_outcomes"],
+        },
+        "HOW_THE_BASELINE_PERFORMED": {
+            "development_brier": measured["development"]["brier"],
+            "evaluation_brier": measured["evaluation"]["prior_brier"],
+        },
+        "WHAT_ORION_REVISED_AND_WHY": measured["revision"],
+        "WHETHER_THE_REVISION_HELPED_LATER": improved,
+        "WHAT_REMAINED_UNKNOWN": measured["remaining_unknowns"],
+        "WHAT_EVIDENCE_WOULD_HELP_NEXT": (
+            "More independently authored, complete later cohorts with retained review evidence.",
+        ),
+        "WHAT_AUTHORIZATION_THAT_WOULD_REQUIRE": (
+            "New bounded synthetic read grants through the existing admission contracts.",
+        ),
+        "WHAT_ORION_WAS_NOT_PERMITTED_TO_DO": (
+            "Access customer systems, read unreleased outcomes, write business data, or execute actions.",
+        ),
+        "learning_cycle": measured,
+        "release_checks": tuple(
+            check for phase in ("development", "evaluation")
+            for check in controllers[phase].checks
+        ),
+        "source_io_count": len(calls),
+        "outcome_source_io_count": len(calls) - outcome_call_start,
+        "evaluator_only_material_in_learner_state": False,
+        "LEARNING_LOOP_INTEGRITY": "PASS",
+        "INDEPENDENT_EVALUATION": "PASS" if independent else "BLOCKED",
+        "SEMANTIC_UNDERSTANDING": "SUPPORTED_WITHIN_TESTED_SCOPE",
+        "PREDICTIVE_IMPROVEMENT": (
+            "DEMONSTRATED_IN_THIS_EVALUATION" if improved else "NOT_DEMONSTRATED"
+        ),
+        "ECONOMIC_VALUE": "NOT_PROVEN",
+        "REAL_ORGANIZATION_GENERALIZATION": "NOT_PROVEN",
+        "execution_allowed": False, "allow_live_customer_access": False,
+        "LIVE_PILOT_READY": False, "candidate_host_qualification": "UNRESOLVED",
+    }
+    return result
+
+
+def execution_owner_report(result: Mapping[str, object]) -> str:
+    return "\n".join((
+        f"Evaluation status: {result['status']}",
+        f"Dataset: {result['dataset_identity']}",
+        f"Learning loop integrity: {result['LEARNING_LOOP_INTEGRITY']}",
+        f"Independent evaluation: {result['INDEPENDENT_EVALUATION']}",
+        f"Semantic understanding: {result['SEMANTIC_UNDERSTANDING']}",
+        f"Predictive improvement: {result['PREDICTIVE_IMPROVEMENT']}",
+        f"Economic value: {result['ECONOMIC_VALUE']}",
+        "Real-organization generalization: NOT_PROVEN",
+        "Trusted local evaluator separation only; no hostile-process containment claimed.",
+        "Candidate-host qualification remains unresolved.",
+        "execution_allowed=false; allow_live_customer_access=false; LIVE_PILOT_READY=false",
+    )) + "\n"
 
 
 def blocked_result(protocol: dict[str, Any], protocol_sha256: str) -> dict[str, object]:
@@ -631,7 +1211,7 @@ def blocked_result(protocol: dict[str, Any], protocol_sha256: str) -> dict[str, 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("status", "preflight"))
+    parser.add_argument("command", choices=("status", "preflight", "run", "exercise"))
     parser.add_argument("package", nargs="?", type=Path)
     parser.add_argument(
         "--protocol",
@@ -639,6 +1219,10 @@ def main(argv: list[str] | None = None) -> int:
         default=Path("evaluation/frozen_learning_v1/protocol.json"),
     )
     parser.add_argument("--repository", type=Path, default=Path.cwd())
+    parser.add_argument("--review-evidence", type=Path)
+    parser.add_argument("--state-dir", type=Path)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--owner-report", type=Path)
     arguments = parser.parse_args(argv)
     protocol_path = arguments.protocol.resolve()
     protocol = _load(protocol_path)
@@ -647,22 +1231,58 @@ def main(argv: list[str] | None = None) -> int:
     protocol_sha256 = _digest_file(protocol_path)
     frozen = verify_frozen_learner(protocol, arguments.repository.resolve())
     if arguments.command == "status":
-        if arguments.package is not None:
-            parser.error("status does not accept a package")
+        if any(value is not None for value in (
+            arguments.package, arguments.review_evidence, arguments.state_dir,
+            arguments.output, arguments.owner_report,
+        )):
+            parser.error("status does not accept package, review, state or output paths")
         output = blocked_result(protocol, protocol_sha256)
         output["frozen_learner_verification"] = frozen
         print(json.dumps(output, sort_keys=True, indent=2))
         return 2
     if arguments.package is None:
-        parser.error("preflight requires a package path")
+        parser.error(f"{arguments.command} requires a package path")
     package_path = arguments.package.resolve()
     package = _load(package_path)
-    output = validate_package(
-        package, protocol=protocol, protocol_sha256=protocol_sha256
+    if arguments.command == "preflight":
+        if arguments.state_dir is not None or arguments.output is not None \
+                or arguments.owner_report is not None:
+            parser.error("preflight does not accept state or output paths")
+        output = validate_package(
+            package, protocol=protocol, protocol_sha256=protocol_sha256,
+        )
+        output["package_sha256"] = _digest_file(package_path)
+        output["frozen_learner_verification"] = frozen
+        if arguments.review_evidence is None:
+            output["status"] = "BLOCKED_REVIEW_EVIDENCE_UNAVAILABLE"
+            output["authorship_review"] = "NOT_PROVEN"
+            print(json.dumps(output, sort_keys=True, indent=2))
+            return 2
+        output["authorship_review"] = verify_review_evidence(
+            package, output, arguments.review_evidence.resolve())
+        output["status"] = "READY_FOR_SINGLE_FROZEN_EVALUATION"
+        print(json.dumps(output, sort_keys=True, indent=2))
+        return 0
+    if arguments.state_dir is None:
+        parser.error(f"{arguments.command} requires --state-dir")
+    independent = arguments.command == "run"
+    if independent and arguments.review_evidence is None:
+        parser.error("run requires --review-evidence")
+    result = execute_package(
+        package, protocol=protocol, protocol_sha256=protocol_sha256,
+        repository=arguments.repository.resolve(), state_dir=arguments.state_dir.resolve(),
+        independent=independent,
+        review_evidence=(arguments.review_evidence.resolve()
+                         if arguments.review_evidence is not None else None),
     )
-    output["package_sha256"] = _digest_file(package_path)
-    output["frozen_learner_verification"] = frozen
-    print(json.dumps(output, sort_keys=True, indent=2))
+    result["package_sha256"] = _digest_file(package_path)
+    encoded = json.dumps(result, sort_keys=True, indent=2) + "\n"
+    if arguments.output is not None:
+        arguments.output.resolve().write_text(encoded, encoding="utf-8")
+    if arguments.owner_report is not None:
+        arguments.owner_report.resolve().write_text(
+            execution_owner_report(result), encoding="utf-8")
+    print(encoded, end="")
     return 0
 
 

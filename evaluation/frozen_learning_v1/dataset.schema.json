@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/orion/frozen-learning-evaluation-v1/dataset.schema.json",
-  "title": "ORION independently authored frozen-learning evaluation package",
+  "title": "ORION frozen-learning evaluation package",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -65,8 +65,8 @@
         "engine_source_seen_details": {"$ref": "#/$defs/text"},
         "engine_results_seen_before_fixing": {"type": "boolean"},
         "engine_results_seen_details": {"$ref": "#/$defs/text"},
-        "preparer_is_engine_implementer": {"const": false},
-        "shared_fixture_engine_authorship": {"const": false},
+        "preparer_is_engine_implementer": {"type": "boolean"},
+        "shared_fixture_engine_authorship": {"type": "boolean"},
         "answers_fixed_before_execution": {"const": true},
         "learner_visible_material": {
           "type": "array",
@@ -85,7 +85,7 @@
           "additionalProperties": false,
           "required": ["status", "reviewed_by", "reviewer_role", "reviewed_at", "evidence_sha256"],
           "properties": {
-            "status": {"const": "VERIFIED"},
+            "status": {"enum": ["VERIFIED", "NOT_PROVEN"]},
             "reviewed_by": {"$ref": "#/$defs/text"},
             "reviewer_role": {"$ref": "#/$defs/text"},
             "reviewed_at": {"$ref": "#/$defs/timestamp"},

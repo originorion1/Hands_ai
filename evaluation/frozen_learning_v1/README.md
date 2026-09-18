@@ -13,9 +13,10 @@ is not an independent restaurant dataset, staged future-outcome corpus, or
 authorship record. A new seed, source string, branch, or execution agent would
 not repair that limitation.
 
-No product evaluation was run and no prior fixture result is relabeled as
-independent. The checked-in `result.json` is therefore a machine-readable
-blocked result, not a score.
+No independent product evaluation was run and no prior fixture result is
+relabeled as independent. The checked-in `result.json` is therefore a
+machine-readable blocked result, not a score. The execution bridge is now
+runnable; its self-authored contract fixture is infrastructure evidence only.
 
 ## Frozen boundary
 
@@ -52,8 +53,9 @@ An independent preparer must provide one JSON package conforming to
 5. a sealed expected-result commitment retained outside learner input;
 6. the preparer's identity/role, what ORION source and results they had seen,
    preparation/freeze times, and learner-visible versus evaluator-only material;
-7. independent reviewer evidence verifying those authorship and chronology
-   facts; and
+7. an available reviewer-evidence JSON document verifying those authorship and
+   chronology facts, whose raw SHA-256 equals the package's
+   `authorship.review.evidence_sha256`; and
 8. distinct synthetic source and authorization domains for discovery,
    instruments, development outcomes, and evaluation outcomes.
 
@@ -61,7 +63,15 @@ The operator is not asked to supply a business mapping. Process evidence uses
 the existing canonical anchor protocol; the frozen semantic rules decide which
 opaque fields, if any, it supports.
 
-## Runnable preflight
+The review document must contain exactly `review_version`, `dataset_id`,
+`protocol_sha256`, `dataset_material_sha256`, `prepared_by`, `fixed_at`,
+`reviewed_by`, `reviewed_at`, and `review_scope`. The first value must be
+`orion-independent-review-evidence-v1`; every identity and time must match the
+package, and the material digest must match preflight. A digest or declaration
+alone does not authenticate a person. The evaluator retains the actual review
+artifact and reports that identity authentication limitation.
+
+## Runnable preflight and execution
 
 From the repository root:
 
@@ -76,24 +86,74 @@ For an externally supplied package:
 
 ```bash
 PYTHONPATH=src .venv/bin/python tools/frozen_learning_evaluation.py \
-  preflight /path/to/package.json
+  preflight /path/to/package.json \
+  --review-evidence /path/to/review-evidence.json
 ```
 
 Preflight validates the exact protocol binding, staged-material identity,
 opaque identifiers, authorship disclosure/review, chronology, source/grant
 separation, canonical instrument shape, absence of direct answers, fixed four
-release stages, and safety flags. It returns
+release stages, available review-evidence binding, and safety flags. It returns
 `READY_FOR_SINGLE_FROZEN_EVALUATION` only when those prerequisites are present.
-It does not convert JSON into grants or authority and does not execute arbitrary
-modules or callbacks.
+Without the referenced review artifact it returns
+`BLOCKED_REVIEW_EVIDENCE_UNAVAILABLE` with exit status `2`. Preflight does not
+convert JSON into grants or authority and never executes arbitrary package code,
+modules, or callbacks.
 
-After a package passes preflight, its identity must be retained and the single
-evaluation must be run through the existing metadata/read adapters,
-`assess_restaurant`, `begin_learning_cycle`, and `resume_learning_cycle`. The
-trusted local evaluator may release only the current stage after observing the
-matching durable commitment. The evaluator-only commitment and future stages
-must never enter learner inputs or the prediction ledger. This is trusted local
-separation, not malicious-process isolation.
+Run the single registered evaluation into a new state directory:
+
+```bash
+PYTHONPATH=src .venv/bin/python tools/frozen_learning_evaluation.py \
+  run /path/to/package.json \
+  --review-evidence /path/to/review-evidence.json \
+  --state-dir /path/to/new-empty-state \
+  --output /path/to/result.json \
+  --owner-report /path/to/owner-report.txt
+```
+
+The trusted local controller constructs bounded synthetic
+`MetadataAuthorization` and `PilotAuthorization` values through the existing
+launchers. Package authorization identifiers remain references. Opaque
+metadata, historical records and canonical instrument evidence are admitted
+into the existing `RoleStudy`/`SemanticStudy` and F&B assessment. The bridge
+then uses `begin_learning_cycle` and `resume_learning_cycle` with the canonical
+prediction ledger, event queue, outcome normalization, revision and paired
+score.
+
+Before every outcome read, the controller queries the actual SQLite prediction
+ledger and requires an unresolved prediction with the exact target, unit,
+entity/location cohort, horizon, and frozen model arm. Only then does it advance
+the synthetic clock and construct the separately bounded record grant. Future
+records and the evaluator-only commitment stay in controller memory; their
+commitment digest and holder are checked absent from learner databases. This is
+trusted local separation, not malicious-process isolation.
+
+`exercise` runs the same bridge only for a package that honestly declares
+shared engine/fixture authorship. Its result is
+`SELF_AUTHORED_INFRASTRUCTURE`, keeps `INDEPENDENT_EVALUATION=BLOCKED`, and must
+not be used as a product-evaluation result.
+
+## Execution-bridge evidence
+
+The self-authored fixture proves the bridge mechanics, not independence:
+
+- flat development and related header/detail evaluation evidence traverse the
+  canonical discovery, semantic, assessment, prediction, admission and scoring
+  paths;
+- four releases follow durable commitments; their outcome reads total six
+  bounded batches because each evaluation release contains a header/detail pair;
+- mismatched and early releases, and a missing trusted grant, are rejected
+  before an outcome reader call;
+- unsupported relationship evidence returns `UNKNOWN` and releases no outcome;
+- normalized totals retain record-level admission provenance;
+- the frozen learner is hash-checked before and after, and drift blocks the run;
+- evaluator-only commitment material is absent from ledger/event state; and
+- the unfavorable result remains: frozen-prior evaluation Brier `0.25`, revised
+  Brier `0.3125`, with `evaluation-1` retained as a failed prediction.
+
+This fixture and runner share authorship. Consequently
+`INDEPENDENT_EVALUATION=BLOCKED`, regardless of the bridge's successful
+infrastructure exercise.
 
 ## Claim discipline
 
@@ -116,7 +176,7 @@ live readiness.
 
 ## Verification record
 
-Focused protocol/preflight checks passed: `5 passed`. The single final campaign,
+The earlier protocol/preflight checks passed: `5 passed`. The single earlier campaign,
 `job-mu6rrwoz-d083fb88`, verified staged tree
 `225a238d4adb142c1ff4adfc6021e1a6d1593f80`: Python compilation, Ruff,
 `1955 passed`, the demo with `execution_allowed=false`, JSON validation, the
@@ -128,3 +188,17 @@ Only this verification record and the corresponding evidence-matrix row were
 updated after the campaign. No code, protocol, schema, machine result or test
 changed, so the valid runtime evidence is reused for that documentation-only
 update rather than repeating the campaign.
+
+The execution-bridge focused suite passes `11` tests. Final campaign
+`job-mu6xkrcq-8bc7cea9` verified staged tree
+`ee28af604dd6c74ce379646aba262289d0646dbe`: Python compilation, Ruff,
+`1961 passed`, the demo with `execution_allowed=false`, protocol/schema/result
+JSON, intentional blocked-status exit, source/capability scan, frozen-source and
+protocol-hash checks, and cached/unstaged diff checks all passed. Pytest emitted
+one cache-directory permission warning that did not affect execution.
+
+The first launch record, `job-mu6xhqib-b3b8f92b`, failed before any check ran
+because its shell payload was transported with literal newline escapes and
+pre-expanded variables. The corrected campaign above used the same unchanged
+staged tree and is the final runtime evidence. This post-campaign paragraph and
+the matching evidence-matrix row are documentation-only follow-up.
