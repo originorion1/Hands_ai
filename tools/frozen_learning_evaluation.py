@@ -306,7 +306,9 @@ def _validate_batch(
 
 
 def _validate_environment(
-    value: object, *, label: str, company: str, evidence_cutoff: datetime
+    value: object, *, label: str, company: str, evidence_cutoff: datetime,
+    allow_technical_metadata: bool = False,
+    canonical_source_references: bool = False,
 ) -> dict[str, object]:
     environment = _exact(
         value, {"source_id", "metadata_authorization_id", "resources", "instruments"}, label
@@ -351,10 +353,11 @@ def _validate_environment(
         batch = resource["historical_batch"]
         if batch["date_field"] not in field_ids or kinds[batch["date_field"]] != "Date":
             raise ContractError(f"{label} historical date field lacks Date metadata evidence")
-        business_fields = set(batch["records"][0]) - {
+        record_fields = set(batch["records"][0])
+        metadata_scope = record_fields if allow_technical_metadata else record_fields - {
             batch["identity_field"], batch["company_field"]
         }
-        if not field_ids <= business_fields:
+        if not field_ids <= metadata_scope:
             raise ContractError(f"{label} historical records omit discovered fields")
         if authorization in authorizations:
             raise ContractError(f"{label} reuses an authorization identity")
@@ -430,7 +433,11 @@ def _validate_environment(
             if record_id in record_ids or record_id not in origin_by_id:
                 raise ContractError("instrument record origin is missing or duplicated")
             record_ids.add(record_id)
-            if record["partition"] != company or record["subject_source"] != source \
+            subject_source = (
+                _https(record["subject_source"], "instrument subject source")
+                if canonical_source_references else record["subject_source"]
+            )
+            if record["partition"] != company or subject_source != source \
                     or record["subject_resource"] not in resource_ids \
                     or record["evidence_class"] not in classes:
                 raise ContractError("instrument scope or subject is inconsistent")
@@ -490,6 +497,8 @@ def _validate_staged_material(
     package: Mapping[str, object], *, protocol: Mapping[str, object],
     protocol_sha256: str, dataset_id: str, content_identity: str,
     cutoff: datetime, start: datetime, authorship_review: str,
+    allow_technical_metadata: bool = False,
+    canonical_source_references: bool = False,
 ) -> dict[str, object]:
     if cutoff > start:
         raise ContractError("discovery evidence cutoff must not follow evaluation clock start")
@@ -502,11 +511,13 @@ def _validate_staged_material(
     del tenant
     development = _validate_environment(
         learner["development"], label="development", company=company,
-        evidence_cutoff=cutoff,
+        evidence_cutoff=cutoff, allow_technical_metadata=allow_technical_metadata,
+        canonical_source_references=canonical_source_references,
     )
     evaluation = _validate_environment(
         learner["evaluation"], label="evaluation", company=company,
-        evidence_cutoff=cutoff,
+        evidence_cutoff=cutoff, allow_technical_metadata=allow_technical_metadata,
+        canonical_source_references=canonical_source_references,
     )
     if development["source_id"] == evaluation["source_id"] \
             or development["instrument_sources"] & evaluation["instrument_sources"]:
@@ -763,6 +774,8 @@ def _validate_package_v2(
         package, protocol=protocol, protocol_sha256=protocol_sha256,
         dataset_id=dataset_id, content_identity=_material_digest(package),
         cutoff=cutoff, start=start, authorship_review="PENDING_SEPARATE_ENVELOPE",
+        allow_technical_metadata=True,
+        canonical_source_references=True,
     )
     validation.update({
         "original_preparation": original,
@@ -1009,6 +1022,19 @@ def verify_review_evidence_v2(
         "reviewed_at": reviewed_at.isoformat(),
         "identity_authentication": "NOT_PROVEN_BY_DIGEST_ALONE",
         "independence_authentication": "REQUIRES_HUMAN_OR_EXTERNAL_TRUST",
+    }
+
+
+def _bind_trusted_review_approval(
+    review_result: Mapping[str, object], supplied_sha256: object,
+) -> dict[str, str]:
+    """Bind a separately trusted controller approval to the exact review bytes."""
+    supplied = _sha256(supplied_sha256, "trusted review approval digest")
+    if supplied != review_result.get("sha256"):
+        raise ContractError("trusted review approval does not bind the review artifact")
+    return {
+        "status": "SEPARATELY_TRUSTED_EXACT_REVIEW_DIGEST",
+        "review_evidence_sha256": supplied,
     }
 
 
@@ -1434,8 +1460,9 @@ def _unknown_execution_result(
 def execute_package(
     package: dict[str, Any], *, protocol: dict[str, Any], protocol_sha256: str,
     repository: Path, state_dir: Path, independent: bool,
+    authorized_ids: frozenset[str] | None,
+    trusted_review_approval_sha256: str | None,
     review_evidence: Path | None = None,
-    authorized_ids: frozenset[str] | None = None,
     package_path: Path | None = None,
     freeze_receipt: Path | None = None,
     exposure_disclosure: Path | None = None,
@@ -1456,6 +1483,8 @@ def execute_package(
         if review_evidence is None:
             raise ContractError("independent execution requires available review evidence")
         if protocol_version == PROTOCOL_VERSION:
+            if trusted_review_approval_sha256 is not None:
+                raise ContractError("trusted review approval is only defined for v2")
             review_result = verify_review_evidence(package, validation, review_evidence)
         else:
             required = {
@@ -1482,13 +1511,26 @@ def execute_package(
                 package, validation, receipt=receipt_result, path=review_evidence,
                 run_start=candidate_start,
             )
+            if trusted_review_approval_sha256 is None:
+                raise ContractError(
+                    "v2 independent execution requires separately trusted review approval"
+                )
+            review_result["execution_approval"] = _bind_trusted_review_approval(
+                review_result, trusted_review_approval_sha256
+            )
             run_start = candidate_start
-    elif review_evidence is not None:
-        raise ContractError("infrastructure exercise cannot claim independent review evidence")
+    elif review_evidence is not None or trusted_review_approval_sha256 is not None:
+        raise ContractError(
+            "infrastructure exercise cannot claim review evidence or trusted approval"
+        )
     references = package_authorization_references(package)
-    authorized = references if authorized_ids is None else authorized_ids
-    if not authorized <= references:
-        raise ContractError("trusted controller contains an unknown authorization reference")
+    if authorized_ids is None:
+        raise ContractError("execution requires separately trusted authorization IDs")
+    authorized = frozenset(authorized_ids)
+    if authorized != references:
+        raise ContractError(
+            "trusted controller authorization IDs must exactly match package references"
+        )
     if state_dir.exists() and any(state_dir.iterdir()):
         raise ContractError("evaluation state directory must be new and empty")
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -1508,6 +1550,7 @@ def execute_package(
             "dataset_material_sha256": validation["dataset_material_sha256"],
             "freeze_receipt_sha256": receipt_result["sha256"],
             "review_evidence_sha256": review_result["sha256"],
+            "trusted_review_approval": review_result["execution_approval"],
             "run_started_at": run_start.isoformat(),
             "clock_authentication": "NOT_PROVEN_BY_LOCAL_CLOCK",
         }
@@ -1726,6 +1769,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--owner-report", type=Path)
+    parser.add_argument(
+        "--authorized-id", action="append",
+        help=(
+            "separately trusted authorization ID; repeat for every package reference "
+            "when running or exercising"
+        ),
+    )
+    parser.add_argument("--trusted-review-approval-sha256")
     arguments = parser.parse_args(argv)
     protocol_path = arguments.protocol.resolve()
     protocol = _load(protocol_path)
@@ -1739,7 +1790,8 @@ def main(argv: list[str] | None = None) -> int:
             arguments.exposure_disclosure, arguments.generation_record,
             arguments.source_protocol, arguments.conversion_report,
             arguments.unknown_preparation_reason, arguments.state_dir,
-            arguments.output, arguments.owner_report,
+            arguments.output, arguments.owner_report, arguments.authorized_id,
+            arguments.trusted_review_approval_sha256,
         )):
             parser.error("status does not accept package, review, state or output paths")
         output = blocked_result(protocol, protocol_sha256)
@@ -1836,18 +1888,37 @@ def main(argv: list[str] | None = None) -> int:
                 package, output, receipt=receipt,
                 path=arguments.review_evidence.resolve(), run_start=checked_at,
             )
+            if arguments.trusted_review_approval_sha256 is None:
+                output["status"] = "BLOCKED_TRUSTED_REVIEW_APPROVAL_REQUIRED"
+                output["review_execution_approval"] = "NOT_PROVIDED"
+                print(json.dumps(output, sort_keys=True, indent=2))
+                return 2
+            output["review_execution_approval"] = _bind_trusted_review_approval(
+                output["authorship_review"],
+                arguments.trusted_review_approval_sha256,
+            )
         output["status"] = "READY_FOR_SINGLE_FROZEN_EVALUATION"
         print(json.dumps(output, sort_keys=True, indent=2))
         return 0
     if arguments.state_dir is None:
         parser.error(f"{arguments.command} requires --state-dir")
+    if arguments.authorized_id is None:
+        parser.error(
+            f"{arguments.command} requires at least one separately trusted --authorized-id"
+        )
     independent = arguments.command == "run"
     if independent and arguments.review_evidence is None:
         parser.error("run requires --review-evidence")
+    if independent and protocol["protocol_version"] == PROTOCOL_VERSION_V2 \
+            and arguments.trusted_review_approval_sha256 is None:
+        parser.error("v2 run requires --trusted-review-approval-sha256")
+    if not independent and arguments.trusted_review_approval_sha256 is not None:
+        parser.error("exercise does not accept --trusted-review-approval-sha256")
     result = execute_package(
         package, protocol=protocol, protocol_sha256=protocol_sha256,
         repository=arguments.repository.resolve(), state_dir=arguments.state_dir.resolve(),
-        independent=independent,
+        independent=independent, authorized_ids=frozenset(arguments.authorized_id),
+        trusted_review_approval_sha256=arguments.trusted_review_approval_sha256,
         review_evidence=(arguments.review_evidence.resolve()
                          if arguments.review_evidence is not None else None),
         package_path=package_path,

@@ -18,3 +18,8 @@ Return a JSON document conforming to `../review.schema.json`. The
 the bounded text fields. Do not inspect or expose sealed answers to the
 learner, run ORION, or claim authenticated identity/time without separate
 evidence.
+
+The returned JSON does not authorize execution. A trusted controller, human or
+external authority distinct from the package/review assertions must separately
+approve the exact raw SHA-256 of that review artifact. Without that approval,
+preflight remains blocked and independent execution fails before source I/O.

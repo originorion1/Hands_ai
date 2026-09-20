@@ -16,7 +16,10 @@ canonical material, sealed commitment, disclosure and generation hashes. A
 separate reviewer then reviews that fixed evidence and returns an envelope
 conforming to `../review.schema.json`. Review must occur no earlier than the
 receipt and no later than controller run start. A digest, name, model, session
-or `VERIFIED` string alone does not prove identity or independence.
+or `VERIFIED` string alone does not prove identity or independence. The review
+envelope therefore cannot authorize execution by itself: a separately trusted
+controller, human or external authority must approve its exact raw SHA-256, and
+that approval must bind before source I/O.
 
 The synthetic timeline is unchanged and does not represent real authorship or
 review time. No handoff, review or external evaluation is performed by issue

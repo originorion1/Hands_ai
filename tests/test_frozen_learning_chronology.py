@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from frozen_learning_contract_fixture import self_authored_package
+from frozen_learning_contract_fixture import refresh_dataset_identity, self_authored_package
 
 import tools.frozen_learning_evaluation as evaluation
 from tools.frozen_learning_evaluation import ContractError
@@ -233,6 +233,8 @@ def test_missing_or_mismatched_receipt_and_review_chronology_deny_before_source_
             package, protocol=_protocol(V2_PROTOCOL_PATH),
             protocol_sha256=evaluation._digest_file(V2_PROTOCOL_PATH),
             repository=ROOT, state_dir=tmp_path / "state-missing", independent=True,
+            authorized_ids=evaluation.package_authorization_references(package),
+            trusted_review_approval_sha256=None,
             review_evidence=review_path,
         )
     assert source_calls == 0
@@ -245,6 +247,8 @@ def test_missing_or_mismatched_receipt_and_review_chronology_deny_before_source_
             package, protocol=_protocol(V2_PROTOCOL_PATH),
             protocol_sha256=evaluation._digest_file(V2_PROTOCOL_PATH),
             repository=ROOT, state_dir=tmp_path / "state-inverted", independent=True,
+            authorized_ids=evaluation.package_authorization_references(package),
+            trusted_review_approval_sha256=None,
             review_evidence=review_path, package_path=package_path,
             freeze_receipt=receipt_path, exposure_disclosure=exposure,
             generation_record=generation,
@@ -257,11 +261,43 @@ def test_missing_or_mismatched_receipt_and_review_chronology_deny_before_source_
         tmp_path, package, package_path, exposure, generation
     )
     state_dir = tmp_path / "state-valid-envelope"
+    with pytest.raises(ContractError, match="separately trusted review approval"):
+        evaluation.execute_package(
+            package, protocol=_protocol(V2_PROTOCOL_PATH),
+            protocol_sha256=evaluation._digest_file(V2_PROTOCOL_PATH),
+            repository=ROOT, state_dir=state_dir, independent=True,
+            authorized_ids=evaluation.package_authorization_references(package),
+            trusted_review_approval_sha256=None,
+            review_evidence=review_path, package_path=package_path,
+            freeze_receipt=receipt_path, exposure_disclosure=exposure,
+            generation_record=generation,
+            controller_clock=lambda: freeze_time + timedelta(hours=2),
+        )
+    assert source_calls == 0
+    assert not state_dir.exists()
+
+    with pytest.raises(ContractError, match="does not bind the review artifact"):
+        evaluation.execute_package(
+            package, protocol=_protocol(V2_PROTOCOL_PATH),
+            protocol_sha256=evaluation._digest_file(V2_PROTOCOL_PATH),
+            repository=ROOT, state_dir=state_dir, independent=True,
+            authorized_ids=evaluation.package_authorization_references(package),
+            trusted_review_approval_sha256="0" * 64,
+            review_evidence=review_path, package_path=package_path,
+            freeze_receipt=receipt_path, exposure_disclosure=exposure,
+            generation_record=generation,
+            controller_clock=lambda: freeze_time + timedelta(hours=2),
+        )
+    assert source_calls == 0
+    assert not state_dir.exists()
+
     with pytest.raises(AssertionError, match="source I/O must not occur"):
         evaluation.execute_package(
             package, protocol=_protocol(V2_PROTOCOL_PATH),
             protocol_sha256=evaluation._digest_file(V2_PROTOCOL_PATH),
             repository=ROOT, state_dir=state_dir, independent=True,
+            authorized_ids=evaluation.package_authorization_references(package),
+            trusted_review_approval_sha256=evaluation._digest_file(review_path),
             review_evidence=review_path, package_path=package_path,
             freeze_receipt=receipt_path, exposure_disclosure=exposure,
             generation_record=generation,
@@ -274,6 +310,43 @@ def test_missing_or_mismatched_receipt_and_review_chronology_deny_before_source_
     assert controller_record["run_started_at"] == (
         freeze_time + timedelta(hours=2)
     ).isoformat()
+    assert controller_record["trusted_review_approval"] == {
+        "status": "SEPARATELY_TRUSTED_EXACT_REVIEW_DIGEST",
+        "review_evidence_sha256": evaluation._digest_file(review_path),
+    }
+
+
+def test_explicitly_approved_synthetic_v2_execution_completes(tmp_path):
+    _, _, package, package_path, exposure, generation, _ = _converted_package(
+        tmp_path, independent=True
+    )
+    _, receipt_path, review_path, freeze_time = _receipt_and_review(
+        tmp_path, package, package_path, exposure, generation
+    )
+
+    result = evaluation.execute_package(
+        package, protocol=_protocol(V2_PROTOCOL_PATH),
+        protocol_sha256=evaluation._digest_file(V2_PROTOCOL_PATH),
+        repository=ROOT, state_dir=tmp_path / "state", independent=True,
+        authorized_ids=evaluation.package_authorization_references(package),
+        trusted_review_approval_sha256=evaluation._digest_file(review_path),
+        review_evidence=review_path, package_path=package_path,
+        freeze_receipt=receipt_path, exposure_disclosure=exposure,
+        generation_record=generation,
+        controller_clock=lambda: freeze_time + timedelta(hours=2),
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert result["authorship_review"]["identity_authentication"] == (
+        "NOT_PROVEN_BY_DIGEST_ALONE"
+    )
+    assert result["authorship_review"]["execution_approval"] == {
+        "status": "SEPARATELY_TRUSTED_EXACT_REVIEW_DIGEST",
+        "review_evidence_sha256": evaluation._digest_file(review_path),
+    }
+    assert result["execution_allowed"] is False
+    assert result["allow_live_customer_access"] is False
+    assert result["LIVE_PILOT_READY"] is False
 
 
 def test_future_freeze_naive_review_and_early_release_fail_closed(tmp_path):
@@ -359,3 +432,46 @@ def test_v2_contract_documents_are_machine_readable_and_version_pinned():
     assert dataset_schema["properties"]["timeline"]["$ref"].startswith(
         "../frozen_learning_v1/"
     )
+
+
+def test_v2_accepts_declared_technical_metadata_without_changing_v1(tmp_path):
+    v1 = self_authored_package(V1_PROTOCOL_SHA256)
+    for phase in ("development", "evaluation"):
+        environment = v1["learner_inputs"][phase]
+        environment["source_id"] += "/"
+        for instrument in environment["instruments"]:
+            for record in instrument["records"]:
+                record["subject_source"] += "/"
+        for resource in environment["resources"]:
+            batch = resource["historical_batch"]
+            resource["fields"].extend((
+                {"id": batch["identity_field"], "kind": "Link"},
+                {"id": batch["company_field"], "kind": "Link"},
+            ))
+    refresh_dataset_identity(v1)
+    with pytest.raises(ContractError, match="historical records omit discovered fields"):
+        evaluation.validate_package(
+            v1, protocol=_protocol(V1_PROTOCOL_PATH),
+            protocol_sha256=V1_PROTOCOL_SHA256, require_independent=False,
+        )
+
+    v1_path = _write(tmp_path / "technical-fields-v1.json", v1)
+    exposure = tmp_path / "exposure.txt"
+    generation = tmp_path / "generation.txt"
+    exposure.write_text("synthetic exposure\n", encoding="utf-8")
+    generation.write_text("synthetic generation\n", encoding="utf-8")
+    v2, _ = evaluation.convert_v1_package(
+        v1, original_package_sha256=evaluation._digest_file(v1_path),
+        protocol_sha256_v1=V1_PROTOCOL_SHA256,
+        protocol_sha256_v2=evaluation._digest_file(V2_PROTOCOL_PATH),
+        exposure_disclosure_sha256=evaluation._digest_file(exposure),
+        generation_record_sha256=evaluation._digest_file(generation),
+        unknown_preparation_reason="Synthetic regression does not retain an exact time.",
+    )
+
+    result = evaluation.validate_package(
+        v2, protocol=_protocol(V2_PROTOCOL_PATH),
+        protocol_sha256=evaluation._digest_file(V2_PROTOCOL_PATH),
+        require_independent=False,
+    )
+    assert result["status"] == "READY_FOR_SINGLE_FROZEN_EVALUATION"

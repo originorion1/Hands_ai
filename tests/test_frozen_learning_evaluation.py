@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import json
 from datetime import UTC, datetime, timedelta
@@ -182,6 +183,8 @@ def test_self_authored_fixture_executes_bridge_without_independence_claim(tmp_pa
     result = execute_package(
         package, protocol=current_protocol, protocol_sha256=protocol_sha256,
         repository=ROOT, state_dir=tmp_path / "state", independent=False,
+        authorized_ids=package_authorization_references(package),
+        trusted_review_approval_sha256=None,
     )
 
     assert result["status"] == "INFRASTRUCTURE_VERIFIED"
@@ -216,6 +219,48 @@ def test_self_authored_fixture_executes_bridge_without_independence_claim(tmp_pa
     assert result["execution_allowed"] is False
     assert result["allow_live_customer_access"] is False
     assert result["LIVE_PILOT_READY"] is False
+
+
+def test_execution_requires_exact_separately_trusted_authorizations_before_io(
+    tmp_path, monkeypatch
+):
+    protocol_sha256 = digest_file(PROTOCOL_PATH)
+    package = self_authored_package(protocol_sha256)
+    references = package_authorization_references(package)
+    source_calls = 0
+
+    def forbidden_source_io(*args, **kwargs):
+        nonlocal source_calls
+        source_calls += 1
+        raise AssertionError("source I/O must not occur")
+
+    monkeypatch.setattr(
+        "tools.frozen_learning_evaluation._discover_environment", forbidden_source_io
+    )
+    with pytest.raises(ContractError, match="separately trusted authorization IDs"):
+        execute_package(
+            package, protocol=protocol(), protocol_sha256=protocol_sha256,
+            repository=ROOT, state_dir=tmp_path / "state-omitted", independent=False,
+            authorized_ids=None,
+            trusted_review_approval_sha256=None,
+        )
+    assert source_calls == 0
+    assert not (tmp_path / "state-omitted").exists()
+
+    forged = copy.deepcopy(package)
+    forged["learner_inputs"]["development"]["metadata_authorization_id"] = (
+        "g_ffffffffffffffffffffffffffffffff"
+    )
+    refresh_dataset_identity(forged)
+    with pytest.raises(ContractError, match="must exactly match package references"):
+        execute_package(
+            forged, protocol=protocol(), protocol_sha256=protocol_sha256,
+            repository=ROOT, state_dir=tmp_path / "state-forged", independent=False,
+            authorized_ids=references,
+            trusted_review_approval_sha256=None,
+        )
+    assert source_calls == 0
+    assert not (tmp_path / "state-forged").exists()
 
 
 def _committed_controller(package, tmp_path):
@@ -298,6 +343,8 @@ def test_unsupported_semantics_remain_unknown_without_outcome_release(tmp_path):
     result = execute_package(
         package, protocol=protocol(), protocol_sha256=protocol_sha256,
         repository=ROOT, state_dir=tmp_path / "state", independent=False,
+        authorized_ids=package_authorization_references(package),
+        trusted_review_approval_sha256=None,
     )
 
     assert result["status"] == "UNKNOWN"
@@ -316,6 +363,8 @@ def test_independent_execution_requires_available_review_evidence(tmp_path):
         execute_package(
             package, protocol=protocol(), protocol_sha256=digest_file(PROTOCOL_PATH),
             repository=ROOT, state_dir=tmp_path / "state", independent=True,
+            authorized_ids=package_authorization_references(package),
+            trusted_review_approval_sha256=None,
         )
 
 
@@ -367,4 +416,6 @@ def test_engine_hash_drift_blocks_execution(tmp_path):
             self_authored_package(digest_file(PROTOCOL_PATH)), protocol=current,
             protocol_sha256=digest_file(PROTOCOL_PATH), repository=tmp_path,
             state_dir=tmp_path / "state", independent=False,
+            authorized_ids=frozenset(),
+            trusted_review_approval_sha256=None,
         )

@@ -60,10 +60,16 @@ Preflight only after a separate review envelope exists:
 python3 tools/frozen_learning_evaluation.py preflight package-v2.json \
   --protocol evaluation/frozen_learning_v2/protocol.json \
   --freeze-receipt freeze-receipt.json --review-evidence review.json \
-  --exposure-disclosure exposure.json --generation-record generation.json
+  --exposure-disclosure exposure.json --generation-record generation.json \
+  --trusted-review-approval-sha256 "$REVIEW_SHA256"
 ```
 
 Do not run an external evaluation until the actual independent materials and
-review evidence pass this preflight. Candidate-host qualification remains
-unresolved. `execution_allowed=false`, `allow_live_customer_access=false`, and
-`LIVE_PILOT_READY=false`.
+review evidence pass this preflight. The review envelope validates structure and
+binding only; without a separately trusted controller/human/external approval
+of its exact raw SHA-256, preflight remains blocked and `run` cannot reach source
+I/O. Any later `run` must receive that same approval digest and every package
+authorization reference through separately trusted, repeated `--authorized-id`
+options. The package and review envelope never issue their own authority.
+Candidate-host qualification remains unresolved. `execution_allowed=false`,
+`allow_live_customer_access=false`, and `LIVE_PILOT_READY=false`.

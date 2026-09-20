@@ -111,12 +111,17 @@ Run the single registered evaluation into a new state directory:
 PYTHONPATH=src .venv/bin/python tools/frozen_learning_evaluation.py \
   run /path/to/package.json \
   --review-evidence /path/to/review-evidence.json \
+  --authorized-id g_0123456789abcdef \
+  --authorized-id g_fedcba9876543210 \
   --state-dir /path/to/new-empty-state \
   --output /path/to/result.json \
   --owner-report /path/to/owner-report.txt
 ```
 
-The trusted local controller constructs bounded synthetic
+Every package authorization reference must be repeated as a separately trusted
+`--authorized-id`; omission, an extra ID, or a package/controller mismatch
+fails before state creation or source I/O. The package never grants itself
+authority. The trusted local controller constructs bounded synthetic
 `MetadataAuthorization` and `PilotAuthorization` values through the existing
 launchers. Package authorization identifiers remain references. Opaque
 metadata, historical records and canonical instrument evidence are admitted
