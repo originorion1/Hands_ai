@@ -22,6 +22,8 @@ from .broker_contract import (
     metadata_request_from,
     private_bytes,
     request_from,
+    transition_policy_from,
+    transition_record_config,
 )
 from .isolation import LAB_PATH, PORT, V4_APPROVED, V6_APPROVED
 from .journal import JournalDenied
@@ -121,7 +123,8 @@ def response_length(status, headers, limit):
 class CredentialGateway:
     """Trusted gateway owner; construct only after independent kernel confinement."""
 
-    def __init__(self, configs, client, credential, certificate, certificate_sha256, host):
+    def __init__(self, configs, client, credential, certificate, certificate_sha256, host,
+                 *, transition=None):
         if host not in (V4_APPROVED, V6_APPROVED):
             raise ValueError("explicit synthetic destination required")
         candidate = all(is_erpnext_candidate(config) for config in configs)
@@ -140,10 +143,16 @@ class CredentialGateway:
         ):
             raise ValueError("bounded credential required")
 
+        self.transition = (
+            transition_policy_from(transition) if transition is not None else None
+        )
         operations = [c["operation"] for c in configs]
+        expected = ["metadata"] if self.transition is not None and len(configs) == 1 else [
+            "metadata", "read"
+        ]
         if (
-            not 2 <= len(configs) <= len(GATEWAY_PATHS)
-            or operations[:2] != ["metadata", "read"]
+            not len(expected) <= len(configs) <= len(GATEWAY_PATHS)
+            or operations[:len(expected)] != expected
             or len(set(operations)) != len(operations)
             or any(operation not in GATEWAY_PATHS for operation in operations)
         ):
@@ -162,11 +171,27 @@ class CredentialGateway:
         self.certificate, self.certificate_sha256, self.host = certificate, certificate_sha256, host
         self.check_certificate()
 
+    def provision(self, config):
+        transition_record_config(config, self.transition)
+        binding = digest(config)
+        if binding in self.routes or any(
+            existing["operation"] == "read" for existing in self.configs.values()
+        ):
+            raise JournalDenied("duplicate gateway grant transition denied")
+        self.configs[binding] = config
+        self.routes[binding] = None
+        self.response_limits[binding] = min(
+            MAX_FRAME // 2, config["limits"]["response_bytes"] // 2
+        )
+        return {"status": "gateway_committed", "binding": binding}
+
     def check_certificate(self):
         if hashlib.sha256(private_bytes(self.certificate)).hexdigest() != self.certificate_sha256:
             raise JournalDenied("gateway trust changed")
 
     def dispatch(self, role, action, value):
+        if role == "owner" and action == "provision":
+            return self.provision(value)
         if role != "acquisition" or action != "acquire":
             raise JournalDenied("credential gateway caller denied")
         keys = ("receipt", "binding", "source_request") if self.candidate else (

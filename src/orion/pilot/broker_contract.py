@@ -12,13 +12,14 @@ from types import MappingProxyType
 from ..contracts import EvidenceKind
 from ..discovery.json_boundary import unique_json_object
 from ..discovery.pilot_metadata import MetadataAuthorization, MetadataRequest
-from ..discovery.pilot_read import PilotAuthorization, PilotRequest
+from ..discovery.pilot_read import PilotAuthorization, PilotRequest, _text
 from ..discovery.read_window import ReviewedReadWindow
 from ..history.evidence import _observation_from_data
 from ..understanding.role_checkpoint import _json
 
 VERSION = 'local-broker-v3'
 ERPNEXT_VERSION = 'erpnext-candidate-broker-v1'
+GRANT_TRANSITION_VERSION = 'erpnext-record-grant-transition-v1'
 MAX_FRAME = 65536
 INSTRUMENT_OPERATIONS = tuple('instrument_' + str(n) for n in range(8))
 
@@ -31,6 +32,115 @@ def is_record_operation(operation):
 def is_erpnext_candidate(config):
     """Explicit version dispatch; legacy synthetic configs remain unchanged."""
     return type(config) is dict and config.get('version') == ERPNEXT_VERSION
+
+
+def transition_policy_from(value):
+    """Validate the enrolled envelope without inventing a future record scope."""
+    value = exact(value, (
+        'version', 'tenant_id', 'company', 'source_id', 'caller',
+        'secret_reference', 'auth_reference', 'limits', 'max_fields',
+        'max_records', 'max_window_days', 'provenance_source',
+    ))
+    if value['version'] != GRANT_TRANSITION_VERSION:
+        raise ValueError('explicit grant transition version required')
+    for name in (
+        'tenant_id', 'company', 'source_id', 'caller', 'secret_reference',
+        'auth_reference', 'provenance_source',
+    ):
+        _text(value[name])
+    if not value['source_id'].startswith('https://') or not value['source_id'].endswith('.test'):
+        raise ValueError('bounded synthetic transition source required')
+    from .journal import TransportLimits
+
+    limits = dict(exact(value['limits'], TransportLimits.__dataclass_fields__))
+    limits['expires_at'] = datetime.fromisoformat(limits['expires_at'])
+    TransportLimits(**limits)
+    for name, high in (('max_fields', 64), ('max_records', 25), ('max_window_days', 31)):
+        if type(value[name]) is not int or not 1 <= value[name] <= high:
+            raise ValueError('bounded grant transition envelope required')
+    return value
+
+
+def transition_binding(policy):
+    return digest({'version': GRANT_TRANSITION_VERSION,
+                   'policy': transition_policy_from(policy)})
+
+
+def transition_initial_head(policy):
+    return digest({'version': GRANT_TRANSITION_VERSION,
+                   'scope_binding': transition_binding(policy),
+                   'state': 'unprovisioned'})
+
+
+def transition_record_config(value, policy):
+    """Return one exact canonical record grant inside the enrolled envelope."""
+    policy = transition_policy_from(policy)
+    exact(value, (
+        'version', 'mode', 'caller', 'grant', 'limits', 'protocol',
+        'secret_reference', 'auth_reference', 'field_classifications', 'operation',
+    ))
+    if (
+        value['version'] != ERPNEXT_VERSION
+        or value['mode'] != 'candidate_erpnext_read_only'
+        or value['operation'] != 'read'
+        or value['protocol'] != 'erpnext_records_v1'
+        or any(value[name] != policy[name] for name in (
+            'caller', 'secret_reference', 'auth_reference', 'limits'
+        ))
+    ):
+        raise ValueError('exact transitioned record configuration required')
+    grant = grant_from(value['grant'])
+    window = grant.window
+    if (
+        (window.tenant_id, window.company, grant.source_id)
+        != (policy['tenant_id'], policy['company'], policy['source_id'])
+        or grant.evidence_kind is not EvidenceKind.API
+        or grant.provenance_source != policy['provenance_source']
+        or len(window.fields) > policy['max_fields']
+        or grant.max_records > policy['max_records']
+        or (window.end - window.start).days > policy['max_window_days']
+        or window.expires_at > datetime.fromisoformat(policy['limits']['expires_at'])
+        or not {grant.identity_field, grant.company_field, window.date_field}
+        <= set(window.fields)
+    ):
+        raise ValueError('record grant exceeds transition envelope')
+    validate_field_classifications(value['field_classifications'], window.fields)
+    return grant
+
+
+def transition_request_from(value, policy, deployment_identity):
+    """Validate one signed generation-zero-to-one transition request."""
+    exact(value, (
+        'version', 'deployment_identity', 'generation', 'predecessor_generation',
+        'config', 'metadata', 'expected_witness_sha256', 'mac',
+    ))
+    if (
+        value['version'] != GRANT_TRANSITION_VERSION
+        or value['deployment_identity'] != deployment_identity
+        or value['generation'] != 1
+        or value['predecessor_generation'] != 0
+    ):
+        raise ValueError('grant transition predecessor denied')
+    exact(value['metadata'], (
+        'binding', 'checkpoint', 'evidence_head', 'payload_sha256',
+        'journal_head', 'request_reference', 'observation_id', 'evidence_id',
+    ))
+    for name in ('deployment_identity', 'expected_witness_sha256', 'mac'):
+        if type(value[name]) is not str or len(value[name]) != 64:
+            raise ValueError('grant transition digest required')
+    for name in ('binding', 'evidence_head', 'payload_sha256', 'journal_head',
+                 'request_reference'):
+        reference = value['metadata'][name]
+        if type(reference) is not str or len(reference) != 64:
+            raise ValueError('metadata transition reference required')
+    if type(value['metadata']['checkpoint']) is not int or value['metadata']['checkpoint'] < 2:
+        raise ValueError('metadata transition checkpoint required')
+    for name in ('observation_id', 'evidence_id'):
+        identity = value['metadata'][name]
+        if type(identity) is not str or not identity or len(identity) > 64:
+            raise ValueError('metadata transition identity required')
+    transition_record_config(value['config'], policy)
+    return value
 
 
 def digest(value):

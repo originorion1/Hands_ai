@@ -15,7 +15,14 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
-from .broker_contract import authenticate, digest, exact
+from .broker_contract import (
+    authenticate,
+    digest,
+    exact,
+    transition_binding,
+    transition_initial_head,
+    transition_policy_from,
+)
 from .journal import JournalDenied
 
 WITNESS_VERSION = 1
@@ -42,7 +49,7 @@ def _sequence(value):
     return value
 
 
-def witness_streams(configs):
+def witness_streams(configs, transition=None):
     """Return the one fixed stream set derived from canonical custody scopes."""
     if type(configs) is not list or not 1 <= len(configs) <= 10:
         raise JournalDenied("bounded witness scopes required")
@@ -59,7 +66,31 @@ def witness_streams(configs):
         }
         for binding in bindings
     ]
-    evidence_scope = digest({"config_bindings": sorted(bindings)})
+    transition_scope = None
+    if transition is not None:
+        transition = transition_policy_from(transition)
+        transition_scope = transition_binding(transition)
+        streams.append(
+            {
+                "identity": digest(
+                    {
+                        "version": WITNESS_VERSION,
+                        "kind": "audit",
+                        "scope_binding": transition_scope,
+                    }
+                ),
+                "kind": "audit",
+                "scope_binding": transition_scope,
+            }
+        )
+    evidence_scope = digest(
+        {"config_bindings": sorted(bindings)}
+        if transition_scope is None
+        else {
+            "config_bindings": sorted(bindings),
+            "transition_binding": transition_scope,
+        }
+    )
     streams.append(
         {
             "identity": digest(
@@ -78,8 +109,7 @@ def witness_streams(configs):
 
 def deployment_identity_for_manifest(manifest, artifact):
     """Bind one deployment without depending on the profile hash itself."""
-    return digest(
-        {
+    value = {
             "contract": "orion-progress-witness-v1",
             "manifest_version": manifest["version"],
             "mode": manifest["mode"],
@@ -92,12 +122,18 @@ def deployment_identity_for_manifest(manifest, artifact):
             "keys_directory": str(Path(manifest["keys_directory"]).absolute()),
             "witness_directory": str(Path(manifest["witness_directory"]).absolute()),
             "host": manifest["host"],
-            "streams": witness_streams(manifest["configs"]),
+            "streams": witness_streams(
+                manifest["configs"], manifest.get("grant_transition")
+            ),
             "semantic_sha256": (
                 digest(manifest["semantic"]) if "semantic" in manifest else None
             ),
         }
-    )
+    if "grant_transition" in manifest:
+        value["grant_transition_sha256"] = digest(
+            transition_policy_from(manifest["grant_transition"])
+        )
+    return digest(value)
 
 
 def witness_identity(deployment_identity):
@@ -117,13 +153,15 @@ def witness_contract(manifest):
         "deployment_identity": _reference(manifest["deployment_identity"]),
         "artifact_record_sha256": _reference(manifest["artifact_record_sha256"]),
         "deployment_profile_sha256": _reference(manifest["deployment_profile_sha256"]),
-        "streams": witness_streams(manifest["configs"]),
+        "streams": witness_streams(
+            manifest["configs"], manifest.get("grant_transition")
+        ),
         "lifecycle": "explicit_operator_bootstrap",
     }
 
 
-def stream_for(configs, kind, binding=None):
-    streams = witness_streams(configs)
+def stream_for(configs, kind, binding=None, transition=None):
+    streams = witness_streams(configs, transition)
     if kind == "audit":
         return next(
             stream
@@ -131,6 +169,13 @@ def stream_for(configs, kind, binding=None):
             if stream["kind"] == kind and stream["scope_binding"] == binding
         )
     return next(stream for stream in streams if stream["kind"] == kind)
+
+
+def transition_initial_state(configs, transition):
+    stream = stream_for(
+        configs, "audit", transition_binding(transition), transition=transition
+    )
+    return progress_state(stream, 1, transition_initial_head(transition))
 
 
 def progress_state(stream, sequence, head):
@@ -326,7 +371,7 @@ class ProgressWitness:
         if value["witness_identity"] != witness_identity(value["deployment_identity"]):
             raise JournalDenied("witness identity mismatch")
         streams = value["streams"]
-        if type(streams) is not list or not 2 <= len(streams) <= 11:
+        if type(streams) is not list or not 2 <= len(streams) <= 12:
             raise JournalDenied("bounded witness streams required")
         identities = set()
         for stream in streams:
@@ -444,11 +489,19 @@ class ProgressWitness:
         return decoded
 
     def dispatch(self, role, action, value):
-        if action == "status":
+        if action in ("status", "snapshot"):
             if role != "owner" or value is not None:
                 raise JournalDenied("witness status caller denied")
             with self.lock, self._connect() as database:
                 rows = self._verify(database)
+            if action == "snapshot":
+                states = [
+                    {name: row[name] for name in (
+                        "identity", "kind", "scope_binding", "sequence", "head"
+                    )}
+                    for _, row in sorted(rows.items())
+                ]
+                return {"states": states, "sha256": digest(states)}
             return {
                 "version": WITNESS_VERSION,
                 "witness_identity": self.contract["witness_identity"],

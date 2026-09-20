@@ -6,21 +6,47 @@ The deployment must protect its dependencies; Python privacy is not containment.
 """
 
 from ..contracts import EvidenceKind, utc_now
-from .broker_contract import INSTRUMENT_OPERATIONS, observations_from
+from .broker_contract import (
+    INSTRUMENT_OPERATIONS,
+    observations_from,
+    transition_policy_from,
+    transition_record_config,
+)
 from .readiness import release_report
 
 
 class SupervisedReadOnlyRuntime:
     """Reuse canonical supervisors, admission and journals without new grants/stores."""
 
-    def __init__(self, metadata, records, *instruments):
-        if metadata.operation != "metadata" or records.operation != "read":
+    def __init__(self, metadata, records=None, *instruments, transition=None):
+        if metadata.operation != "metadata" or (
+            records is not None and records.operation != "read"
+        ):
             raise ValueError("separate metadata and record authorizations required")
-        m, r = metadata.grant.request, records.grant.window
-        if (m.tenant_id, m.company, m.source_id) != (r.tenant_id, r.company, records.source_id):
-            raise ValueError("runtime scope mismatch")
+        self.transition = (
+            transition_policy_from(transition) if transition is not None else None
+        )
+        if records is None and self.transition is None:
+            raise ValueError("record authorization or transition envelope required")
+        m = metadata.grant.request
+        if records is not None:
+            r = records.grant.window
+            if (m.tenant_id, m.company, m.source_id) != (
+                r.tenant_id, r.company, records.source_id
+            ):
+                raise ValueError("runtime scope mismatch")
+            if self.transition is not None:
+                transition_record_config(records.config, self.transition)
+        elif (m.tenant_id, m.company, m.source_id) != (
+            self.transition["tenant_id"],
+            self.transition["company"],
+            self.transition["source_id"],
+        ):
+            raise ValueError("runtime transition scope mismatch")
         self.metadata, self.records = metadata, records
-        self.owners = {"metadata": metadata, "read": records}
+        self.owners = {"metadata": metadata}
+        if records is not None:
+            self.owners["read"] = records
         if len(instruments) > len(INSTRUMENT_OPERATIONS):
             raise ValueError("bounded instrument authorizations required")
         for instrument in instruments:
@@ -31,6 +57,7 @@ class SupervisedReadOnlyRuntime:
                 instrument.operation in self.owners
                 or instrument.grant.evidence_kind is not EvidenceKind.EXPERIMENT
                 or (window.tenant_id, window.company) != (m.tenant_id, m.company)
+                or records is None
                 or instrument.source_id == records.source_id
             ):
                 raise ValueError("separate scoped instrument authorization required")
@@ -56,7 +83,8 @@ class SupervisedReadOnlyRuntime:
             "status": "healthy" if safe else "blocked",
             "custody_available": safe,
             "metadata_admitted_this_start": self.metadata_admitted,
-            "record_authority_armed": self.records.armed and safe,
+            "record_authority_provisioned": self.records is not None,
+            "record_authority_armed": self.records is not None and self.records.armed and safe,
             "budgets": budgets,
             "live_ready": release_report()["live_ready"],
             "execution_allowed": False,
@@ -125,3 +153,35 @@ class SupervisedReadOnlyRuntime:
         if message.get("control") == "arm" and owner is not self.metadata and not self.metadata_admitted:
             raise ValueError("discovery never grants record authority")
         return owner.control(message)
+
+    def validate_transition_config(self, config):
+        if (
+            self.transition is None
+            or self.records is not None
+            or not self.metadata_admitted
+        ):
+            raise ValueError("record grant transition unavailable")
+        grant = transition_record_config(config, self.transition)
+        proposals = [
+            proposal
+            for observation in self.metadata_observations
+            for proposal in observation.evidence.payload["proposals"]
+            if proposal["resource"] == grant.window.resource
+        ]
+        if (
+            len(proposals) != 1
+            or tuple(proposals[0]["fields"]) != grant.window.fields
+            or grant.window.date_field not in proposals[0]["date_fields"]
+        ):
+            raise ValueError("record grant not supported by admitted metadata")
+        return grant
+
+    def provision(self, records):
+        """Install one already-persisted exact owner; never arm it or issue a grant."""
+        if records.operation != "read":
+            raise ValueError("record grant transition unavailable")
+        self.validate_transition_config(records.config)
+        self.records = records
+        self.owners["read"] = records
+        return {"status": "provisioned_unarmed", "binding": records.binding,
+                "execution_allowed": False, "allow_live_customer_access": False}

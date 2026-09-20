@@ -39,26 +39,57 @@ class AuditCustody:
     Both storage and the anchor are outside the hostile broker's writable namespace.
     """
 
-    def __init__(self, directory, key, config, *, witness=None, witness_stream=None):
+    def __init__(self, directory, key, config, *, witness=None, witness_stream=None,
+                 provision=None, transition_initial=None, require_existing=False):
         self.directory = Path(directory)
         self.anchor = self.directory / "accepted-head"
+        journal_path = self.directory / "broker.db"
+        if require_existing and (
+            provision is None or not journal_path.exists() or not self.anchor.exists()
+        ):
+            raise JournalDenied("complete persisted grant transition required")
         self.binding = digest(config)
         self.caller = digest(config["caller"])
         limits = dict(config["limits"])
         limits["expires_at"] = datetime.fromisoformat(limits["expires_at"])
         self.journal = AttemptJournal(
-            self.directory / "broker.db",
+            journal_path,
             key=key,
             binding=self.binding,
             limits=TransportLimits(**limits),
             expected_head=self.anchor.read_text() if self.anchor.exists() else None,
+            provision=provision,
         )
         if (witness is None) != (witness_stream is None):
             raise JournalDenied("complete audit witness required")
+        if provision is not None and witness is None:
+            raise JournalDenied("grant transition witness required")
         self.witness, self.witness_stream = witness, witness_stream
         self.lock = threading.RLock()
-        self._verify_witness()
-        self.pin()
+        if provision is not None and self.journal.created:
+            if (
+                transition_initial is None
+                or any(
+                    transition_initial.get(name) != witness_stream.get(name)
+                    for name in ("identity", "kind", "scope_binding")
+                )
+                or transition_initial.get("sequence") != 1
+            ):
+                raise JournalDenied("exact transition witness predecessor required")
+            self.witness("verify", {"state": transition_initial})
+            self.pin()
+            current = self._progress()
+            self.witness(
+                "advance",
+                {
+                    "expected_sequence": transition_initial["sequence"],
+                    "expected_head": transition_initial["head"],
+                    "state": current,
+                },
+            )
+        else:
+            self._verify_witness()
+            self.pin()
 
     def _progress(self):
         if self.witness_stream is None:

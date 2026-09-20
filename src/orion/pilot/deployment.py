@@ -35,6 +35,8 @@ from .broker_contract import (
     is_erpnext_candidate,
     metadata_grant_from,
     private_bytes,
+    transition_policy_from,
+    transition_record_config,
 )
 from .deployment_profile import (
     ENTRYPOINT_MODULE,
@@ -60,6 +62,7 @@ from .progress_witness import (
     enrollment_path,
     progress_state,
     stream_for,
+    transition_initial_state,
     verify_enrollment_receipt,
     witness_contract,
 )
@@ -227,12 +230,18 @@ def load_manifest(path, *, enrollment=False):
             "policy",
             "deployment_profile",
             "deployment_profile_sha256",
-        ) + (("semantic",) if type(raw) is dict and raw.get("version") in (2, 3) else ()),
+        )
+        + (("semantic",) if type(raw) is dict and raw.get("version") in (2, 3) else ())
+        + (("grant_transition",) if type(raw) is dict and raw.get("version") == 5 else ()),
     )
-    if type(value["version"]) is not int or value["version"] not in (1, 2, 3, 4):
+    if type(value["version"]) is not int or value["version"] not in (1, 2, 3, 4, 5):
         raise ValueError("explicit versioned deployment required")
     expected_mode = (
-        "candidate_erpnext_read_only" if value["version"] == 4 else "synthetic_read_only"
+        "candidate_erpnext_post_discovery_read_only"
+        if value["version"] == 5
+        else "candidate_erpnext_read_only"
+        if value["version"] == 4
+        else "synthetic_read_only"
     )
     if value["mode"] != expected_mode:
         raise ValueError("explicit synthetic deployment only")
@@ -243,12 +252,14 @@ def load_manifest(path, *, enrollment=False):
     count = len(value["configs"])
     if (value["version"] in (1, 2, 4) and count != 2) or (
         value["version"] == 3 and not 3 <= count <= 10
-    ):
+    ) or (value["version"] == 5 and count != 1):
         raise ValueError("separate canonical authorizations required")
     operations = [c.get("operation") for c in value["configs"]]
+    expected_prefix = ["metadata"] if value["version"] == 5 else ["metadata", "read"]
     if (any(type(op) is not str for op in operations)
-            or operations[:2] != ["metadata", "read"] or len(set(operations)) != count
-            or any(op not in INSTRUMENT_OPERATIONS for op in operations[2:])):
+            or operations[:len(expected_prefix)] != expected_prefix
+            or len(set(operations)) != count
+            or any(op not in INSTRUMENT_OPERATIONS for op in operations[len(expected_prefix):])):
         raise ValueError("metadata-first separate record configuration required")
     if value["version"] == 4:
         if (
@@ -257,6 +268,20 @@ def load_manifest(path, *, enrollment=False):
             != ["erpnext_metadata_v1", "erpnext_records_v1"]
         ):
             raise ValueError("exact ERPNext candidate protocols required")
+    elif value["version"] == 5:
+        metadata = value["configs"][0]
+        policy = transition_policy_from(value["grant_transition"])
+        grant = metadata_grant_from(metadata["grant"])
+        if (
+            not is_erpnext_candidate(metadata)
+            or metadata.get("protocol") != "erpnext_metadata_v1"
+            or (grant.request.tenant_id, grant.request.company, grant.request.source_id)
+            != (policy["tenant_id"], policy["company"], policy["source_id"])
+            or any(metadata.get(name) != policy[name] for name in (
+                "caller", "secret_reference", "auth_reference"
+            ))
+        ):
+            raise ValueError("metadata-only transition envelope mismatch")
     elif any(is_erpnext_candidate(config) for config in value["configs"]):
         raise ValueError("ERPNext candidate requires manifest version 4")
     if value["version"] in (2, 3):
@@ -308,22 +333,45 @@ def enroll_witness(manifest):
         semantic_limit=100
         if manifest.get("semantic", {}).get("version") == 2
         else 1,
+        transition=manifest.get("grant_transition"),
+        deployment_identity=(
+            manifest["deployment_identity"] if manifest.get("version") == 5 else None
+        ),
     )
     states = []
     for config, owner in audits:
         sequence, head = owner.journal.progress()
         states.append(
             progress_state(
-                stream_for(manifest["configs"], "audit", digest(config)), sequence, head
+                stream_for(
+                    manifest["configs"],
+                    "audit",
+                    digest(config),
+                    transition=manifest.get("grant_transition"),
+                ),
+                sequence,
+                head,
             )
         )
     with evidence._connect() as database:
         events, _, _, _ = evidence._check(database)
     states.append(
         progress_state(
-            stream_for(manifest["configs"], "evidence"), len(events), evidence.head
+            stream_for(
+                manifest["configs"],
+                "evidence",
+                transition=manifest.get("grant_transition"),
+            ),
+            len(events),
+            evidence.head,
         )
     )
+    if manifest.get("version") == 5:
+        states.append(
+            transition_initial_state(
+                manifest["configs"], manifest["grant_transition"]
+            )
+        )
     witness = ProgressWitness.enroll(
         manifest["witness_directory"],
         private_bytes(keys / "witness-signing"),
@@ -390,7 +438,10 @@ class Deployment:
             kind: os.readlink("/proc/self/ns/" + kind) for kind in ("user", "pid", "mnt", "net")
         }
         self.parent["host_net"] = self.host_net
-        self.configs = manifest["configs"]
+        self.enrolled_configs = manifest["configs"]
+        self.configs = list(self.enrolled_configs)
+        self.grant_transition = manifest.get("grant_transition")
+        self.transition_state = None
         self.endpoints = {}
         self.cap_files = {}
         import secrets
@@ -444,7 +495,19 @@ class Deployment:
             endpoint.unlink()  # Exact prior disposable socket, never custody history.
         readonly = [(self.config_file, "/private/configs")]
         writable = [(endpoint.parent, "/endpoint")]
-        boot = {"role": role, "parent": self.parent, "policy": self.manifest["policy"]}
+        boot = {
+            "role": role,
+            "parent": self.parent,
+            "policy": self.manifest["policy"],
+            "enrolled_configs": self.enrolled_configs,
+        }
+        if self.grant_transition is not None:
+            boot.update(
+                grant_transition=self.grant_transition,
+                deployment_identity=self.manifest["deployment_identity"],
+            )
+        if role == "audit" and self.transition_state is not None:
+            boot["transition_state"] = self.transition_state
         role_keys = {}
         if role == "witness":
             role_keys = {
@@ -462,6 +525,7 @@ class Deployment:
             role_keys = {
                 "supervisor": self.caps["audit"],
                 "witness": self.caps["witness-audit"],
+                "owner": self.caps["owner"],
             }
             readonly.append((self.keys / "audit-signing", "/private/signing-key"))
             readonly += [
@@ -494,7 +558,10 @@ class Deployment:
                 (self.endpoints["evidence"].parent, "/evidence"),
             ]
         elif role == "gateway":
-            role_keys = {"acquisition": self.caps["gateway"]}
+            role_keys = {
+                "acquisition": self.caps["gateway"],
+                "owner": self.caps["owner"],
+            }
             readonly += [
                 (self.keys / "source-credential", "/private/credential"),
                 (self.cap_files["auth-source"], "/private/authorization-capability"),
@@ -507,7 +574,10 @@ class Deployment:
                 certificate_sha256=self.manifest["certificate_sha256"],
             )
         elif role == "acquisition":
-            role_keys = {"reasoner": self.caps["reasoner"]}
+            role_keys = {
+                "reasoner": self.caps["reasoner"],
+                "owner": self.caps["owner"],
+            }
             readonly += [
                 (self.cap_files["auth-broker"], "/private/authorization-capability"),
                 (self.cap_files["gateway"], "/private/gateway-capability"),
@@ -555,8 +625,16 @@ class Deployment:
             if self.manifest["host"] == V6_APPROVED and not self.fabric.ipv6:
                 raise KernelUnavailable("required IPv6 unavailable")
             self.fabric.connect(self.source, self.gateway, self.manifest["host"])
-            for role in ("witness", "audit", "evidence", "authorization", "gateway", "acquisition"):
-                self.service(role)
+            if self.grant_transition is None:
+                roles = ("witness", "audit", "evidence", "authorization", "gateway", "acquisition")
+                for role in roles:
+                    self.service(role)
+            else:
+                self.service("witness")
+                self.service("evidence")
+                self._restore_transition_config()
+                for role in ("audit", "authorization", "gateway", "acquisition"):
+                    self.service(role)
             health = self.health()
             if health["status"] == "blocked":
                 failure = JournalDenied("startup custody health denied")
@@ -594,6 +672,169 @@ class Deployment:
 
     def owner(self, action, value=None):
         return rpc(self.endpoints["authorization"], "owner", self.caps["owner"], action, value)
+
+    def _set_transition_config(self, config, state):
+        if config is None:
+            self.transition_state = state
+            return
+        transition_record_config(config, self.grant_transition)
+        if len(self.configs) != 1 or self.configs[0] != self.enrolled_configs[0]:
+            raise JournalDenied("grant transition configuration conflict")
+        self.configs = [self.enrolled_configs[0], config]
+        self.transition_state = state
+        path = self.session / "configs-generation-1"
+        if not path.exists():
+            write_private(path, _json(self.configs))
+        elif decode(private_bytes(path)) != self.configs:
+            raise JournalDenied("grant transition session configuration changed")
+        self.config_file = path
+
+    def _restore_transition_config(self):
+        state = rpc(
+            self.endpoints["evidence"],
+            "owner",
+            self.caps["owner"],
+            "transition",
+            {"binding": digest(self.enrolled_configs[0]), "arguments": {}},
+        )
+        self._set_transition_config(state.get("config"), state)
+        return state
+
+    def transition_challenge(self):
+        """Expose retained discovery lineage to the trusted controller only."""
+        with self.transition:
+            if self.grant_transition is None or self.transition_state is None:
+                raise JournalDenied("grant transition unavailable")
+            if self.transition_state.get("generation") != 0:
+                raise JournalDenied("grant transition already committed")
+            if self.health().get("status") != "healthy":
+                raise JournalDenied("healthy unprovisioned custody required")
+            witness = rpc(
+                self.endpoints["witness"],
+                "owner",
+                self.caps["witness-owner"],
+                "snapshot",
+                None,
+            )
+            challenge = rpc(
+                self.endpoints["evidence"],
+                "owner",
+                self.caps["owner"],
+                "transition_challenge",
+                {"binding": digest(self.enrolled_configs[0]), "arguments": {}},
+            )
+            return dict(
+                challenge,
+                expected_witness_sha256=witness["sha256"],
+                status="approval_required",
+                execution_allowed=False,
+                LIVE_PILOT_READY=False,
+            )
+
+    def provision(self, request):
+        """Commit one controller-authenticated transition through existing owners."""
+        with self.transition:
+            try:
+                if self.grant_transition is None or self.transition_state is None:
+                    raise JournalDenied("grant transition unavailable")
+                if self.transition_state.get("generation") != 0:
+                    raise JournalDenied("grant transition already committed")
+                if self.health().get("status") != "healthy":
+                    raise JournalDenied("healthy unprovisioned custody required")
+                witness = rpc(
+                    self.endpoints["witness"],
+                    "owner",
+                    self.caps["witness-owner"],
+                    "snapshot",
+                    None,
+                )
+                if request.get("expected_witness_sha256") != witness["sha256"]:
+                    raise JournalDenied("stale grant transition witness denied")
+
+                prepared = self.owner("transition_prepare", request)
+                evidence = rpc(
+                    self.endpoints["evidence"],
+                    "owner",
+                    self.caps["owner"],
+                    "provision",
+                    {
+                        "binding": digest(self.enrolled_configs[0]),
+                        "arguments": {"transition": request},
+                    },
+                )
+                state = self._restore_transition_config()
+                audit = rpc(
+                    self.endpoints["audit"],
+                    "owner",
+                    self.caps["owner"],
+                    "provision",
+                    {
+                        "config": request["config"],
+                        "audit_provision": state["audit_provision"],
+                    },
+                )
+                authorization = self.owner("transition_commit", request)
+                gateway = rpc(
+                    self.endpoints["gateway"],
+                    "owner",
+                    self.caps["owner"],
+                    "provision",
+                    request["config"],
+                )
+                acquisition = rpc(
+                    self.endpoints["acquisition"],
+                    "owner",
+                    self.caps["owner"],
+                    "provision",
+                    request["config"],
+                )
+                binding = prepared["binding"]
+                reference = prepared["transition_reference"]
+                if (
+                    prepared.get("status") != "validated_no_authority"
+                    or evidence.get("status") != "evidence_committed"
+                    or evidence.get("binding") != binding
+                    or evidence.get("transition_reference") != reference
+                    or state.get("generation") != 1
+                    or state.get("config") != request["config"]
+                    or state.get("audit_provision", {}).get("transition_reference")
+                    != reference
+                    or audit.get("status") != "audit_committed"
+                    or audit.get("binding") != binding
+                    or authorization.get("status") != "provisioned_unarmed"
+                    or authorization.get("generation") != 1
+                    or authorization.get("binding") != binding
+                    or gateway != {"status": "gateway_committed", "binding": binding}
+                    or acquisition
+                    != {"status": "acquisition_committed", "binding": binding}
+                ):
+                    raise JournalDenied("grant transition acknowledgement mismatch")
+                health = self.health()
+                if (
+                    health.get("status") != "healthy"
+                    or health.get("record_authority_provisioned") is not True
+                    or health.get("record_authority_armed") is not False
+                ):
+                    raise JournalDenied("unarmed grant transition health denied")
+                return {
+                    "status": "provisioned_unarmed",
+                    "generation": 1,
+                    "binding": binding,
+                    "transition_reference": reference,
+                    "commits": {
+                        "evidence": evidence["head"],
+                        "audit": audit["head"],
+                        "authorization": authorization["status"],
+                        "gateway": gateway["status"],
+                        "acquisition": acquisition["status"],
+                    },
+                    "health": health,
+                    "execution_allowed": False,
+                    "LIVE_PILOT_READY": False,
+                }
+            except Exception:
+                self._cutoff()
+                raise
 
     def control(self, operation, action):
         status = self.owner("status", operation)
@@ -767,8 +1008,18 @@ class Deployment:
         self.blocked = False
         self.egress_removed = False
         try:
-            for role in ("witness", "audit", "evidence", "authorization", "gateway", "acquisition"):
-                self.service(role)
+            if self.grant_transition is None:
+                for role in ("witness", "audit", "evidence", "authorization", "gateway", "acquisition"):
+                    self.service(role)
+            else:
+                self.configs = list(self.enrolled_configs)
+                self.config_file = self.session / "configs"
+                self.transition_state = None
+                self.service("witness")
+                self.service("evidence")
+                self._restore_transition_config()
+                for role in ("audit", "authorization", "gateway", "acquisition"):
+                    self.service(role)
             health = self.health()
             if health["status"] == "blocked":
                 return self._cutoff()
@@ -901,6 +1152,12 @@ class Deployment:
             return self.control(value["operation"], "arm")
         if command == "read":
             return self.reason(value["message"])
+        if command == "transition_challenge":
+            exact(value, ("command",))
+            return self.transition_challenge()
+        if command == "provision":
+            exact(value, ("command", "transition"))
+            return self.provision(value["transition"])
         if command == "semantic":
             exact(value, ("command", "mode"))
             return self.semantic(value["mode"])
