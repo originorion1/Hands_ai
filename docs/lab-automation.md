@@ -69,9 +69,23 @@ chat.
 
 `.github/workflows/claude-read-only-review.yml` then reviews pull requests only
 when they target `laboratory/orion-v0.1`, originate from a same-repository
-`codex/` branch, and carry no code-write token permission. Claude can inspect
-the checked-out repository and post one structured review comment; it cannot
-modify files, approve, or merge. A missing Anthropic secret fails with a clear
+`codex/` branch, and carry no code-write token permission. The model job has read-only contents, pull-request and issue permissions. It
+reads the linked originating issue, exact-head diff and repository files and
+returns bounded structured findings. It cannot post comments, approve, or merge.
+A separate fresh-runner publisher has issue-comment write permission, no checkout,
+no model and no Anthropic credential. It validates the output, current head/base,
+same-repository branch and explicit same-repository closing issue reference, then
+creates or updates one bot-owned marker comment on the event's PR only. Duplicate
+bot markers, stale heads, malformed output and unlinked issues fail before writing.
+The publisher does not run PR code or evaluate model text. An existing comment
+from another author is never overwritten. Unsupported issue-link forms fail closed;
+use an explicit `Closes #N` reference in the PR body.
+
+These are token/job and deterministic publication boundaries, not proof of
+malicious-process or network isolation. Repository maintainers, GitHub runners,
+the official action and its handling of the Anthropic credential remain trusted.
+The model's findings do not prove it actually inspected the claimed evidence.
+Review remains advisory and cannot approve integration. A missing Anthropic secret fails with a clear
 configuration error.
 
 ## Automation-ready issue format

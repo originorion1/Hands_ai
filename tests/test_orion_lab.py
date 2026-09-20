@@ -569,7 +569,19 @@ def test_claude_review_workflow_is_read_only_scoped_and_fixed():
     assert "Edit" in workflow and "--disallowedTools" in workflow
     assert "Bash(gh pr diff:*)" in workflow
     assert "Bash(gh pr view:*)" in workflow
-    assert "Bash(gh pr comment:*)" in workflow
+    review, publisher = workflow.split("\n  publish:", 1)
+    assert "issues: read" in review and "issues: write" not in review
+    assert "Bash(gh issue view:*)" in review
+    assert "linked originating issue" in review
+    allowed = review.split('--allowedTools "', 1)[1].split('"', 1)[0]
+    assert "comment" not in allowed
+    assert "structured_output" in review and "--json-schema" in review
+    assert "issues: write" in publisher
+    assert "actions/checkout" not in publisher
+    assert "anthropics/" not in publisher and "ANTHROPIC_API_KEY" not in publisher
+    assert "${{ needs.review.outputs.review }}" in publisher
+    script = publisher.split("          script: |\n", 1)[1]
+    assert "${{" not in script
 
 
 def test_watch_queue_remains_lowest_first_and_skips_completed(tmp_path, monkeypatch):
