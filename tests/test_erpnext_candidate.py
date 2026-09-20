@@ -7,10 +7,49 @@ import pytest
 from test_credential_gateway import candidate_configs
 
 from orion.pilot.broker_contract import authenticate, digest
-from orion.pilot.broker_metadata import acquire_metadata
+from orion.pilot.broker_metadata import acquire_metadata, erpnext_proposal_from
 from orion.pilot.broker_worker import acquire
 from orion.pilot.custody import AuditCustody, AuthorizationCustody, RemoteJournal
 from orion.pilot.journal import JournalDenied
+
+
+@pytest.mark.parametrize("fields", [[], [
+    {"fieldname": "opaque_date", "fieldtype": "Date"},
+    {"fieldname": "opaque_number", "fieldtype": "Float"},
+]])
+def test_native_non_submittable_schema_retains_structural_unknowns(tmp_path, fields):
+    config = candidate_configs()[0]
+    resource = "Opaque Resource"
+    body = json.dumps({"message": {"docs": [{
+        "name": resource, "is_submittable": 0, "fields": fields,
+    }]}}).encode()
+    path = _private_response(tmp_path, body)
+    response = acquire_metadata({
+        "operation": "metadata",
+        "grant": config["grant"],
+        "request": config["grant"]["request"],
+        "path": str(path),
+        "source_digest": hashlib.sha256(body).hexdigest(),
+        "protocol": config["protocol"],
+        "secret": "synthetic-normalizer-only",
+        "field_classifications": {},
+        "target": resource,
+    })
+    assert response["available"] is True
+    proposal = erpnext_proposal_from(
+        resource, response["fields"], response["date_fields"], response["declarations"]
+    )
+    assert proposal.fields == proposal.date_fields == ()
+    assert {c.declaration.name for c in proposal.interpretation.candidates} == {
+        field["fieldname"] for field in fields
+    }
+    assert "record_authorization_missing" in proposal.interpretation.unknowns
+    assert "business_meaning_unconfirmed" in proposal.interpretation.unknowns
+
+
+def test_structural_only_proposal_cannot_smuggle_executable_dates():
+    with pytest.raises(ValueError, match="structural proposal"):
+        erpnext_proposal_from("Opaque Resource", [], ["opaque_date"], [])
 
 
 def _private_response(tmp_path, body):
