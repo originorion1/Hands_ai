@@ -6,6 +6,12 @@ candidate, not customer authorization or a production release.
 `LIVE_PILOT_READY=false`, `execution_allowed=false`. Every release category and
 critical status is retained; scanners and live-startup denial are unchanged.
 
+Issue #186 composes a separately versioned offline ERPNext candidate through the
+same custody, gateway, admission, evidence, witness and wheel-only owners. The
+candidate remains restricted to the local reserved-address laboratory and does
+not change this document's live verdict. Its contract and qualification mapping
+are recorded in `NATIVE_ERPNEXT_INSTALLED_QUALIFICATION.md`.
+
 ## Minimum acceptance and existing contracts
 
 Essential bounded-runtime safety is metadata-first governed discovery, a separate

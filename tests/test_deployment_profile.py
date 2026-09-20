@@ -74,6 +74,24 @@ def test_profile_binds_artifact_roles_mounts_network_and_secret_owners(tmp_path)
     assert validated["lifecycle"]["authority_restore"] == "forbidden"
 
 
+def test_candidate_profile_is_explicit_v4_without_changing_legacy_profile(tmp_path):
+    manifest, artifact, manifest_path = _inputs(tmp_path)
+    legacy_profile = copy.deepcopy(manifest["deployment_profile"])
+    manifest.update(version=4, mode="candidate_erpnext_read_only")
+    manifest["deployment_identity"] = deployment_identity_for_manifest(manifest, artifact)
+    profile = profile_for_manifest(manifest, artifact, manifest_path)
+    manifest["deployment_profile"] = profile
+    manifest["deployment_profile_sha256"] = profile_sha256(profile)
+
+    validated = validate_profile(profile, manifest, artifact, manifest_path)
+    assert validated["version"] == 4
+    assert validated["network"]["protocol"] == "erpnext_read_only_v1"
+    assert validated["network"]["approved_host"] == deployment.V4_APPROVED
+    assert validated["network"]["redirects"] == "deny"
+    assert legacy_profile["version"] == 3
+    assert "protocol" not in legacy_profile["network"]
+
+
 @pytest.mark.parametrize(
     "mutation",
     (

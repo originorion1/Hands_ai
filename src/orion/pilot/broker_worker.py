@@ -32,6 +32,10 @@ def acquire(bootstrap):
                       'field_classifications'))
     grant, request = grant_from(bootstrap['grant']), request_from(bootstrap['request'])
     validate_field_classifications(bootstrap['field_classifications'], grant.window.fields)
+    if bootstrap['protocol'] == 'erpnext_records_v1':
+        from .erpnext_candidate import acquire_records
+
+        return acquire_records(bootstrap, grant, request)
     if bootstrap['protocol'] not in ('local_rows_v1', 'local_columns_v1'):
         raise ValueError('unsupported local protocol')
 

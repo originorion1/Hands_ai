@@ -18,6 +18,7 @@ from .progress_witness import (
 )
 
 PROFILE_VERSION = 3
+CANDIDATE_PROFILE_VERSION = 4
 ENTRYPOINT_MODULE = "orion.pilot.deployment"
 
 ROLE_POLICY = {
@@ -98,8 +99,19 @@ def profile_for_manifest(manifest, artifact, manifest_path):
         }
         for name, policy in ROLE_POLICY.items()
     }
+    candidate = manifest.get("version") == 4
+    network = {
+        "mode": "private_kernel_egress",
+        "approved_host": manifest["host"],
+        "approved_port": 44443,
+        "redirects": "deny",
+        "proxies": "deny",
+        "alternate_ports": "deny",
+    }
+    if candidate:
+        network["protocol"] = "erpnext_read_only_v1"
     return {
-        "version": PROFILE_VERSION,
+        "version": CANDIDATE_PROFILE_VERSION if candidate else PROFILE_VERSION,
         "artifact": {
             "name": artifact["name"],
             "version": artifact["version"],
@@ -137,14 +149,7 @@ def profile_for_manifest(manifest, artifact, manifest_path):
             "storage_outside_rollback_set": witness,
             "whole_host_rollback_protection": False,
         },
-        "network": {
-            "mode": "private_kernel_egress",
-            "approved_host": manifest["host"],
-            "approved_port": 44443,
-            "redirects": "deny",
-            "proxies": "deny",
-            "alternate_ports": "deny",
-        },
+        "network": network,
         "secret_references": {
             name: {"path": str(Path(keys) / name), "owner_role": owner}
             for name, owner in SECRET_OWNERS.items()
@@ -180,7 +185,10 @@ def validate_profile(profile, manifest, artifact, manifest_path):
     )
     if shape != expected:
         raise ValueError("deployment profile does not match installed runtime")
-    if profile["version"] != PROFILE_VERSION:
+    expected_version = (
+        CANDIDATE_PROFILE_VERSION if manifest.get("version") == 4 else PROFILE_VERSION
+    )
+    if profile["version"] != expected_version:
         raise ValueError("unsupported deployment profile version")
     if digest(profile) == "":  # pragma: no cover - defensive contract assertion
         raise ValueError("deployment profile digest unavailable")

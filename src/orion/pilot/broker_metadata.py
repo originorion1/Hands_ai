@@ -26,12 +26,33 @@ def proposal_from(resource, declarations):
                          tuple(d.name for d in fields if d.kind == 'date'), interpretation)
 
 
+def erpnext_proposal_from(resource, fields, date_fields, declarations):
+    """Validate the native structural proposal without granting business meaning."""
+    structural = proposal_from(resource, declarations)
+    if (
+        type(fields) is not list
+        or type(date_fields) is not list
+        or not 1 <= len(fields) <= 64
+        or fields != sorted(set(fields))
+        or date_fields != sorted(set(date_fields))
+        or not set(date_fields).issubset(fields)
+        or not set(structural.fields).issubset(fields)
+    ):
+        raise ValueError('bounded ERPNext structural proposal required')
+    for field in fields:
+        _text(field)
+    return ScopeProposal(
+        resource, tuple(fields), tuple(date_fields), structural.interpretation
+    )
+
+
 def acquire_metadata(bootstrap):
     exact(bootstrap, ('operation', 'grant', 'request', 'path', 'source_digest', 'protocol',
                       'secret', 'field_classifications', 'target'))
     grant = metadata_grant_from(bootstrap['grant'])
     request = metadata_request_from(bootstrap['request'])
-    if (bootstrap['operation'] != 'metadata' or bootstrap['protocol'] != 'local_schema_v1'
+    if (bootstrap['operation'] != 'metadata'
+            or bootstrap['protocol'] not in ('local_schema_v1', 'erpnext_metadata_v1')
             or bootstrap['field_classifications'] != {}):
         raise ValueError('explicit schema-only operation required')
     target = bootstrap['target']
@@ -42,6 +63,10 @@ def acquire_metadata(bootstrap):
     _, guard = _metadata_guard(request, grant.authorization_id, lambda _: grant, utc_now)
 
     def read(permit):
+        if bootstrap['protocol'] == 'erpnext_metadata_v1':
+            from .erpnext_candidate import acquire_metadata as acquire_erpnext_metadata
+
+            return acquire_erpnext_metadata(bootstrap, grant, request, permit, target)
         permit.claim_io(request.source_id)
         raw = private_bytes(bootstrap['path'])
         if hashlib.sha256(raw).hexdigest() != bootstrap['source_digest']:

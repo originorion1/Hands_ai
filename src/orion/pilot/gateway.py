@@ -6,15 +6,94 @@ GET and source credential, never ORION receipts, grant tokens or control IPC.
 """
 
 import hashlib
+import json
+import re
 import subprocess
+from urllib.parse import quote, urlencode
 
-from .broker_contract import INSTRUMENT_OPERATIONS, MAX_FRAME, exact, private_bytes
+from .broker_contract import (
+    INSTRUMENT_OPERATIONS,
+    MAX_FRAME,
+    digest,
+    exact,
+    grant_from,
+    is_erpnext_candidate,
+    metadata_grant_from,
+    metadata_request_from,
+    private_bytes,
+    request_from,
+)
 from .isolation import LAB_PATH, PORT, V4_APPROVED, V6_APPROVED
 from .journal import JournalDenied
 
 GATEWAY_PATHS = {"metadata": "/metadata", "read": "/records"} | {
     operation: "/instrument/" + str(n) for n, operation in enumerate(INSTRUMENT_OPERATIONS)
 }
+ERPNext_PROTOCOLS = {"metadata": "erpnext_metadata_v1", "read": "erpnext_records_v1"}
+
+
+def erpnext_source_request(config, descriptor):
+    """Encode one closed GET solely from a canonical config and exact request."""
+    if not is_erpnext_candidate(config) or config.get("operation") not in ERPNext_PROTOCOLS:
+        raise JournalDenied("ERPNext candidate scope denied")
+    operation = config["operation"]
+    if config.get("protocol") != ERPNext_PROTOCOLS[operation]:
+        raise JournalDenied("ERPNext candidate protocol denied")
+    if operation == "metadata":
+        exact(descriptor, ("request", "target"))
+        request = metadata_request_from(descriptor["request"])
+        grant = metadata_grant_from(config["grant"])
+        if request != grant.request:
+            raise JournalDenied("ERPNext metadata scope denied")
+        target = descriptor["target"]
+        if target is None:
+            query = urlencode({
+                "fields": '["name"]',
+                "limit_start": 0,
+                "limit_page_length": grant.max_catalog_entries + 1,
+                "order_by": "name asc",
+            })
+            return "/api/resource/DocType?" + query
+        if (
+            type(target) is not str
+            or target in grant.excluded_resources
+            or not target
+            or len(target) > 256
+            or any(character in target for character in "/?#")
+        ):
+            raise JournalDenied("ERPNext schema target denied")
+        return "/api/method/frappe.desk.form.load.getdoctype?" + urlencode(
+            {"doctype": target}
+        )
+
+    exact(descriptor, ("request",))
+    request = request_from(descriptor["request"])
+    grant = grant_from(config["grant"])
+    window = grant.window
+    if (
+        request.source_id != grant.source_id
+        or request.tenant_id != window.tenant_id
+        or request.company != window.company
+        or request.resource != window.resource
+        or request.fields != window.fields
+        or request.date_field != window.date_field
+        or request.start != window.start
+        or request.end != window.end
+        or request.max_records > grant.max_records
+    ):
+        raise JournalDenied("ERPNext record scope denied")
+    query = urlencode({
+        "fields": json.dumps(list(request.fields), separators=(",", ":")),
+        "filters": json.dumps(
+            [[grant.company_field, "=", request.company], ["docstatus", "=", 1]]
+            + window.filters(),
+            separators=(",", ":"),
+        ),
+        "order_by": f"{request.date_field} desc, {grant.identity_field} desc",
+        "limit_start": 0,
+        "limit_page_length": request.max_records,
+    })
+    return "/api/resource/" + quote(request.resource, safe="") + "?" + query
 
 
 def response_length(status, headers, limit):
@@ -45,11 +124,21 @@ class CredentialGateway:
     def __init__(self, configs, client, credential, certificate, certificate_sha256, host):
         if host not in (V4_APPROVED, V6_APPROVED):
             raise ValueError("explicit synthetic destination required")
-        if type(credential) is not str or not credential.isascii() or not credential.isalnum():
+        candidate = all(is_erpnext_candidate(config) for config in configs)
+        legacy = all(not is_erpnext_candidate(config) for config in configs)
+        if not (candidate or legacy):
+            raise ValueError("one versioned gateway mode required")
+        if (
+            type(credential) is not str
+            or not credential.isascii()
+            or not 16 <= len(credential) <= 256
+            or (
+                candidate
+                and not re.fullmatch(r"[A-Za-z0-9_-]{8,128}:[A-Za-z0-9_-]{8,128}", credential)
+            )
+            or (legacy and not credential.isalnum())
+        ):
             raise ValueError("bounded credential required")
-        if not 16 <= len(credential) <= 256:
-            raise ValueError("bounded credential required")
-        from .broker_contract import digest
 
         operations = [c["operation"] for c in configs]
         if (
@@ -59,13 +148,17 @@ class CredentialGateway:
             or any(operation not in GATEWAY_PATHS for operation in operations)
         ):
             raise ValueError("separate exact scopes required")
-        self.routes = {digest(c): GATEWAY_PATHS[c["operation"]] for c in configs}
+        self.configs = {digest(c): c for c in configs}
+        self.routes = {
+            digest(c): (None if candidate else GATEWAY_PATHS[c["operation"]]) for c in configs
+        }
         self.response_limits = {
             digest(c): min(MAX_FRAME // 2, c["limits"]["response_bytes"] // 2) for c in configs
         }
         if len(self.routes) != len(configs):
             raise ValueError("separate exact scopes required")
         self.client, self.credential = client, credential
+        self.candidate = candidate
         self.certificate, self.certificate_sha256, self.host = certificate, certificate_sha256, host
         self.check_certificate()
 
@@ -76,18 +169,34 @@ class CredentialGateway:
     def dispatch(self, role, action, value):
         if role != "acquisition" or action != "acquire":
             raise JournalDenied("credential gateway caller denied")
-        exact(value, ("receipt", "binding"))
+        keys = ("receipt", "binding", "source_request") if self.candidate else (
+            "receipt", "binding"
+        )
+        exact(value, keys)
         if value["binding"] not in self.routes:
             raise JournalDenied("credential gateway scope denied")
         self.check_certificate()
-        approval = self.client("redeem", value)
+        path = (
+            erpnext_source_request(self.configs[value["binding"]], value["source_request"])
+            if self.candidate
+            else self.routes[value["binding"]]
+        )
+        redemption = {"receipt": value["receipt"], "binding": value["binding"]}
+        if self.candidate:
+            redemption["source_request_sha256"] = digest(value["source_request"])
+        approval = self.client("redeem", redemption)
         if approval != {"authorized": True, "binding": value["binding"]}:
             raise JournalDenied("credential use unauthorized")
-        raw = self.read(self.routes[value["binding"]], limit=self.response_limits[value["binding"]])
+        raw = self.read(path, limit=self.response_limits[value["binding"]])
         return {"body": raw.hex()}
 
     def read(self, path, *, limit=MAX_FRAME // 2):
-        if path not in self.routes.values():
+        if (
+            type(path) is not str
+            or not path.startswith("/")
+            or "#" in path
+            or (not self.candidate and path not in self.routes.values())
+        ):
             raise JournalDenied("fixed gateway path required")
         if type(limit) is not int or not 1 <= limit <= MAX_FRAME // 2:
             raise JournalDenied("fixed gateway response budget required")
@@ -129,7 +238,8 @@ class CredentialGateway:
             "Connection: close",
             f"https://{host}:{PORT}{path}",
         ]
-        configuration = ('header = "Authorization: Bearer ' + self.credential + '"\n').encode()
+        scheme = "token " if self.candidate else "Bearer "
+        configuration = ('header = "Authorization: ' + scheme + self.credential + '"\n').encode()
         process = subprocess.Popen(
             argv,
             stdin=subprocess.PIPE,
