@@ -32,11 +32,11 @@ def erpnext_proposal_from(resource, fields, date_fields, declarations):
     if (
         type(fields) is not list
         or type(date_fields) is not list
-        or not 1 <= len(fields) <= 64
+        or len(fields) > 64
         or fields != sorted(set(fields))
         or date_fields != sorted(set(date_fields))
         or not set(date_fields).issubset(fields)
-        or not set(structural.fields).issubset(fields)
+        or (fields and not set(structural.fields).issubset(fields))
     ):
         raise ValueError('bounded ERPNext structural proposal required')
     for field in fields:

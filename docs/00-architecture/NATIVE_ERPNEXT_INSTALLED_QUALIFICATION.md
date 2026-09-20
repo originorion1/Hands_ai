@@ -26,6 +26,38 @@ authorization, admission, persistence, and semantic contracts are unchanged.
 Metadata produces structural candidates and explicit uncertainty; it supplies no
 business interpretation or execution permission.
 
+Structural-only metadata is a valid result: a non-submittable or otherwise
+unsupported resource can retain declarations and UNKNOWNs while both executable
+field lists remain empty. The installed broker and evidence-custody reconstruction
+must preserve that result, rather than rejecting discovery or inventing a record
+scope. The native normalization regression covers empty schemas and opaque typed
+fields in non-submittable schemas. Dates without executable fields still reject.
+
+## Outstanding post-discovery provisioning contract
+
+The current installed acceptance preloads both metadata and record grants. Its
+later record `arm` operation does not provision a newly discovered scope. Thus
+issue #186's post-discovery operator-provisioning requirement remains incomplete.
+
+This cannot be resolved by editing the manifest and restarting: `witness_streams`
+hashes the complete configurations, `deployment_identity_for_manifest` binds those
+streams, and the immutable witness enrollment receipt also binds the profile.
+Changing the record grant changes the enrolled identity. Re-enrolling, replacing
+the witness, creating another evidence store, or resetting attempt budgets would
+break the existing recovery and rollback contract.
+
+The required follow-up is a versioned, operator-authenticated grant-transition
+contract across the existing deployment, authorization, audit, evidence and
+witness owners. It must start with metadata authority only; bind one later exact
+record grant to retained admitted metadata and the existing deployment; preserve
+all earlier attempt/evidence chains and witness progress; keep record authority
+unarmed until separately armed; and reject unauthorized, stale, replayed,
+cross-scope, stopped or pending-acquisition transitions. Crash boundaries between
+the owners must fail closed without budget refund or automatic repair. Installed
+WSL acceptance must discover opaque resources/fields before supplying the record
+grant and prove those properties across restart. The current v4 contract does
+not implement that transition and must not be reported as satisfying it.
+
 ## Explicit version compatibility
 
 Legacy manifest versions 1–3 retain `synthetic_read_only`, deployment profile v3,
