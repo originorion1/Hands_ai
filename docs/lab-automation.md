@@ -5,6 +5,12 @@ verified feature-branch change. GitHub remains the task queue, Codex edits only
 the isolated worktree, and the local runner owns verification, commit, push, and
 the sanitized review packet. It never merges or authorizes live/customer access.
 
+After a successful verification, commit, and feature-branch push, the runner
+creates exactly one draft pull request or refreshes the existing open draft for
+that head. Its base is always `laboratory/orion-v0.1`; conflicting or duplicate
+open pull requests fail closed. The sanitized issue report includes the pull
+request number and URL so the review handoff needs no prompt copying.
+
 ## Prerequisites and commands
 
 Use Python 3.12 or newer in the clean canonical `laboratory/orion-v0.1`
@@ -52,6 +58,35 @@ file set. Any drift produces only the existing sanitized local failure report.
 lowest-numbered pending issue under the same exclusive local lock, and skips
 issues carrying the completion marker. `--once` performs one poll. A minimum
 ten-second interval is enforced.
+
+## One-time Claude reviewer setup
+
+Install the official Claude GitHub integration for this repository and add the
+Anthropic credential as the GitHub Actions secret `ANTHROPIC_API_KEY`. Keep the
+local watcher running with `python tools/orion_lab.py watch --interval 60`.
+Never paste the credential into an issue, pull request, command argument, or
+chat.
+
+`.github/workflows/claude-read-only-review.yml` then reviews pull requests only
+when they target `laboratory/orion-v0.1`, originate from a same-repository
+`codex/` branch, and carry no code-write token permission. The model job has read-only contents, pull-request and issue permissions. It
+reads the linked originating issue, exact-head diff and repository files and
+returns bounded structured findings. It cannot post comments, approve, or merge.
+A separate fresh-runner publisher has issue-comment write permission, no checkout,
+no model and no Anthropic credential. It validates the output, current head/base,
+same-repository branch and explicit same-repository closing issue reference, then
+creates or updates one bot-owned marker comment on the event's PR only. Duplicate
+bot markers, stale heads, malformed output and unlinked issues fail before writing.
+The publisher does not run PR code or evaluate model text. An existing comment
+from another author is never overwritten. Unsupported issue-link forms fail closed;
+use an explicit `Closes #N` reference in the PR body.
+
+These are token/job and deterministic publication boundaries, not proof of
+malicious-process or network isolation. Repository maintainers, GitHub runners,
+the official action and its handling of the Anthropic credential remain trusted.
+The model's findings do not prove it actually inspected the claimed evidence.
+Review remains advisory and cannot approve integration. A missing Anthropic secret fails with a clear
+configuration error.
 
 ## Automation-ready issue format
 
