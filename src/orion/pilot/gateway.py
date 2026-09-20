@@ -27,6 +27,7 @@ from .broker_contract import (
 )
 from .isolation import LAB_PATH, PORT, V4_APPROVED, V6_APPROVED
 from .journal import JournalDenied
+from .production import destination_from
 
 GATEWAY_PATHS = {"metadata": "/metadata", "read": "/records"} | {
     operation: "/instrument/" + str(n) for n, operation in enumerate(INSTRUMENT_OPERATIONS)
@@ -124,9 +125,16 @@ class CredentialGateway:
     """Trusted gateway owner; construct only after independent kernel confinement."""
 
     def __init__(self, configs, client, credential, certificate, certificate_sha256, host,
-                 *, transition=None):
-        if host not in (V4_APPROVED, V6_APPROVED):
+                 *, transition=None, destination=None):
+        reviewed_destination = (
+            destination_from(destination, certificate_sha256)
+            if destination is not None
+            else None
+        )
+        if reviewed_destination is None and host not in (V4_APPROVED, V6_APPROVED):
             raise ValueError("explicit synthetic destination required")
+        if reviewed_destination is not None and host != reviewed_destination["addresses"][0]:
+            raise ValueError("reviewed destination host binding required")
         candidate = all(is_erpnext_candidate(config) for config in configs)
         legacy = all(not is_erpnext_candidate(config) for config in configs)
         if not (candidate or legacy):
@@ -169,6 +177,7 @@ class CredentialGateway:
         self.client, self.credential = client, credential
         self.candidate = candidate
         self.certificate, self.certificate_sha256, self.host = certificate, certificate_sha256, host
+        self.destination = reviewed_destination
         self.check_certificate()
 
     def provision(self, config):
@@ -225,7 +234,21 @@ class CredentialGateway:
             raise JournalDenied("fixed gateway path required")
         if type(limit) is not int or not 1 <= limit <= MAX_FRAME // 2:
             raise JournalDenied("fixed gateway response budget required")
-        host = "[" + self.host + "]" if ":" in self.host else self.host
+        if self.destination is None:
+            host = "[" + self.host + "]" if ":" in self.host else self.host
+            port = PORT
+            destination_options = []
+        else:
+            host = self.destination["hostname"]
+            port = self.destination["port"]
+            destination_options = [
+                option
+                for address in self.destination["addresses"]
+                for option in (
+                    "--resolve",
+                    f"{host}:{port}:{'[' + address + ']' if ':' in address else address}",
+                )
+            ]
         # --disable is FIRST: no curlrc. No redirects, DNS, proxies, caller headers,
         # writes or body. Credential travels only on anonymous stdin, never argv.
         argv = [
@@ -254,6 +277,7 @@ class CredentialGateway:
             "--tlsv1.2",
             "--cacert",
             self.certificate,
+            *destination_options,
             "--request",
             "GET",
             "--include",
@@ -261,7 +285,7 @@ class CredentialGateway:
             "Accept: application/json",
             "--header",
             "Connection: close",
-            f"https://{host}:{PORT}{path}",
+            f"https://{host}:{port}{path}",
         ]
         scheme = "token " if self.candidate else "Bearer "
         configuration = ('header = "Authorization: ' + scheme + self.credential + '"\n').encode()

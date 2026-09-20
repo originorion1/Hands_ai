@@ -19,6 +19,7 @@ import sys
 import threading
 import time
 import traceback
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 
@@ -56,6 +57,72 @@ def read_frame(stream):
     return json.loads(line)
 
 
+def bounded_reasoning_denial(isolated, health, source_io):
+    """Return only fixed, non-private diagnostics for an invalid runtime envelope."""
+    health = health if type(health) is dict else {}
+    source_io = (
+        {
+            name: count
+            for name, count in source_io.items()
+            if name in {"metadata", "read"}
+            | {"instrument_" + str(index) for index in range(8)}
+            and type(count) is int
+            and count >= 0
+        }
+        if type(source_io) is dict
+        else {}
+    )
+    response_status = isolated.get("status") if type(isolated) is dict else None
+    response_status = (
+        response_status
+        if type(response_status) is str and response_status in {"denied", "blocked"}
+        else "invalid"
+    )
+    health_status = health.get("status")
+    health_status = (
+        health_status
+        if type(health_status) is str and health_status in {"healthy", "busy", "blocked"}
+        else "invalid"
+    )
+    failure_boundary = health.get("failure_boundary")
+    failure_boundary = (
+        failure_boundary
+        if type(failure_boundary) is str
+        and failure_boundary
+        in {
+            "supervised_process",
+            "progress_witness",
+            "authorization_health",
+            "evidence_inspect",
+        }
+        else "invalid"
+    )
+    allowed_roles = {
+        "witness",
+        "audit",
+        "evidence",
+        "authorization",
+        "gateway",
+        "acquisition",
+    }
+    raw_roles = health.get("dead_roles")
+    dead_roles = (
+        sorted({role for role in raw_roles if role in allowed_roles})
+        if type(raw_roles) is list and all(type(role) is str for role in raw_roles)
+        else []
+    )
+    return {
+        "status": "FAIL",
+        "reason": "record_reasoning_denied",
+        "response_status": response_status,
+        "health_status": health_status,
+        "failure_boundary": failure_boundary,
+        "dead_roles": dead_roles,
+        "source_io": source_io,
+        "LIVE_PILOT_READY": False,
+    }
+
+
 def source(value):
     """Ordinary HTTPS/Bearer fixture: no ORION imports, grants, receipts or IPC."""
     io = {"metadata": 0, "read": 0}
@@ -63,7 +130,11 @@ def source(value):
     lock = threading.Lock()
     credential = value["source_credential"]
     authentication = {"obsolete_credential_rejections": 0}
-    native = value["case"] in ("erpnext_candidate", "erpnext_grant_transition")
+    native = value["case"] in (
+        "erpnext_candidate",
+        "erpnext_grant_transition",
+        "production_discovery",
+    )
     if native:
         bodies = {path: body.encode() for path, body in value["native_bodies"].items()}
         operations = {
@@ -366,6 +437,8 @@ def controller(value):
         "evidence-signing": secrets.token_hex(32),
         "witness-signing": secrets.token_hex(32),
     }
+    if value["case"] == "production_discovery":
+        private["deployment-approval"] = secrets.token_hex(32)
     for name, content in private.items():
         path = keys / name
         path.write_text(content)
@@ -380,14 +453,18 @@ def controller(value):
     identity = json.loads(artifact.stdout)
     manifest = {
         "version": (
-            5
+            6
+            if value["case"] == "production_discovery"
+            else 5
             if value["case"] == "erpnext_grant_transition"
             else 4
             if value["case"] == "erpnext_candidate"
             else 1
         ),
         "mode": (
-            "candidate_erpnext_post_discovery_read_only"
+            "governed_erpnext_discovery_read_only"
+            if value["case"] == "production_discovery"
+            else "candidate_erpnext_post_discovery_read_only"
             if value["case"] == "erpnext_grant_transition"
             else
             "candidate_erpnext_read_only"
@@ -396,7 +473,7 @@ def controller(value):
         ),
         "configs": (
             value["configs"][:1]
-            if value["case"] == "erpnext_grant_transition"
+            if value["case"] in ("erpnext_grant_transition", "production_discovery")
             else value["configs"]
         ),
         "state_directory": str(state),
@@ -412,13 +489,21 @@ def controller(value):
             "ttl_seconds": 1 if value["case"] == "retention" else 3600,
         },
     }
-    if value["case"] == "erpnext_grant_transition":
-        from orion.pilot.broker_contract import GRANT_TRANSITION_VERSION
+    production_case = value["case"] == "production_discovery"
+    if value["case"] in ("erpnext_grant_transition", "production_discovery"):
+        from orion.pilot.broker_contract import (
+            GRANT_TRANSITION_VERSION,
+            PRODUCTION_GRANT_TRANSITION_VERSION,
+        )
 
         record = value["configs"][1]
         window = record["grant"]["window"]
         manifest["grant_transition"] = {
-            "version": GRANT_TRANSITION_VERSION,
+            "version": (
+                PRODUCTION_GRANT_TRANSITION_VERSION
+                if production_case
+                else GRANT_TRANSITION_VERSION
+            ),
             "tenant_id": window["tenant_id"],
             "company": window["company"],
             "source_id": record["grant"]["source_id"],
@@ -431,6 +516,29 @@ def controller(value):
             "max_window_days": 31,
             "provenance_source": record["grant"]["provenance_source"],
         }
+    if production_case:
+        from orion.pilot.production import DESTINATION_VERSION
+
+        now = datetime.now(UTC)
+        destination = {
+            "version": DESTINATION_VERSION,
+            "network_mode": "local_qualification",
+            "origin": "https://opaque.test:44443",
+            "hostname": "opaque.test",
+            "port": 44443,
+            "addresses": [value["host"]],
+            "tls_server_name": "opaque.test",
+            "certificate_sha256": manifest["certificate_sha256"],
+            "resolution_observed_at": (now - timedelta(minutes=1)).isoformat(),
+            "resolution_expires_at": manifest["configs"][0]["limits"]["expires_at"],
+        }
+        manifest.update(
+            destination=destination,
+            access_ledger=str(root / "access-ledger.json"),
+            access_approval=str(root / "access-approval.json"),
+            host_attestation=str(root / "host-attestation.json"),
+            host_approval=str(root / "host-approval.json"),
+        )
     semantic_case = value["case"].startswith("semantic") or value[
         "case"
     ] == "witness_evidence_rollback"
@@ -456,6 +564,104 @@ def controller(value):
     manifest["deployment_identity"] = deployment_identity_for_manifest(manifest, identity)
     manifest["deployment_profile"] = profile_for_manifest(manifest, identity, manifest_path)
     manifest["deployment_profile_sha256"] = profile_sha256(manifest["deployment_profile"])
+    if production_case:
+        from orion.pilot.production import (
+            APPROVAL_VERSION,
+            ATTESTATION_VERSION,
+            LEDGER_VERSION,
+        )
+
+        metadata = manifest["configs"][0]
+        request = metadata["grant"]["request"]
+        ledger_issued = now - timedelta(minutes=1)
+        ledger_expires = datetime.fromisoformat(metadata["limits"]["expires_at"])
+        ledger = {
+            "version": LEDGER_VERSION,
+            "session_id": "synthetic-installed-production-discovery",
+            "deployment_identity": manifest["deployment_identity"],
+            "artifact_record_sha256": manifest["artifact_record_sha256"],
+            "destination_sha256": digest(manifest["destination"]),
+            "metadata_binding": digest(metadata),
+            "transition_envelope_sha256": digest(manifest["grant_transition"]),
+            "tenant_id": request["tenant_id"],
+            "company": request["company"],
+            "source_id": request["source_id"],
+            "credential_reference": metadata["secret_reference"],
+            "issuer_reference": metadata["auth_reference"],
+            "site_schema": "erpnext-read-only-v1",
+            "exclusions": ["customer-writes", "recommendations", "semantic-promotion"],
+            "limits": {
+                "max_requests": metadata["limits"]["max_requests"],
+                "response_bytes": metadata["limits"]["response_bytes"],
+                "total_response_bytes": metadata["limits"]["total_response_bytes"],
+                "duration_seconds": int(
+                    (ledger_expires - ledger_issued).total_seconds()
+                )
+                + 1,
+            },
+            "prior_consumed_sessions": ["b" * 64],
+            "issued_at": ledger_issued.isoformat(),
+            "expires_at": ledger_expires.isoformat(),
+        }
+        attestation = {
+            "version": ATTESTATION_VERSION,
+            "deployment_identity": manifest["deployment_identity"],
+            "artifact_record_sha256": manifest["artifact_record_sha256"],
+            "deployment_profile_sha256": manifest["deployment_profile_sha256"],
+            "installed_qualification_sha256": "c" * 64,
+            "destination_sha256": digest(manifest["destination"]),
+            "access_ledger_sha256": digest(ledger),
+            "network_namespace": "local-qualification-generated",
+            "host_network_namespace": "host-network-excluded",
+            "service": {
+                name: manifest["deployment_profile"]["entrypoint"][name]
+                for name in (
+                    "interpreter",
+                    "module",
+                    "manifest_path",
+                    "working_directory",
+                    "environment",
+                )
+            },
+            "controls": [
+                "exact-address-default-deny-egress",
+                "gateway-only-network-role",
+                "private-owner-only-custody",
+                "rootless-unprivileged-service",
+                "stop-terminates-egress-role",
+                "wheel-only-isolated-module",
+            ],
+            "observed_at": (now - timedelta(minutes=1)).isoformat(),
+            "expires_at": ledger_expires.isoformat(),
+        }
+
+        def approval(subject, purpose, key):
+            body = {
+                "version": APPROVAL_VERSION,
+                "purpose": purpose,
+                "subject_sha256": digest(subject),
+                "controller_id": "synthetic-installed-controller",
+                "issued_at": (now - timedelta(minutes=1)).isoformat(),
+                "expires_at": subject["expires_at"],
+            }
+            return {**body, "mac": authenticate(key, purpose, body)}
+
+        documents = {
+            manifest["access_ledger"]: ledger,
+            manifest["access_approval"]: approval(
+                ledger, "discovery_access_ledger", value["issuer"].encode()
+            ),
+            manifest["host_attestation"]: attestation,
+            manifest["host_approval"]: approval(
+                attestation,
+                "discovery_host_attestation",
+                private["deployment-approval"].encode(),
+            ),
+        }
+        for location, body in documents.items():
+            path = Path(location)
+            path.write_text(json.dumps(body, sort_keys=True, separators=(",", ":")))
+            path.chmod(0o600)
     manifest_path.write_text(json.dumps(manifest))
     manifest_path.chmod(0o600)
     runtime_entrypoint = [sys.executable, "-I", "-m", "orion.pilot.deployment"]
@@ -547,7 +753,17 @@ def controller(value):
         check=False,
     )
     enrollment = json.loads(enrolled.stdout)
-    assert enrolled.returncode == 0 and enrollment["status"] == "enrolled", enrollment
+    if enrolled.returncode != 0 or enrollment.get("status") != "enrolled":
+        emit(
+            {
+                "status": "FAIL",
+                "reason": "witness_enrollment_denied",
+                "failure_type": enrollment.get("failure_type"),
+                "failure_boundary": enrollment.get("failure_boundary"),
+                "LIVE_PILOT_READY": False,
+            }
+        )
+        return 1
     assert enrollment["whole_host_rollback_protection"] is False
     misplaced_denied = None
     if value["case"] == "security":
@@ -779,7 +995,10 @@ def controller(value):
                 text=True,
                 timeout=5,
             )
-            named_denials[name] = counters()[counter_for(name)] - before_counter[counter_for(name)]
+            counter_name = "denied" if production_case else counter_for(name)
+            named_denials[name] = (
+                counters()[counter_name] - before_counter[counter_name]
+            )
             # A single denied connect may retransmit its SYN. Packet counters
             # witness the kernel boundary; they are not application-attempt counts.
             checks["kernel_denies_" + name] = probe.returncode != 0 and named_denials[name] >= 1
@@ -913,7 +1132,7 @@ def controller(value):
             return 1
         assert metadata["status"] == "admitted", metadata
         checks["metadata_governed_separate_grant"] = command(server, {"command": "stats"}) == expected_source_io(2, 0)
-        if value["case"] == "erpnext_grant_transition":
+        if value["case"] in ("erpnext_grant_transition", "production_discovery"):
             record_config = value["configs"][1]
             window = record_config["grant"]["window"]
             initial_manifest = manifest_path.read_text()
@@ -1019,7 +1238,7 @@ def controller(value):
                 {"command": "read", "message": message("read", "transition-read")},
             )["response"]
             observations = observations_from(admitted["observations"])
-            checks["separately_armed_synthetic_read_uses_exact_discovered_scope"] = (
+            checks["separately_armed_read_uses_exact_discovered_scope"] = (
                 admitted["status"] == "admitted"
                 and len(observations) == 1
                 and observations[0].evidence.payload["resource"] == window["resource"]
@@ -1066,6 +1285,23 @@ def controller(value):
                 )
                 and (state / "witness-enrollment").read_bytes() == enrollment_before
             )
+            if production_case:
+                before_stop_io = command(server, {"command": "stats"})
+                stopped = command(runtime, {"command": "stop"})
+                stopped_restart = command(runtime, {"command": "restart"})
+                checks["production_stop_cuts_egress_and_survives_restart"] = (
+                    stopped["status"] == "stopped"
+                    and stopped["kernel_egress_removed"] is True
+                    and stopped["gateway_terminated"] is True
+                    and stopped["acquisition_terminated"] is True
+                    and stopped_restart["status"] in ("blocked", "unarmed")
+                    and command(runtime, {"command": "arm", "operation": "read"})[
+                        "status"
+                    ]
+                    == "denied"
+                    and status("read")["budget"]["stopped"] is True
+                    and command(server, {"command": "stats"}) == before_stop_io
+                )
             value["semantic_result"] = {
                 "record_calls_before_provision": 0,
                 "record_calls_after_separate_arm": 1,
@@ -1254,6 +1490,11 @@ def controller(value):
             )
             return runtime_report(value, checks, identity, ready, named_denials)
         isolated = command(runtime, {"command": "read", "message": message("read", "read-1")})
+        if type(isolated) is not dict or set(isolated) != {"response", "reasoner_checks"}:
+            health = command(runtime, {"command": "health"})
+            source_io = command(server, {"command": "stats"})
+            emit(bounded_reasoning_denial(isolated, health, source_io))
+            return 1
         admitted = isolated["response"]
         checks["actual_reasoning_process_isolated"] = bool(isolated["reasoner_checks"]) and all(
             isolated["reasoner_checks"].values()

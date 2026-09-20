@@ -78,3 +78,9 @@ on reserved documentation addresses. `LIVE_PILOT_READY=false`,
 No live launch is permitted without the separately required customer ledger,
 production destination/profile, private credentials, host/artifact attestation,
 independent review, satisfied release gates, and human maintainer authorization.
+
+Manifest/profile v6 reuses this transition owner with the explicitly versioned
+`erpnext-record-grant-transition-v2` envelope so its source can equal one reviewed
+production destination. The v1 `.test` guard remains unchanged. See
+`GOVERNED_PRODUCTION_DISCOVERY.md`; v6 still provisions unarmed and requires a
+separate record arm.

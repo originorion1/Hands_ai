@@ -135,3 +135,7 @@ recommendation execution or whole-lifecycle audit is supplied by this change.
 The code improves offline enforcement and recovery while making the unresolved
 live boundary explicit. Passing its tests does not turn these omissions into
 capabilities.
+
+Issue #193 defines a narrower read-only-discovery readiness report and installed
+launcher in `GOVERNED_PRODUCTION_DISCOVERY.md`. It does not alter this full-product
+verdict or convert any full gate to PASS.

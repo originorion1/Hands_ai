@@ -147,3 +147,8 @@ issued metadata and record grants, satisfied critical release gates, and explici
 human maintainer authorization. Consumed sessions and private credentials must be
 retained in their existing private custody; they are never reset, printed, copied
 into evidence, or inferred from this qualification.
+
+Issue #193 adds a separate manifest/profile v6 production-capable composition;
+it does not widen v4/v5. Its destination, private approvals, scope-specific gate
+mapping and installed qualification are specified in
+`GOVERNED_PRODUCTION_DISCOVERY.md`.

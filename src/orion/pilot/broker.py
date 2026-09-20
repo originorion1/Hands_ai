@@ -53,7 +53,15 @@ from .journal import (
 class Broker:
     """Trusted supervisor component; never instantiate inside an untrusted agent."""
 
-    def __init__(self, config, directory, *, expected_head=None, journal_factory=AttemptJournal):
+    def __init__(
+        self,
+        config,
+        directory,
+        *,
+        expected_head=None,
+        journal_factory=AttemptJournal,
+        expected_source_id=None,
+    ):
         self.erpnext_candidate = is_erpnext_candidate(config)
         common = ('version', 'mode', 'caller', 'grant', 'limits', 'protocol',
             'secret_reference', 'auth_reference', 'field_classifications', 'operation')
@@ -101,9 +109,17 @@ class Broker:
             )
         else:
             raise ValueError('explicit read operation required')
-        if (not _normalize_base_url(self.source_id).endswith('.test')
-                or self.source_id != _normalize_base_url(self.source_id)):
-            raise ValueError('bounded synthetic source required')
+        normalized_source = _normalize_base_url(self.source_id)
+        if expected_source_id is None:
+            if (not normalized_source.endswith('.test')
+                    or self.source_id != normalized_source):
+                raise ValueError('bounded synthetic source required')
+        elif (
+            type(expected_source_id) is not str
+            or expected_source_id != normalized_source
+            or self.source_id != expected_source_id
+        ):
+            raise ValueError('exact reviewed production source required')
         local_source_invalid = not self.erpnext_candidate and (
             type(config['source_path']) is not str
             or not Path(config['source_path']).is_absolute()

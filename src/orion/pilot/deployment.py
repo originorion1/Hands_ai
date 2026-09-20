@@ -1,8 +1,9 @@
-"""Non-activating installed supervisor for one bounded synthetic read-only runtime.
+"""Installed supervisor for one bounded governed read-only runtime.
 
 Operator-provided private manifests/keys are deployment inputs, not test fixtures.
-The source is external and unmodified. Startup requires a private rootless fabric,
-verified installed files, independently protected custody and a fixed kernel route.
+The source is external and unmodified. Startup requires verified installed files,
+independently protected custody and either the qualification fabric or a reviewed
+external network namespace. Customer-system writes remain unavailable.
 """
 
 import argparse
@@ -11,6 +12,7 @@ import csv
 import hashlib
 import importlib.metadata
 import io
+import ipaddress
 import os
 import select
 import shutil
@@ -27,6 +29,7 @@ from ..understanding.role_checkpoint import _json
 from .broker_contract import (
     INSTRUMENT_OPERATIONS,
     MAX_FRAME,
+    PRODUCTION_GRANT_TRANSITION_VERSION,
     authenticate,
     decode,
     digest,
@@ -56,6 +59,7 @@ from .isolation import (
     validate_protected_paths,
 )
 from .journal import JournalDenied
+from .production import destination_from, load_production_evidence
 from .progress_witness import (
     ENROLLMENT_FILENAME,
     ProgressWitness,
@@ -199,6 +203,8 @@ def validate_deployment_inputs(value, *, manifest_path=None, enrollment=False):
         != value["certificate_sha256"]
     ):
         raise ValueError("pinned source trust required")
+    if value.get("version") == 6:
+        load_production_evidence(value)
     if not enrollment:
         verify_enrollment_receipt(
             enrollment_path(value["state_directory"]), witness_contract(value)
@@ -209,7 +215,7 @@ def validate_deployment_inputs(value, *, manifest_path=None, enrollment=False):
 def load_manifest(path, *, enrollment=False):
     if not all(
         shutil.which(tool, path=LAB_PATH)
-        for tool in ("unshare", "nsenter", "ip", "nft", "bwrap", "curl")
+        for tool in ("unshare", "nsenter", "ip", "nft", "bwrap", "curl", "getent")
     ):
         raise KernelUnavailable("required installed runtime tools unavailable")
     raw = decode(private_bytes(path))
@@ -232,12 +238,25 @@ def load_manifest(path, *, enrollment=False):
             "deployment_profile_sha256",
         )
         + (("semantic",) if type(raw) is dict and raw.get("version") in (2, 3) else ())
-        + (("grant_transition",) if type(raw) is dict and raw.get("version") == 5 else ()),
+        + (("grant_transition",) if type(raw) is dict and raw.get("version") in (5, 6) else ())
+        + (
+            (
+                "destination",
+                "access_ledger",
+                "access_approval",
+                "host_attestation",
+                "host_approval",
+            )
+            if type(raw) is dict and raw.get("version") == 6
+            else ()
+        ),
     )
-    if type(value["version"]) is not int or value["version"] not in (1, 2, 3, 4, 5):
+    if type(value["version"]) is not int or value["version"] not in (1, 2, 3, 4, 5, 6):
         raise ValueError("explicit versioned deployment required")
     expected_mode = (
-        "candidate_erpnext_post_discovery_read_only"
+        "governed_erpnext_discovery_read_only"
+        if value["version"] == 6
+        else "candidate_erpnext_post_discovery_read_only"
         if value["version"] == 5
         else "candidate_erpnext_read_only"
         if value["version"] == 4
@@ -245,17 +264,24 @@ def load_manifest(path, *, enrollment=False):
     )
     if value["mode"] != expected_mode:
         raise ValueError("explicit synthetic deployment only")
-    if value["host"] not in (V4_APPROVED, V6_APPROVED):
+    destination = (
+        destination_from(value["destination"], value["certificate_sha256"])
+        if value["version"] == 6
+        else None
+    )
+    if destination is None and value["host"] not in (V4_APPROVED, V6_APPROVED):
         raise ValueError("fixed approved synthetic destination required")
+    if destination is not None and value["host"] != destination["addresses"][0]:
+        raise ValueError("reviewed destination host binding required")
     if type(value["configs"]) is not list or any(type(c) is not dict for c in value["configs"]):
         raise ValueError("separate canonical authorizations required")
     count = len(value["configs"])
     if (value["version"] in (1, 2, 4) and count != 2) or (
         value["version"] == 3 and not 3 <= count <= 10
-    ) or (value["version"] == 5 and count != 1):
+    ) or (value["version"] in (5, 6) and count != 1):
         raise ValueError("separate canonical authorizations required")
     operations = [c.get("operation") for c in value["configs"]]
-    expected_prefix = ["metadata"] if value["version"] == 5 else ["metadata", "read"]
+    expected_prefix = ["metadata"] if value["version"] in (5, 6) else ["metadata", "read"]
     if (any(type(op) is not str for op in operations)
             or operations[:len(expected_prefix)] != expected_prefix
             or len(set(operations)) != count
@@ -268,7 +294,7 @@ def load_manifest(path, *, enrollment=False):
             != ["erpnext_metadata_v1", "erpnext_records_v1"]
         ):
             raise ValueError("exact ERPNext candidate protocols required")
-    elif value["version"] == 5:
+    elif value["version"] in (5, 6):
         metadata = value["configs"][0]
         policy = transition_policy_from(value["grant_transition"])
         grant = metadata_grant_from(metadata["grant"])
@@ -282,6 +308,14 @@ def load_manifest(path, *, enrollment=False):
             ))
         ):
             raise ValueError("metadata-only transition envelope mismatch")
+        if (
+            value["version"] == 6
+            and (
+                policy["version"] != PRODUCTION_GRANT_TRANSITION_VERSION
+                or policy["source_id"] != destination["origin"]
+            )
+        ):
+            raise ValueError("production transition destination binding required")
     elif any(is_erpnext_candidate(config) for config in value["configs"]):
         raise ValueError("ERPNext candidate requires manifest version 4")
     if value["version"] in (2, 3):
@@ -294,6 +328,47 @@ def load_manifest(path, *, enrollment=False):
     validate_deployment_inputs(value, manifest_path=path, enrollment=enrollment)
     # Policy validation occurs independently in the protected evidence owner.
     return value
+
+
+def validate_external_resolution(manifest, evidence):
+    """Bind launch-time DNS to the approved set before state or source access."""
+    destination = evidence["destination"]
+    if destination["network_mode"] != "reviewed_external":
+        return destination["addresses"]
+    resolved = subprocess.run(
+        ["/usr/bin/getent", "ahosts", destination["hostname"]],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+        env={"PATH": os.defpath},
+    )
+    if resolved.returncode:
+        raise KernelUnavailable("reviewed destination resolution unavailable")
+    try:
+        values = {
+            str(ipaddress.ip_address(line.split()[0]))
+            for line in resolved.stdout.splitlines()
+            if line.split()
+        }
+    except ValueError:
+        raise KernelUnavailable("reviewed destination resolution invalid") from None
+    observed = sorted(
+        values,
+        key=lambda address: (
+            ipaddress.ip_address(address).version,
+            int(ipaddress.ip_address(address)),
+        ),
+    )
+    if observed != destination["addresses"]:
+        raise KernelUnavailable("reviewed destination resolution changed")
+    current_net = os.readlink("/proc/self/ns/net")
+    if (
+        current_net != evidence["network_namespace"]
+        or current_net == evidence["host_network_namespace"]
+    ):
+        raise KernelUnavailable("reviewed network namespace unavailable")
+    return observed
 
 
 def write_private(path, value):
@@ -335,7 +410,9 @@ def enroll_witness(manifest):
         else 1,
         transition=manifest.get("grant_transition"),
         deployment_identity=(
-            manifest["deployment_identity"] if manifest.get("version") == 5 else None
+            manifest["deployment_identity"]
+            if manifest.get("version") in (5, 6)
+            else None
         ),
     )
     states = []
@@ -366,7 +443,7 @@ def enroll_witness(manifest):
             evidence.head,
         )
     )
-    if manifest.get("version") == 5:
+    if manifest.get("version") in (5, 6):
         states.append(
             transition_initial_state(
                 manifest["configs"], manifest["grant_transition"]
@@ -410,6 +487,12 @@ class Deployment:
 
     def __init__(self, manifest, *, baseline_net, baseline_user):
         self.manifest = manifest
+        self.production = (
+            load_production_evidence(manifest) if manifest.get("version") == 6 else None
+        )
+        self.external_network = bool(
+            self.production and not self.production["qualification"]
+        )
         self.root, self.keys = Path(manifest["state_directory"]), Path(manifest["keys_directory"])
         self.witness_root = Path(manifest["witness_directory"])
         validate_protected_paths(self.root, self.keys, self.witness_root)
@@ -425,19 +508,33 @@ class Deployment:
         initial_user = baseline_user
         self.baseline_user = baseline_user
         mapping = Path("/proc/self/uid_map").read_text().split()
+        current_net = os.readlink("/proc/self/ns/net")
+        if self.external_network:
+            invalid_network = (
+                current_net != baseline_net
+                or current_net != self.production["network_namespace"]
+                or current_net == self.production["host_network_namespace"]
+            )
+        else:
+            invalid_network = current_net == self.host_net
         if (
             os.getuid() != 0
             or len(mapping) != 3
             or mapping[0] != "0"
             or mapping[2] != "1"
             or os.readlink("/proc/self/ns/user") == initial_user
-            or os.readlink("/proc/self/ns/net") == self.host_net
+            or invalid_network
         ):
             raise KernelUnavailable("private rootless operator namespaces required")
         self.parent = {
             kind: os.readlink("/proc/self/ns/" + kind) for kind in ("user", "pid", "mnt", "net")
         }
-        self.parent["host_net"] = self.host_net
+        self.parent["host_net"] = (
+            self.production["host_network_namespace"]
+            if self.external_network
+            else self.host_net
+        )
+        self.gateway_net = current_net if self.external_network else None
         self.enrolled_configs = manifest["configs"]
         self.configs = list(self.enrolled_configs)
         self.grant_transition = manifest.get("grant_transition")
@@ -506,6 +603,8 @@ class Deployment:
                 grant_transition=self.grant_transition,
                 deployment_identity=self.manifest["deployment_identity"],
             )
+        if self.production is not None:
+            boot["destination"] = self.production["destination"]
         if role == "audit" and self.transition_state is not None:
             boot["transition_state"] = self.transition_state
         role_keys = {}
@@ -569,7 +668,9 @@ class Deployment:
                 (self.manifest["certificate"], "/private/certificate"),
             ]
             boot.update(
-                expected_net=self.gateway.private_net,
+                expected_net=(
+                    self.gateway_net if self.external_network else self.gateway.private_net
+                ),
                 host=self.manifest["host"],
                 certificate_sha256=self.manifest["certificate_sha256"],
             )
@@ -593,7 +694,7 @@ class Deployment:
         command = process_command(
             MODULE, readonly=readonly, writable=writable, network=role == "gateway"
         )
-        if role == "gateway":
+        if role == "gateway" and not self.external_network:
             self.fabric.boot(self.gateway, command, boot)
             process = self.gateway
         else:
@@ -608,6 +709,8 @@ class Deployment:
             )
             process.stdin.write(_json(boot) + "\n")
             process.stdin.flush()
+            if role == "gateway":
+                self.gateway = process
         self.processes[role] = process
         ready = receive(process)
         if ready.get("ready") is not True or not all(ready["checks"].values()):
@@ -618,13 +721,19 @@ class Deployment:
 
     def start(self):
         try:
-            self.fabric = Fabric(module=MODULE)
-            self.fabric.initial_user = self.baseline_user
-            self.fabric.initialize()
-            self.source, self.gateway = self.fabric.spawn("source"), self.fabric.spawn("broker")
-            if self.manifest["host"] == V6_APPROVED and not self.fabric.ipv6:
-                raise KernelUnavailable("required IPv6 unavailable")
-            self.fabric.connect(self.source, self.gateway, self.manifest["host"])
+            if not self.external_network:
+                self.fabric = Fabric(module=MODULE)
+                self.fabric.initial_user = self.baseline_user
+                self.fabric.initialize()
+                self.source, self.gateway = self.fabric.spawn("source"), self.fabric.spawn("broker")
+                if self.manifest["host"] == V6_APPROVED and not self.fabric.ipv6:
+                    raise KernelUnavailable("required IPv6 unavailable")
+                if self.production is None:
+                    self.fabric.connect(self.source, self.gateway, self.manifest["host"])
+                else:
+                    self.fabric.connect_reviewed(
+                        self.source, self.gateway, self.production["destination"]
+                    )
             if self.grant_transition is None:
                 roles = ("witness", "audit", "evidence", "authorization", "gateway", "acquisition")
                 for role in roles:
@@ -645,13 +754,17 @@ class Deployment:
             self.monitor.start()
             result = {
                 "status": "unarmed",
-                "source_pid": self.source.pid,
                 "control_pid": os.getpid(),
-                "source_net": self.source.private_net,
                 "gateway_pid": self.gateway.pid,
                 "service_pids": {role: process.pid for role, process in self.processes.items()},
-                "gateway_net": self.gateway.private_net,
-                "ipv6_enabled": self.fabric.ipv6,
+                "gateway_net": (
+                    self.gateway_net if self.external_network else self.gateway.private_net
+                ),
+                "ipv6_enabled": (
+                    any(":" in address for address in self.production["destination"]["addresses"])
+                    if self.external_network
+                    else self.fabric.ipv6
+                ),
                 "endpoints": {k: str(v) for k, v in self.endpoints.items()},
                 "operator_capability_file": str(self.operator_file),
                 "reasoning_capability_file": str(self.reasoning_file),
@@ -663,6 +776,16 @@ class Deployment:
                 "LIVE_PILOT_READY": False,
                 "execution_allowed": False,
             }
+            if self.source is not None:
+                result.update(source_pid=self.source.pid, source_net=self.source.private_net)
+            if self.production is not None:
+                result.update(
+                    destination_sha256=digest(self.production["destination"]),
+                    access_ledger_sha256=self.production["access_ledger_sha256"],
+                    host_attestation_sha256=self.production["host_attestation_sha256"],
+                    source_fixture=self.production["qualification"],
+                    allow_live_customer_access=False,
+                )
             if self.manifest.get("version") in (2, 3):
                 result["semantic_assessment"] = self.semantic("restore")
             return result
@@ -929,7 +1052,11 @@ class Deployment:
 
     def _cutoff(self):
         removed = self.egress_removed
-        if self.gateway is not None and self.gateway.poll() is None:
+        if (
+            not getattr(self, "external_network", False)
+            and self.gateway is not None
+            and self.gateway.poll() is None
+        ):
             try:
                 self.fabric.in_net(
                     self.gateway, ["nft", "flush", "chain", "inet", "orion", "egress"]
@@ -946,6 +1073,11 @@ class Deployment:
                 terminate(process)
             except Exception:  # noqa: BLE001 - report actual poll state, never assume death
                 termination_failed = True
+        if getattr(self, "external_network", False):
+            # The reviewed namespace remains default-deny; terminating its only
+            # credential-bearing network role removes this deployment's egress.
+            removed = self.gateway is None or self.gateway.poll() is not None
+            self.egress_removed = removed
         self.blocked = True
         return {
             "status": "blocked",
@@ -994,16 +1126,24 @@ class Deployment:
         # Restart processes, NOT journals/indices/budgets; no authority is reissued.
         for process in self.processes.values():
             terminate(process)
-        # Exact peer in the already validated private fabric, never host interfaces.
-        # A bounded native HTTPS child may retain its namespace for <=1 second.
-        subprocess.run(
-            ["/usr/sbin/ip", "link", "delete", "broker0"],
-            capture_output=True,
-            timeout=2,
-            check=False,
-        )
-        self.gateway = self.fabric.spawn("broker")
-        self.fabric.connect(self.source, self.gateway, self.manifest["host"])
+        if not self.external_network:
+            # Exact peer in the already validated private fabric, never host interfaces.
+            # A bounded native HTTPS child may retain its namespace for <=1 second.
+            subprocess.run(
+                ["/usr/sbin/ip", "link", "delete", "broker0"],
+                capture_output=True,
+                timeout=2,
+                check=False,
+            )
+            self.gateway = self.fabric.spawn("broker")
+            if self.production is None:
+                self.fabric.connect(self.source, self.gateway, self.manifest["host"])
+            else:
+                self.fabric.connect_reviewed(
+                    self.source, self.gateway, self.production["destination"]
+                )
+        else:
+            self.gateway = None
         self.processes = {}
         self.blocked = False
         self.egress_removed = False
@@ -1202,7 +1342,7 @@ class Deployment:
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Installed synthetic-only runtime; never activate access."
+        description="Installed governed read-only runtime; customer writes unavailable."
     )
     parser.add_argument("--serve", metavar="PRIVATE_MANIFEST")
     parser.add_argument("--enroll-witness", metavar="PRIVATE_MANIFEST")
@@ -1265,12 +1405,23 @@ def main(argv=None):
     try:
         if not args.private_supervisor:
             manifest_path = validate_launch_invocation("--serve", args.serve)
-            load_manifest(manifest_path)
+            outer_manifest = load_manifest(manifest_path)
+            production = (
+                load_production_evidence(outer_manifest)
+                if outer_manifest.get("version") == 6
+                else None
+            )
+            external_network = bool(production and not production["qualification"])
+            if external_network:
+                validate_external_resolution(outer_manifest, production)
             mapping = Path("/proc/self/uid_map").read_text().split()
             if os.getuid() == 0 and (len(mapping) != 3 or mapping[2] != "1"):
                 raise KernelUnavailable("unprivileged operator required")
+            unshare_options = ["--user", "--map-root-user"] + (
+                [] if external_network else ["--net"]
+            )
             capability = subprocess.run(
-                ["/usr/bin/unshare", "--user", "--map-root-user", "--net", "/usr/bin/true"],
+                ["/usr/bin/unshare", *unshare_options, "/usr/bin/true"],
                 capture_output=True,
                 timeout=5,
                 check=False,
@@ -1284,9 +1435,7 @@ def main(argv=None):
                 process = subprocess.Popen(
                     [
                         "/usr/bin/unshare",
-                        "--user",
-                        "--map-root-user",
-                        "--net",
+                        *unshare_options,
                         sys.executable,
                         "-I",
                         "-m",
@@ -1326,6 +1475,10 @@ def main(argv=None):
         os.close(args.baseline_net_fd)
         os.close(args.baseline_user_fd)
         manifest = load_manifest(manifest_path)
+        if manifest.get("version") == 6:
+            production = load_production_evidence(manifest)
+            if not production["qualification"]:
+                validate_external_resolution(manifest, production)
         deployment = Deployment(manifest, baseline_net=baseline_net, baseline_user=baseline_user)
         signal.signal(signal.SIGTERM, lambda *unused: (_ for _ in ()).throw(KeyboardInterrupt()))
         signal.signal(signal.SIGINT, lambda *unused: (_ for _ in ()).throw(KeyboardInterrupt()))

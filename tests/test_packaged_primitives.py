@@ -123,6 +123,20 @@ def test_checked_resolves_and_supplies_lab_path_without_inheriting_caller_path(m
     assert os.environ["PATH"] == "/usr/bin"
 
 
+def test_checked_classifies_kernel_command_timeout_as_unavailable(monkeypatch):
+    from orion.pilot import isolation
+
+    monkeypatch.setattr(isolation.shutil, "which", lambda *args, **kwargs: "/usr/sbin/ip")
+
+    def timeout(argv, **options):
+        raise subprocess.TimeoutExpired(argv, options["timeout"])
+
+    monkeypatch.setattr(isolation.subprocess, "run", timeout)
+    with pytest.raises(KernelUnavailable) as captured:
+        isolation.checked(["ip", "link", "show", "fabric0"])
+    assert captured.value.operation == ["ip", "link", "show"]
+
+
 @pytest.mark.parametrize("operations", [("metadata", "read"), ("metadata", "read", "instrument_0")])
 def test_emergency_stop_keeps_durable_controls_when_kernel_cutoff_command_fails(operations):
     from orion.pilot.deployment import Deployment

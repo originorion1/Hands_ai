@@ -86,3 +86,9 @@ kernel controls. Its sole profile addition is the fixed
 `erpnext_read_only_v1` protocol marker. Profile v3 remains shape-compatible;
 there is no silent migration, production destination, customer activation, or
 allowlist widening. See `NATIVE_ERPNEXT_INSTALLED_QUALIFICATION.md`.
+
+Profile v6 retains this exact installed entrypoint and adds only the closed
+production-discovery destination/evidence contract. Reviewed external mode must
+inherit an already-attested dedicated network namespace; the launcher never
+attaches a customer destination to the qualification fabric. Provisioning and
+scope-specific readiness are defined in `GOVERNED_PRODUCTION_DISCOVERY.md`.

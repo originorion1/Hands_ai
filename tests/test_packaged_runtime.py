@@ -69,11 +69,36 @@ def installed_run(artifact, *arguments, timeout=30):
     )
 
 
+def test_failure_diagnostic_rejects_untrusted_runtime_values():
+    from packaged_runtime_driver import bounded_reasoning_denial
+
+    report = bounded_reasoning_denial(
+        {"status": ["private-value"]},
+        {
+            "status": {"private": "value"},
+            "failure_boundary": ["private-value"],
+            "dead_roles": ["audit", {"private": "value"}],
+        },
+        {"metadata": 1, "read": True, "instrument_0": 0, "private-operation": 9},
+    )
+    assert report == {
+        "status": "FAIL",
+        "reason": "record_reasoning_denied",
+        "response_status": "invalid",
+        "health_status": "invalid",
+        "failure_boundary": "invalid",
+        "dead_roles": [],
+        "source_io": {"metadata": 1, "instrument_0": 0},
+        "LIVE_PILOT_READY": False,
+    }
+
+
 def test_wheel_contains_runtime_without_checkout_or_fixture_dependencies(clean_artifact):
     root, wheel, python = clean_artifact
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
         assert "orion/pilot/deployment.py" in names
+        assert "orion/pilot/production.py" in names
         assert "orion/pilot/ipc.py" in names
         assert "orion/pilot/isolation.py" in names
         assert not any(name.startswith(("tests/", "tools/")) for name in names)
@@ -166,6 +191,7 @@ def test_installed_artifact_tampering_denies_identity_and_startup(clean_artifact
         "full",
         "erpnext_candidate",
         "erpnext_grant_transition",
+        "production_discovery",
         "ipv6",
         "revision",
         "retention",
@@ -239,12 +265,16 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
         configs.append(harness.config)
     native_bodies = None
     source_credential = "SyntheticCredentialNoCustomer0123456789"
-    if case in ("erpnext_candidate", "erpnext_grant_transition"):
+    if case in ("erpnext_candidate", "erpnext_grant_transition", "production_discovery"):
         import urllib.parse
 
         from orion.pilot.broker_contract import ERPNEXT_VERSION
 
-        source = "https://opaque.test"
+        source = (
+            "https://opaque.test:44443"
+            if case == "production_discovery"
+            else "https://opaque.test"
+        )
         metadata_config, record_config = configs
         metadata_config.update(
             version=ERPNEXT_VERSION,
@@ -329,7 +359,10 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
 
         configs, bodies, semantic = build_independent_configs(configs, bodies, case)
     host = "fd42:6f72:696f::2" if case == "ipv6" else "192.0.2.2"
-    certificate, key = certificates(tmp_path, hostname=host)
+    certificate, key = certificates(
+        tmp_path,
+        hostname="opaque.test" if case == "production_discovery" else host,
+    )
     payload = {
         "case": case,
         "host": host,

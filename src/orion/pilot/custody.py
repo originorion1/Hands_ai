@@ -233,7 +233,8 @@ class AuthorizationCustody(Broker):
     in custody: restart refuses it, rather than reissuing a usable receipt.
     """
 
-    def __init__(self, config, audit, *, received_transform=None, installed_worker=False):
+    def __init__(self, config, audit, *, received_transform=None, installed_worker=False,
+                 expected_source_id=None):
         self.offer = None
         self.lock = threading.RLock()
         self.offers = queue.Queue(maxsize=1)
@@ -241,7 +242,12 @@ class AuthorizationCustody(Broker):
         self.reading = False
         self.received_transform = received_transform
         self.installed_worker = installed_worker
-        super().__init__(config, "/unused", journal_factory=lambda *a, **kw: audit)
+        super().__init__(
+            config,
+            "/unused",
+            journal_factory=lambda *a, **kw: audit,
+            expected_source_id=expected_source_id,
+        )
 
     def _worker(self, bootstrap, *, timeout=5):
         source_request = None

@@ -10,6 +10,13 @@ import stat
 from pathlib import Path
 
 from .broker_contract import digest, exact, transition_policy_from
+from .production import (
+    APPROVAL_VERSION,
+    ATTESTATION_VERSION,
+    DESTINATION_VERSION,
+    LEDGER_VERSION,
+    destination_from,
+)
 from .progress_witness import (
     WITNESS_VERSION,
     deployment_identity_for_manifest,
@@ -20,6 +27,7 @@ from .progress_witness import (
 PROFILE_VERSION = 3
 CANDIDATE_PROFILE_VERSION = 4
 TRANSITION_PROFILE_VERSION = 5
+PRODUCTION_PROFILE_VERSION = 6
 ENTRYPOINT_MODULE = "orion.pilot.deployment"
 
 ROLE_POLICY = {
@@ -100,7 +108,8 @@ def profile_for_manifest(manifest, artifact, manifest_path):
         }
         for name, policy in ROLE_POLICY.items()
     }
-    candidate = manifest.get("version") in (4, 5)
+    version = manifest.get("version")
+    candidate = version in (4, 5, 6)
     network = {
         "mode": "private_kernel_egress",
         "approved_host": manifest["host"],
@@ -111,10 +120,34 @@ def profile_for_manifest(manifest, artifact, manifest_path):
     }
     if candidate:
         network["protocol"] = "erpnext_read_only_v1"
+    if version == 6:
+        destination = destination_from(
+            manifest["destination"], manifest["certificate_sha256"]
+        )
+        network = {
+            "mode": "reviewed_exact_destination_egress",
+            "network_mode": destination["network_mode"],
+            "origin": destination["origin"],
+            "hostname": destination["hostname"],
+            "approved_addresses": destination["addresses"],
+            "approved_port": destination["port"],
+            "tls_server_name": destination["tls_server_name"],
+            "certificate_sha256": destination["certificate_sha256"],
+            "resolution_observed_at": destination["resolution_observed_at"],
+            "resolution_expires_at": destination["resolution_expires_at"],
+            "protocol": "erpnext_read_only_v1",
+            "dns": "exact_reviewed_set_or_deny",
+            "redirects": "deny",
+            "proxies": "deny",
+            "alternate_ports": "deny",
+        }
+        roles["authorization"]["secret_refs"].append("deployment-approval")
     profile = {
         "version": (
-            TRANSITION_PROFILE_VERSION
-            if manifest.get("version") == 5
+            PRODUCTION_PROFILE_VERSION
+            if version == 6
+            else TRANSITION_PROFILE_VERSION
+            if version == 5
             else CANDIDATE_PROFILE_VERSION
             if candidate
             else PROFILE_VERSION
@@ -173,7 +206,25 @@ def profile_for_manifest(manifest, artifact, manifest_path):
             "witness_disagreement": "cutoff_and_deny",
         },
     }
-    if manifest.get("version") == 5:
+    if version == 6:
+        profile["secret_references"]["deployment-approval"] = {
+            "path": str(Path(keys) / "deployment-approval"),
+            "owner_role": "authorization",
+        }
+        profile["production_discovery"] = {
+            "destination_version": DESTINATION_VERSION,
+            "access_ledger_version": LEDGER_VERSION,
+            "host_attestation_version": ATTESTATION_VERSION,
+            "controller_approval_version": APPROVAL_VERSION,
+            "access_ledger": str(Path(manifest["access_ledger"]).resolve()),
+            "access_approval": str(Path(manifest["access_approval"]).resolve()),
+            "host_attestation": str(Path(manifest["host_attestation"]).resolve()),
+            "host_approval": str(Path(manifest["host_approval"]).resolve()),
+            "startup": "unarmed_metadata_only",
+            "record_access": "separate_witnessed_transition_then_arm",
+            "customer_writes": "forbidden",
+        }
+    if version in (5, 6):
         policy = transition_policy_from(manifest["grant_transition"])
         profile["authorization_transition"] = {
             "version": policy["version"],
@@ -201,12 +252,16 @@ def validate_profile(profile, manifest, artifact, manifest_path):
             "network",
             "secret_references",
             "lifecycle",
-        ) + (("authorization_transition",) if manifest.get("version") == 5 else ()),
+        )
+        + (("production_discovery",) if manifest.get("version") == 6 else ())
+        + (("authorization_transition",) if manifest.get("version") in (5, 6) else ()),
     )
     if shape != expected:
         raise ValueError("deployment profile does not match installed runtime")
     expected_version = (
-        TRANSITION_PROFILE_VERSION
+        PRODUCTION_PROFILE_VERSION
+        if manifest.get("version") == 6
+        else TRANSITION_PROFILE_VERSION
         if manifest.get("version") == 5
         else CANDIDATE_PROFILE_VERSION
         if manifest.get("version") == 4

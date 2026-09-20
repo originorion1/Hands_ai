@@ -133,6 +133,9 @@ def deployment_identity_for_manifest(manifest, artifact):
         value["grant_transition_sha256"] = digest(
             transition_policy_from(manifest["grant_transition"])
         )
+    if manifest.get("version") == 6:
+        value["destination_sha256"] = digest(manifest["destination"])
+        value["production_contract"] = "governed-read-only-discovery-v1"
     return digest(value)
 
 

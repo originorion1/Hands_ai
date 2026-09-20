@@ -8,6 +8,7 @@ from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 from types import MappingProxyType
+from urllib.parse import urlsplit
 
 from ..contracts import EvidenceKind
 from ..discovery.json_boundary import unique_json_object
@@ -20,6 +21,7 @@ from ..understanding.role_checkpoint import _json
 VERSION = 'local-broker-v3'
 ERPNEXT_VERSION = 'erpnext-candidate-broker-v1'
 GRANT_TRANSITION_VERSION = 'erpnext-record-grant-transition-v1'
+PRODUCTION_GRANT_TRANSITION_VERSION = 'erpnext-record-grant-transition-v2'
 MAX_FRAME = 65536
 INSTRUMENT_OPERATIONS = tuple('instrument_' + str(n) for n in range(8))
 
@@ -41,15 +43,33 @@ def transition_policy_from(value):
         'secret_reference', 'auth_reference', 'limits', 'max_fields',
         'max_records', 'max_window_days', 'provenance_source',
     ))
-    if value['version'] != GRANT_TRANSITION_VERSION:
+    if value['version'] not in (
+        GRANT_TRANSITION_VERSION,
+        PRODUCTION_GRANT_TRANSITION_VERSION,
+    ):
         raise ValueError('explicit grant transition version required')
     for name in (
         'tenant_id', 'company', 'source_id', 'caller', 'secret_reference',
         'auth_reference', 'provenance_source',
     ):
         _text(value[name])
-    if not value['source_id'].startswith('https://') or not value['source_id'].endswith('.test'):
-        raise ValueError('bounded synthetic transition source required')
+    if value['version'] == GRANT_TRANSITION_VERSION:
+        if (not value['source_id'].startswith('https://')
+                or not value['source_id'].endswith('.test')):
+            raise ValueError('bounded synthetic transition source required')
+    else:
+        source = urlsplit(value['source_id'])
+        if (
+            source.scheme != 'https'
+            or source.hostname is None
+            or source.port is None
+            or source.username is not None
+            or source.password is not None
+            or source.path
+            or source.query
+            or source.fragment
+        ):
+            raise ValueError('exact production transition origin required')
     from .journal import TransportLimits, validate_supervised_journal_capacity
 
     limits = dict(exact(value['limits'], TransportLimits.__dataclass_fields__))
@@ -62,12 +82,13 @@ def transition_policy_from(value):
 
 
 def transition_binding(policy):
-    return digest({'version': GRANT_TRANSITION_VERSION,
-                   'policy': transition_policy_from(policy)})
+    policy = transition_policy_from(policy)
+    return digest({'version': policy['version'], 'policy': policy})
 
 
 def transition_initial_head(policy):
-    return digest({'version': GRANT_TRANSITION_VERSION,
+    policy = transition_policy_from(policy)
+    return digest({'version': policy['version'],
                    'scope_binding': transition_binding(policy),
                    'state': 'unprovisioned'})
 
@@ -115,7 +136,7 @@ def transition_request_from(value, policy, deployment_identity):
         'config', 'metadata', 'expected_witness_sha256', 'mac',
     ))
     if (
-        value['version'] != GRANT_TRANSITION_VERSION
+        value['version'] != policy['version']
         or value['deployment_identity'] != deployment_identity
         or value['generation'] != 1
         or value['predecessor_generation'] != 0

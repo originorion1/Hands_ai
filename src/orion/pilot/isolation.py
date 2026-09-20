@@ -76,15 +76,20 @@ def validate_protected_paths(*paths):
 
 def checked(argv, *, input=None):
     argv = [shutil.which(argv[0], path=LAB_PATH) or argv[0], *argv[1:]]
-    completed = subprocess.run(
-        argv,
-        input=input,
-        capture_output=True,
-        text=True,
-        timeout=5,
-        check=False,
-        env={"PATH": LAB_PATH, "LANG": "C.UTF-8"},
-    )
+    try:
+        completed = subprocess.run(
+            argv,
+            input=input,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+            env={"PATH": LAB_PATH, "LANG": "C.UTF-8"},
+        )
+    except subprocess.TimeoutExpired:
+        failure = KernelUnavailable("private namespace operation unavailable")
+        failure.operation = [Path(argv[0]).name, *argv[1:3]]
+        raise failure from None
     if completed.returncode:
         failure = KernelUnavailable("private namespace operation unavailable")
         failure.operation = [Path(argv[0]).name, *argv[1:3]]
@@ -135,6 +140,32 @@ def firewall(host, *, ipv6=False):
         + " chain egress {\n type filter hook output priority 0; policy drop;\n"
         f" {family} daddr {host} tcp dport {PORT} counter name approved accept\n"
         + rules
+        + " counter name denied reject with icmpx type admin-prohibited\n }\n}\n"
+    )
+
+
+def reviewed_firewall(addresses, port):
+    """Default-deny gateway policy for one controller-reviewed address set."""
+    if (
+        type(addresses) is not list
+        or not 1 <= len(addresses) <= 8
+        or type(port) is not int
+        or not 1 <= port <= 65535
+    ):
+        raise ValueError("bounded reviewed destination required")
+    rules = []
+    for index, address in enumerate(addresses):
+        family = "ip6" if ":" in address else "ip"
+        rules.append(
+            f" {family} daddr {address} tcp dport {port} "
+            f"counter name approved_{index} accept\n"
+        )
+    counters = "".join(f" counter approved_{index} {{}}\n" for index in range(len(addresses)))
+    return (
+        "table inet orion {\n counter denied {}\n"
+        + counters
+        + " chain egress {\n type filter hook output priority 0; policy drop;\n"
+        + "".join(rules)
         + " counter name denied reject with icmpx type admin-prohibited\n }\n}\n"
     )
 
@@ -241,7 +272,7 @@ class Fabric:
             ["nsenter", "--net=/proc/" + str(process.pid) + "/ns/net", *argv], input=input
         )
 
-    def connect(self, source, broker, host):
+    def _connect_routes(self, source, broker):
         for process, addresses, mac in (
             (broker, [V4_APPROVED, V4_UNAPPROVED], source.mac),
             (source, ["192.0.2.4"], broker.mac),
@@ -268,8 +299,35 @@ class Fabric:
                         process.interface,
                     ],
                 )
+
+    def connect(self, source, broker, host):
+        self._connect_routes(source, broker)
         self.in_net(broker, ["nft", "-f", "-"], input=firewall(host, ipv6=self.ipv6))
         return self.counters(broker)
+
+    def connect_reviewed(self, source, broker, destination):
+        """Attach only the disposable local qualification source to v6."""
+        if destination.get("network_mode") != "local_qualification":
+            raise KernelUnavailable("external destination cannot use synthetic fabric")
+        addresses = destination["addresses"]
+        self._connect_routes(source, broker)
+        self.in_net(
+            broker,
+            ["nft", "-f", "-"],
+            input=reviewed_firewall(addresses, destination["port"]),
+        )
+        return self.reviewed_counters(broker, len(addresses))
+
+    def reviewed_counters(self, process, count):
+        value = json.loads(self.in_net(process, ["nft", "-j", "list", "table", "inet", "orion"]))
+        counters = {
+            item["counter"]["name"]: item["counter"]["packets"]
+            for item in value["nftables"]
+            if "counter" in item
+        }
+        if set(counters) != {"denied"} | {f"approved_{index}" for index in range(count)}:
+            raise ValueError("reviewed kernel counters unavailable")
+        return counters
 
     def counters(self, process):
         value = json.loads(self.in_net(process, ["nft", "-j", "list", "table", "inet", "orion"]))

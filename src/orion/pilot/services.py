@@ -1,4 +1,4 @@
-"""Installed fixed process roles for the bounded synthetic read-only deployment.
+"""Installed fixed process roles for the bounded governed read-only deployment.
 
 No fixture imports, plugins, public child selectors or source networking in the
 authorization/audit/archive/acquisition/reasoning roles. Only the credential
@@ -309,12 +309,16 @@ def serve(value):
             return rpc("/evidence/service", "supervisor", evidence_key, action, data)
 
         owners = []
+        expected_source_id = (
+            value["destination"]["origin"] if "destination" in value else None
+        )
         for c in configs:
             owners.append(AuthorizationCustody(
                 c,
                 RemoteJournal(audit_client, digest(c)),
                 received_transform=(None if is_erpnext_candidate(c) else normalize_unmodified),
                 installed_worker=True,
+                expected_source_id=expected_source_id,
             ))
         dispatch = PersistedRuntimeCustody(
             SupervisedReadOnlyRuntime(*owners, transition=transition),
@@ -326,6 +330,7 @@ def serve(value):
                 RemoteJournal(audit_client, digest(config)),
                 received_transform=None,
                 installed_worker=True,
+                expected_source_id=expected_source_id,
             ),
         ).dispatch
     elif role == "gateway":
@@ -342,6 +347,7 @@ def serve(value):
             value["certificate_sha256"],
             value["host"],
             transition=transition,
+            destination=value.get("destination"),
         )
         dispatch = owner.dispatch
     elif role == "acquisition":
