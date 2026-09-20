@@ -24,6 +24,7 @@ from ..discovery.pilot_read import _text, launch_pilot_read
 from ..history.evidence import _observation_to_data
 from ..understanding.role_checkpoint import _json
 from .broker_contract import (
+    ERPNEXT_VERSION,
     MAX_FRAME,
     VERSION,
     authenticate,
@@ -31,6 +32,7 @@ from .broker_contract import (
     digest,
     exact,
     grant_from,
+    is_erpnext_candidate,
     is_record_operation,
     metadata_grant_from,
     metadata_request_from,
@@ -39,7 +41,7 @@ from .broker_contract import (
     request_from,
     validate_field_classifications,
 )
-from .broker_metadata import proposal_from
+from .broker_metadata import erpnext_proposal_from, proposal_from
 from .journal import AttemptJournal, JournalDenied, TransportLimits
 
 
@@ -47,10 +49,15 @@ class Broker:
     """Trusted supervisor component; never instantiate inside an untrusted agent."""
 
     def __init__(self, config, directory, *, expected_head=None, journal_factory=AttemptJournal):
-        exact(config, ('version', 'mode', 'caller', 'grant', 'limits', 'protocol',
-            'secret_reference', 'auth_reference', 'source_path', 'source_digest',
-            'field_classifications', 'operation'))
-        if config['version'] != VERSION or config['mode'] != 'synthetic_read_only':
+        self.erpnext_candidate = is_erpnext_candidate(config)
+        common = ('version', 'mode', 'caller', 'grant', 'limits', 'protocol',
+            'secret_reference', 'auth_reference', 'field_classifications', 'operation')
+        exact(config, common if self.erpnext_candidate else common + (
+            'source_path', 'source_digest'))
+        expected_mode = (
+            'candidate_erpnext_read_only' if self.erpnext_candidate else 'synthetic_read_only'
+        )
+        if config['version'] not in (VERSION, ERPNEXT_VERSION) or config['mode'] != expected_mode:
             raise ValueError('offline broker configuration required')
         _text(config['caller'])
         self.operation = config['operation']
@@ -63,8 +70,20 @@ class Broker:
             if (self.grant.max_records > 25 or len(self.grant.window.fields) > 64
                     or (self.grant.window.end - self.grant.window.start).days > 31):
                 raise ValueError('bounded synthetic records required')
-            protocols = ('local_rows_v1', 'local_columns_v1')
+            protocols = (
+                ('erpnext_records_v1',)
+                if self.erpnext_candidate
+                else ('local_rows_v1', 'local_columns_v1')
+            )
             validate_field_classifications(config['field_classifications'], self.grant.window.fields)
+            if self.erpnext_candidate and (
+                self.operation != 'read'
+                or self.grant.evidence_kind is not EvidenceKind.API
+                or self.grant.identity_field != 'name'
+                or self.grant.company_field != 'company'
+                or self.grant.provenance_source != 'erpnext-historical-sample-read-only'
+            ):
+                raise ValueError('candidate ERPNext provenance mapping required')
         elif self.operation == 'metadata':
             self.grant = metadata_grant_from(config['grant'])
             self.source_id = self.grant.request.source_id
@@ -72,15 +91,21 @@ class Broker:
             if self.grant.max_catalog_entries > 10 or self.grant.max_schemas > 2:
                 raise ValueError('bounded synthetic discovery required')
             exact(config['field_classifications'], ())
-            protocols = ('local_schema_v1',)
+            protocols = (
+                ('erpnext_metadata_v1',) if self.erpnext_candidate else ('local_schema_v1',)
+            )
         else:
             raise ValueError('explicit read operation required')
         if (not _normalize_base_url(self.source_id).endswith('.test')
                 or self.source_id != _normalize_base_url(self.source_id)):
             raise ValueError('bounded synthetic source required')
-        if (config['protocol'] not in protocols or type(config['source_path']) is not str
-                or not Path(config['source_path']).is_absolute()
-                or type(config['source_digest']) is not str or len(config['source_digest']) != 64):
+        local_source_invalid = not self.erpnext_candidate and (
+            type(config['source_path']) is not str
+            or not Path(config['source_path']).is_absolute()
+            or type(config['source_digest']) is not str
+            or len(config['source_digest']) != 64
+        )
+        if config['protocol'] not in protocols or local_source_invalid:
             raise ValueError('pinned local source required')
         limits = dict(exact(config['limits'], TransportLimits.__dataclass_fields__))
         limits['expires_at'] = datetime.fromisoformat(limits['expires_at'])
@@ -111,7 +136,7 @@ class Broker:
 
     def _event(self, event, request=None, observations=None, reason=None):
         references = {'caller': digest(self.config['caller']), 'scope': self.binding,
-                      'version': digest(VERSION)}
+                      'version': digest(self.config['version'])}
         if request is not None:
             references['request'] = request
         if observations is not None:
@@ -121,7 +146,7 @@ class Broker:
         self.journal.lifecycle(event, at=utc_now(), references=references)
 
     def status(self, state):
-        return {'status': state, 'version': VERSION, 'nonce': self.nonce,
+        return {'status': state, 'version': self.config['version'], 'nonce': self.nonce,
             'head': self.journal.head, 'budget': self.journal.inspect(),
             'execution_allowed': False, 'allow_live_customer_access': False}
 
@@ -185,10 +210,13 @@ class Broker:
                 received = 0
                 success = False
                 try:
-                    bootstrap = {k: supervisor.config[k] for k in
-                                 ('grant', 'protocol', 'source_digest', 'field_classifications')}
-                    bootstrap.update(request=asdict(request), path=supervisor.config['source_path'],
-                                     secret=supervisor.secret)
+                    keys = ('grant', 'protocol', 'field_classifications') + (
+                        () if supervisor.erpnext_candidate else ('source_digest',)
+                    )
+                    bootstrap = {k: supervisor.config[k] for k in keys}
+                    bootstrap.update(request=asdict(request), secret=supervisor.secret)
+                    if not supervisor.erpnext_candidate:
+                        bootstrap['path'] = supervisor.config['source_path']
                     result = supervisor._worker(bootstrap)
                     received = len(result.stdout)
                     supervisor._validate_worker(result)
@@ -281,10 +309,14 @@ class Broker:
                 supervisor.journal.begin(permit.current_time(), len(_json(value).encode()))
                 received, success = 0, False
                 try:
-                    bootstrap = {k: supervisor.config[k] for k in
-                        ('operation', 'grant', 'protocol', 'source_digest', 'field_classifications')}
-                    bootstrap.update(request=asdict(request), path=supervisor.config['source_path'],
-                                     secret=supervisor.secret, target=target)
+                    keys = ('operation', 'grant', 'protocol', 'field_classifications') + (
+                        () if supervisor.erpnext_candidate else ('source_digest',)
+                    )
+                    bootstrap = {k: supervisor.config[k] for k in keys}
+                    bootstrap.update(request=asdict(request), secret=supervisor.secret,
+                                     target=target)
+                    if not supervisor.erpnext_candidate:
+                        bootstrap['path'] = supervisor.config['source_path']
                     result = supervisor._worker(bootstrap, timeout=max(0.001, deadline - time.monotonic()))
                     received = len(result.stdout)
                     supervisor._validate_worker(result)
@@ -298,6 +330,20 @@ class Broker:
                         if type(response['catalog']) is not list:
                             raise ValueError('catalog list required')
                         output = tuple(response['catalog']), response['complete']
+                    elif supervisor.erpnext_candidate:
+                        exact(response, ('resource', 'available', 'fields', 'date_fields',
+                                         'declarations'))
+                        if response['resource'] != target:
+                            raise ValueError('schema scope mismatch')
+                        if response['available'] is not True:
+                            output = None
+                        else:
+                            output = erpnext_proposal_from(
+                                target,
+                                response['fields'],
+                                response['date_fields'],
+                                response['declarations'],
+                            )
                     else:
                         exact(response, ('resource', 'declarations'))
                         if response['resource'] != target:

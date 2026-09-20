@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from ..understanding.role_checkpoint import _json
-from .broker_contract import MAX_FRAME, decode, digest, private_bytes
+from .broker_contract import MAX_FRAME, decode, digest, is_erpnext_candidate, private_bytes
 from .custody import AuditCustody, AuthorizationCustody, RemoteJournal, RuntimeCustody
 from .evidence_custody import EvidenceCustody
 from .gateway import CredentialGateway
@@ -184,7 +184,7 @@ def serve(value):
             AuthorizationCustody(
                 c,
                 RemoteJournal(audit_client, digest(c)),
-                received_transform=normalize_unmodified,
+                received_transform=(None if is_erpnext_candidate(c) else normalize_unmodified),
                 installed_worker=True,
             )
             for c in configs
@@ -218,12 +218,18 @@ def serve(value):
             reply = rpc("/authorization/service", "broker", key, "begin", message)
             while reply.get("status") == "offered":
                 receipt = reply["receipt"]
+                gateway_request = {
+                    "receipt": receipt,
+                    "binding": bindings[message["operation"]],
+                }
+                if "source_request" in reply:
+                    gateway_request["source_request"] = reply["source_request"]
                 received = rpc(
                     "/gateway/service",
                     "acquisition",
                     gateway_key,
                     "acquire",
-                    {"receipt": receipt, "binding": bindings[message["operation"]]},
+                    gateway_request,
                 )
                 reply = rpc(
                     "/authorization/service",

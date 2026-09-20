@@ -164,6 +164,7 @@ def test_installed_artifact_tampering_denies_identity_and_startup(clean_artifact
     "case",
     (
         "full",
+        "erpnext_candidate",
         "ipv6",
         "revision",
         "retention",
@@ -235,6 +236,89 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
             total_response_bytes=524288,
         )
         configs.append(harness.config)
+    native_bodies = None
+    source_credential = "SyntheticCredentialNoCustomer0123456789"
+    if case == "erpnext_candidate":
+        import urllib.parse
+
+        from orion.pilot.broker_contract import ERPNEXT_VERSION
+
+        source = "https://opaque.test"
+        metadata_config, record_config = configs
+        metadata_config.update(
+            version=ERPNEXT_VERSION,
+            mode="candidate_erpnext_read_only",
+            protocol="erpnext_metadata_v1",
+        )
+        metadata_config.pop("source_path")
+        metadata_config.pop("source_digest")
+        fields = ["name", "company", "docstatus", "posting_date", "amount"]
+        window = record_config["grant"]["window"]
+        window.update(
+            resource="Sales Invoice",
+            fields=fields,
+            date_field="posting_date",
+        )
+        record_config["grant"].update(
+            source_id=source,
+            identity_field="name",
+            company_field="company",
+            provenance_source="erpnext-historical-sample-read-only",
+            evidence_kind="api",
+            max_records=1,
+        )
+        metadata_config["grant"]["request"]["source_id"] = source
+        record_config.update(
+            version=ERPNEXT_VERSION,
+            mode="candidate_erpnext_read_only",
+            protocol="erpnext_records_v1",
+            field_classifications={field: "public" for field in fields},
+        )
+        record_config.pop("source_path")
+        record_config.pop("source_digest")
+        catalog = "/api/resource/DocType?" + urllib.parse.urlencode(
+            {
+                "fields": '["name"]',
+                "limit_start": 0,
+                "limit_page_length": metadata_config["grant"]["max_catalog_entries"] + 1,
+                "order_by": "name asc",
+            }
+        )
+        schema_path = "/api/method/frappe.desk.form.load.getdoctype?" + urllib.parse.urlencode(
+            {"doctype": "Sales Invoice"}
+        )
+        filters = [["company", "=", window["company"]], ["docstatus", "=", 1],
+                   ["posting_date", ">=", window["start"]],
+                   ["posting_date", "<=", window["end"]]]
+        record_path = "/api/resource/Sales%20Invoice?" + urllib.parse.urlencode(
+            {
+                "fields": json.dumps(fields, separators=(",", ":")),
+                "filters": json.dumps(filters, separators=(",", ":")),
+                "order_by": "posting_date desc, name desc",
+                "limit_start": 0,
+                "limit_page_length": 1,
+            }
+        )
+        native_bodies = {
+            catalog: json.dumps({"data": [{"name": "Sales Invoice"}]}),
+            schema_path: json.dumps({"message": {"docs": [{
+                "name": "Sales Invoice",
+                "is_submittable": 1,
+                "fields": [
+                    {"fieldname": "company", "fieldtype": "Link", "options": "Company"},
+                    {"fieldname": "posting_date", "fieldtype": "Date"},
+                    {"fieldname": "amount", "fieldtype": "Currency"},
+                ],
+            }]}}),
+            record_path: json.dumps({"data": [{
+                "name": "SINV-0001",
+                "company": window["company"],
+                "docstatus": 1,
+                "posting_date": window["start"],
+                "amount": 9,
+            }]}),
+        }
+        source_credential = "CandidateKey123456:CandidateSecret123456"
     semantic = None
     if case.startswith("independent_"):
         from independent_evidence_support import build_independent_configs
@@ -250,13 +334,14 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
         "bodies": bodies,
         "issuer": metadata.key.decode(),
         "worker_secret": metadata.secret,
-        "source_credential": "SyntheticCredentialNoCustomer0123456789",
+        "source_credential": source_credential,
         "replacement_source_credential": "SyntheticCredentialReplacement9876543210",
         "certificate": str(certificate),
         "source_key": str(key),
         "wheel_sha256": hashlib.sha256(clean_artifact[1].read_bytes()).hexdigest(),
         "attacker_script": str(Path(__file__).with_name("installed_runtime_attacker.py")),
         "semantic": semantic,
+        "native_bodies": native_bodies,
     }
     root, _, python = clean_artifact
     completed = subprocess.run(

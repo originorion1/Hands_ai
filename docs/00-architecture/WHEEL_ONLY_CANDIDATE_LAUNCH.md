@@ -2,7 +2,7 @@
 
 ## Enforced application boundary
 
-Deployment profile version 3 binds one mutable runtime launch to:
+Deployment profile version 3 binds each legacy synthetic mutable runtime launch to:
 
 - the installed distribution name, version, hashed `RECORD`, installation prefix
   and package root;
@@ -78,3 +78,11 @@ service/unit, unprivileged identity, immutable approved wheel transfer, private
 manifest/key/state locations, rootless user/network namespace support, bubblewrap,
 `ip`, `nft`, `nsenter` and `curl`. Missing application or kernel controls deny
 startup. `LIVE_PILOT_READY=false` and `execution_allowed=false` remain unchanged.
+
+Issue #186 adds an explicit profile v4 only for the offline
+`candidate_erpnext_read_only` manifest. It retains the same installed interpreter,
+module, manifest, environment, filesystem, role, lifecycle, reserved-address and
+kernel controls. Its sole profile addition is the fixed
+`erpnext_read_only_v1` protocol marker. Profile v3 remains shape-compatible;
+there is no silent migration, production destination, customer activation, or
+allowlist widening. See `NATIVE_ERPNEXT_INSTALLED_QUALIFICATION.md`.

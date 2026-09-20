@@ -34,12 +34,13 @@ from .broker_contract import (
     digest,
     exact,
     grant_from,
+    is_erpnext_candidate,
     is_record_operation,
     metadata_grant_from,
     observations_from,
     private_bytes,
 )
-from .broker_metadata import proposal_from
+from .broker_metadata import erpnext_proposal_from, proposal_from
 from .journal import JournalDenied, grant_digest
 from .progress_witness import progress_state
 
@@ -437,18 +438,31 @@ class EvidenceCustody:
             for proposal in payload["proposals"]:
                 if proposal["resource"] not in targets:
                     raise JournalDenied("metadata proposal scope mismatch")
-                rebuilt = (
-                    ScopeProposal(
-                        proposal["resource"],
-                        tuple(proposal["fields"]),
-                        tuple(proposal["date_fields"]),
-                    )
+                declarations = (
+                    []
                     if proposal["interpretation"] is None
-                    else proposal_from(
-                        proposal["resource"],
-                        [c["declaration"] for c in proposal["interpretation"]["candidates"]],
-                    )
+                    else [
+                        candidate["declaration"]
+                        for candidate in proposal["interpretation"]["candidates"]
+                    ]
                 )
+                if is_erpnext_candidate(config):
+                    rebuilt = erpnext_proposal_from(
+                        proposal["resource"],
+                        proposal["fields"],
+                        proposal["date_fields"],
+                        declarations,
+                    )
+                else:
+                    rebuilt = (
+                        ScopeProposal(
+                            proposal["resource"],
+                            tuple(proposal["fields"]),
+                            tuple(proposal["date_fields"]),
+                        )
+                        if proposal["interpretation"] is None
+                        else proposal_from(proposal["resource"], declarations)
+                    )
                 if json.loads(_json(asdict(rebuilt))) != proposal:
                     raise JournalDenied("metadata interpretation mismatch")
             identity = json.dumps(

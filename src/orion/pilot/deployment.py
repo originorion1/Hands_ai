@@ -32,6 +32,7 @@ from .broker_contract import (
     digest,
     exact,
     grant_from,
+    is_erpnext_candidate,
     metadata_grant_from,
     private_bytes,
 )
@@ -228,20 +229,36 @@ def load_manifest(path, *, enrollment=False):
             "deployment_profile_sha256",
         ) + (("semantic",) if type(raw) is dict and raw.get("version") in (2, 3) else ()),
     )
-    if type(value["version"]) is not int or value["version"] not in (1, 2, 3) or value["mode"] != "synthetic_read_only":
+    if type(value["version"]) is not int or value["version"] not in (1, 2, 3, 4):
+        raise ValueError("explicit versioned deployment required")
+    expected_mode = (
+        "candidate_erpnext_read_only" if value["version"] == 4 else "synthetic_read_only"
+    )
+    if value["mode"] != expected_mode:
         raise ValueError("explicit synthetic deployment only")
     if value["host"] not in (V4_APPROVED, V6_APPROVED):
         raise ValueError("fixed approved synthetic destination required")
     if type(value["configs"]) is not list or any(type(c) is not dict for c in value["configs"]):
         raise ValueError("separate canonical authorizations required")
     count = len(value["configs"])
-    if (value["version"] in (1, 2) and count != 2) or (value["version"] == 3 and not 3 <= count <= 10):
+    if (value["version"] in (1, 2, 4) and count != 2) or (
+        value["version"] == 3 and not 3 <= count <= 10
+    ):
         raise ValueError("separate canonical authorizations required")
     operations = [c.get("operation") for c in value["configs"]]
     if (any(type(op) is not str for op in operations)
             or operations[:2] != ["metadata", "read"] or len(set(operations)) != count
             or any(op not in INSTRUMENT_OPERATIONS for op in operations[2:])):
         raise ValueError("metadata-first separate record configuration required")
+    if value["version"] == 4:
+        if (
+            not all(is_erpnext_candidate(config) for config in value["configs"])
+            or [config.get("protocol") for config in value["configs"]]
+            != ["erpnext_metadata_v1", "erpnext_records_v1"]
+        ):
+            raise ValueError("exact ERPNext candidate protocols required")
+    elif any(is_erpnext_candidate(config) for config in value["configs"]):
+        raise ValueError("ERPNext candidate requires manifest version 4")
     if value["version"] in (2, 3):
         if type(value["semantic"]) is not dict or value["semantic"].get("version") != value["version"] - 1:
             raise ValueError("explicit compatible semantic configuration version required")
@@ -524,7 +541,9 @@ class Deployment:
         self.processes[role] = process
         ready = receive(process)
         if ready.get("ready") is not True or not all(ready["checks"].values()):
-            raise JournalDenied("independent service startup denied")
+            failure = JournalDenied("independent service startup denied")
+            failure.health_boundary = role + "_startup"
+            raise failure
         self.checks[role] = ready["checks"]
 
     def start(self):

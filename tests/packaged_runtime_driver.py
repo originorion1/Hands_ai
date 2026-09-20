@@ -63,25 +63,40 @@ def source(value):
     lock = threading.Lock()
     credential = value["source_credential"]
     authentication = {"obsolete_credential_rejections": 0}
-    bodies = {
-        "/metadata": value["bodies"]["metadata"].encode(),
-        "/records": value["bodies"]["read"].encode(),
-    }
+    native = value["case"] == "erpnext_candidate"
+    if native:
+        bodies = {path: body.encode() for path, body in value["native_bodies"].items()}
+        operations = {
+            path: ("read" if path.startswith("/api/resource/Sales%20Invoice?") else "metadata")
+            for path in bodies
+        }
+    else:
+        bodies = {
+            "/metadata": value["bodies"]["metadata"].encode(),
+            "/records": value["bodies"]["read"].encode(),
+        }
+        operations = {"/metadata": "metadata", "/records": "read"}
     for index in range(8):
         operation = "instrument_" + str(index)
         if operation in value["bodies"]:
-            bodies["/instrument/" + str(index)] = value["bodies"][operation].encode()
+            path = "/instrument/" + str(index)
+            bodies[path] = value["bodies"][operation].encode()
+            operations[path] = operation
             io[operation] = 0
+    paths = []
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            if self.headers.get("Authorization") != "Bearer " + credential:
+            expected_authorization = ("token " if native else "Bearer ") + credential
+            if self.headers.get("Authorization") != expected_authorization:
                 with lock:
                     authentication["obsolete_credential_rejections"] += 1
                 self.send_response(401)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
                 return
+            with lock:
+                paths.append(self.path)
             if self.path not in bodies:
                 self.send_response(404)
                 self.send_header("Content-Length", "0")
@@ -89,9 +104,7 @@ def source(value):
                 return
             body = bodies[self.path]
             with lock:
-                operation = ("metadata" if self.path == "/metadata" else "read"
-                             if self.path == "/records" else
-                             "instrument_" + self.path.rsplit("/", 1)[1])
+                operation = operations[self.path]
                 io[operation] += 1
             if self.path == "/records" and value["redirect"]:
                 self.send_response(302)
@@ -172,6 +185,9 @@ def source(value):
             elif command == {"command": "credential-rejections"}:
                 with lock:
                     emit(dict(authentication))
+            elif command == {"command": "paths"}:
+                with lock:
+                    emit({"paths": list(paths)})
             elif (
                 type(command) is dict
                 and set(command) == {"command", "credential"}
@@ -358,8 +374,12 @@ def controller(value):
     )
     identity = json.loads(artifact.stdout)
     manifest = {
-        "version": 1,
-        "mode": "synthetic_read_only",
+        "version": 4 if value["case"] == "erpnext_candidate" else 1,
+        "mode": (
+            "candidate_erpnext_read_only"
+            if value["case"] == "erpnext_candidate"
+            else "synthetic_read_only"
+        ),
         "configs": value["configs"],
         "state_directory": str(state),
         "keys_directory": str(keys),
@@ -581,7 +601,9 @@ def controller(value):
         server.stdin.write(
             json.dumps(
                 {
+                    "case": value["case"],
                     "bodies": value["bodies"],
+                    "native_bodies": value["native_bodies"],
                     "source_credential": value["source_credential"],
                     "certificate": "/fixture/cert.pem",
                     "source_key": "/fixture/key.pem",
@@ -735,6 +757,32 @@ def controller(value):
                     for row in database.execute("SELECT body FROM events ORDER BY sequence")
                 ]
 
+        def denial_boundary(operation):
+            records = audit_records(operation)
+            reason = next(
+                (
+                    record.get("references", {}).get("reason")
+                    for record in reversed(records)
+                    if record.get("event") == "broker_denied"
+                ),
+                None,
+            )
+            return next(
+                (
+                    phase
+                    for phase in (
+                        "request_validation",
+                        "grant_authentication",
+                        "scope_authorization",
+                        "resource_reservation",
+                        "worker_acquisition",
+                        "admission",
+                    )
+                    if digest(phase) == reason
+                ),
+                None,
+            )
+
         def witness_rows():
             with sqlite3.connect(witness / "progress-witness.db") as database:
                 return [
@@ -814,6 +862,18 @@ def controller(value):
             denied["status"] == "denied" and command(server, {"command": "stats"})["metadata"] == 0
         )
         metadata = acquire("metadata", "discovery-1")
+        if value["case"] == "erpnext_candidate" and metadata["status"] != "admitted":
+            emit(
+                {
+                    "status": "FAIL",
+                    "reason": "candidate_metadata_denied",
+                    "failure_boundary": denial_boundary("metadata"),
+                    "source_io": command(server, {"command": "stats"}),
+                    "source_paths": command(server, {"command": "paths"}),
+                    "LIVE_PILOT_READY": False,
+                }
+            )
+            return 1
         assert metadata["status"] == "admitted", metadata
         checks["metadata_governed_separate_grant"] = command(server, {"command": "stats"}) == expected_source_io(2, 0)
         if value["case"] == "rotation":
@@ -996,6 +1056,18 @@ def controller(value):
         checks["actual_reasoning_process_isolated"] = bool(isolated["reasoner_checks"]) and all(
             isolated["reasoner_checks"].values()
         )
+        if value["case"] == "erpnext_candidate" and admitted["status"] != "admitted":
+            emit(
+                {
+                    "status": "FAIL",
+                    "reason": "candidate_records_denied",
+                    "failure_boundary": denial_boundary("read"),
+                    "source_io": command(server, {"command": "stats"}),
+                    "source_paths": command(server, {"command": "paths"}),
+                    "LIVE_PILOT_READY": False,
+                }
+            )
+            return 1
         assert admitted["status"] == "admitted", admitted
         observations = observations_from(admitted["observations"])
         checks["canonical_provenance_unknown"] = (
@@ -1004,6 +1076,15 @@ def controller(value):
             and observations[0].evidence.payload["provenance"]["authorization_id"]
             == value["configs"][1]["grant"]["authorization_id"]
         )
+        if value["case"] == "erpnext_candidate":
+            checks["native_erpnext_exact_gets_derived_from_grants"] = command(
+                server, {"command": "paths"}
+            ) == {"paths": list(value["native_bodies"])}
+            checks["native_erpnext_api_provenance_admitted"] = (
+                observations[0].evidence.kind.value == "api"
+                and observations[0].evidence.source
+                == "erpnext-historical-sample-read-only"
+            )
         checks["only_authorized_ordinary_bearer_source_io"] = command(
             server, {"command": "stats"}
         ) == expected_source_io(2, 1)
@@ -1696,7 +1777,7 @@ def controller(value):
                 and command(server, {"command": "stats"}) == {"metadata": 2, "read": 1}
             )
             return report()
-        if value["case"] not in ("full", "ipv6"):
+        if value["case"] not in ("full", "ipv6", "erpnext_candidate"):
             descriptor = os.open("/proc/" + str(ready["gateway_pid"]) + "/ns/net", os.O_RDONLY)
             try:
                 os.kill(ready["service_pids"][value["case"]], signal.SIGKILL)

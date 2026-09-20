@@ -17,8 +17,16 @@ from datetime import datetime
 from pathlib import Path
 
 from ..contracts import utc_now
+from ..understanding.role_checkpoint import _json
 from .broker import Broker
-from .broker_contract import MAX_FRAME, authenticate, digest, exact
+from .broker_contract import (
+    MAX_FRAME,
+    authenticate,
+    decode,
+    digest,
+    exact,
+    is_erpnext_candidate,
+)
 from .journal import AttemptJournal, JournalDenied, TransportLimits
 from .progress_witness import progress_state
 
@@ -199,12 +207,24 @@ class AuthorizationCustody(Broker):
         super().__init__(config, "/unused", journal_factory=lambda *a, **kw: audit)
 
     def _worker(self, bootstrap, *, timeout=5):
+        source_request = None
+        if is_erpnext_candidate(self.config):
+            from .gateway import erpnext_source_request
+
+            source_request = decode(_json({"request": bootstrap["request"]}).encode())
+            if self.operation == "metadata":
+                source_request["target"] = bootstrap["target"]
+            # Validate before exposing a receipt. The gateway repeats this exact
+            # encoder after one-use redemption; no URL enters over application IPC.
+            erpnext_source_request(self.config, source_request)
         with self.lock:
             payload = {
                 "binding": self.binding,
                 "head": self.journal.head,
                 "nonce": secrets.token_hex(32),
             }
+            if source_request is not None:
+                payload["source_request_sha256"] = digest(source_request)
             receipt = self.binding + authenticate(self.key, "source_receipt", payload)
             self.offer = {
                 "receipt": receipt,
@@ -212,13 +232,19 @@ class AuthorizationCustody(Broker):
                 "redeemed": False,
                 "body": queue.Queue(maxsize=1),
             }
-            self.offers.put({"status": "offered", "receipt": receipt})
+            offered = {"status": "offered", "receipt": receipt}
+            if source_request is not None:
+                offered["source_request"] = source_request
+            self.offers.put(offered)
         try:
             raw = self.offer["body"].get(timeout=timeout)
             if (
                 type(raw) is not bytes
                 or len(raw) > MAX_FRAME // 2
-                or hashlib.sha256(raw).hexdigest() != self.config["source_digest"]
+                or (
+                    not is_erpnext_candidate(self.config)
+                    and hashlib.sha256(raw).hexdigest() != self.config["source_digest"]
+                )
             ):
                 raise ValueError("source digest denied")
             with tempfile.TemporaryDirectory(prefix="orion-custody-received-") as temporary:
@@ -251,7 +277,13 @@ class AuthorizationCustody(Broker):
             with self.lock:
                 return self.control(value)
         if role == "source" and action == "redeem":
-            exact(value, ("receipt", "binding"))
+            candidate = is_erpnext_candidate(self.config)
+            exact(
+                value,
+                ("receipt", "binding", "source_request_sha256")
+                if candidate
+                else ("receipt", "binding"),
+            )
             with self.lock:
                 offer = self.offer
                 if (
@@ -259,6 +291,11 @@ class AuthorizationCustody(Broker):
                     or offer["redeemed"]
                     or value["binding"] != self.binding
                     or value["receipt"] != offer["receipt"]
+                    or (
+                        candidate
+                        and value["source_request_sha256"]
+                        != offer["payload"]["source_request_sha256"]
+                    )
                     or not self.armed
                     or self.stopped()
                     or utc_now() >= self.expires_at
