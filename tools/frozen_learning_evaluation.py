@@ -62,6 +62,11 @@ from orion.understanding.semantic_study import (
 PROTOCOL_VERSION = "orion-frozen-learning-evaluation-v1"
 PACKAGE_VERSION = "orion-independent-restaurant-dataset-v1"
 REVIEW_VERSION = "orion-independent-review-evidence-v1"
+PROTOCOL_VERSION_V2 = "orion-frozen-learning-evaluation-v2"
+PACKAGE_VERSION_V2 = "orion-independent-restaurant-dataset-v2"
+REVIEW_VERSION_V2 = "orion-independent-review-evidence-v2"
+FREEZE_RECEIPT_VERSION_V2 = "orion-evaluator-freeze-receipt-v2"
+SUPPORTED_PROTOCOLS = frozenset({PROTOCOL_VERSION, PROTOCOL_VERSION_V2})
 OPAQUE = re.compile(r"^[a-z]_[a-f0-9]{16,64}$")
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
 SYNTHETIC_ORIGIN = re.compile(r"^s-[a-f0-9]{16,64}\.synthetic\.test$")
@@ -93,6 +98,30 @@ def _digest_bytes(value: bytes) -> str:
 
 def _digest_file(path: Path) -> str:
     return _digest_bytes(path.read_bytes())
+
+
+def _material_projection(package: Mapping[str, object]) -> dict[str, object]:
+    """Return the immutable learner/evaluator material, excluding its envelope."""
+    return {
+        "timeline": package["timeline"],
+        "learner_inputs": package["learner_inputs"],
+        "outcome_releases": package["outcome_releases"],
+        "evaluator_only_commitment": package["evaluator_only_commitment"],
+    }
+
+
+def _material_digest(package: Mapping[str, object]) -> str:
+    return _digest_bytes(_canonical(_material_projection(package)))
+
+
+def _v2_dataset_id(package: Mapping[str, object]) -> str:
+    """Bind v2 identity to its envelope version, protocol, and staged material."""
+    identity = {
+        "package_version": package["package_version"],
+        "protocol": package["protocol"],
+        "material_sha256": _material_digest(package),
+    }
+    return "dataset-" + _digest_bytes(_canonical(identity))[:32]
 
 
 def _load(path: Path) -> dict[str, Any]:
@@ -277,7 +306,9 @@ def _validate_batch(
 
 
 def _validate_environment(
-    value: object, *, label: str, company: str, evidence_cutoff: datetime
+    value: object, *, label: str, company: str, evidence_cutoff: datetime,
+    allow_technical_metadata: bool = False,
+    canonical_source_references: bool = False,
 ) -> dict[str, object]:
     environment = _exact(
         value, {"source_id", "metadata_authorization_id", "resources", "instruments"}, label
@@ -322,10 +353,11 @@ def _validate_environment(
         batch = resource["historical_batch"]
         if batch["date_field"] not in field_ids or kinds[batch["date_field"]] != "Date":
             raise ContractError(f"{label} historical date field lacks Date metadata evidence")
-        business_fields = set(batch["records"][0]) - {
+        record_fields = set(batch["records"][0])
+        metadata_scope = record_fields if allow_technical_metadata else record_fields - {
             batch["identity_field"], batch["company_field"]
         }
-        if not field_ids <= business_fields:
+        if not field_ids <= metadata_scope:
             raise ContractError(f"{label} historical records omit discovered fields")
         if authorization in authorizations:
             raise ContractError(f"{label} reuses an authorization identity")
@@ -401,7 +433,11 @@ def _validate_environment(
             if record_id in record_ids or record_id not in origin_by_id:
                 raise ContractError("instrument record origin is missing or duplicated")
             record_ids.add(record_id)
-            if record["partition"] != company or record["subject_source"] != source \
+            subject_source = (
+                _https(record["subject_source"], "instrument subject source")
+                if canonical_source_references else record["subject_source"]
+            )
+            if record["partition"] != company or subject_source != source \
                     or record["subject_resource"] not in resource_ids \
                     or record["evidence_class"] not in classes:
                 raise ContractError("instrument scope or subject is inconsistent")
@@ -457,7 +493,105 @@ def _validate_release(
     return {"source_id": source, "authorizations": authorizations}
 
 
-def validate_package(
+def _validate_staged_material(
+    package: Mapping[str, object], *, protocol: Mapping[str, object],
+    protocol_sha256: str, dataset_id: str, content_identity: str,
+    cutoff: datetime, start: datetime, authorship_review: str,
+    allow_technical_metadata: bool = False,
+    canonical_source_references: bool = False,
+) -> dict[str, object]:
+    if cutoff > start:
+        raise ContractError("discovery evidence cutoff must not follow evaluation clock start")
+    learner = _exact(
+        package["learner_inputs"], {"tenant_id", "company_id", "development", "evaluation"},
+        "learner_inputs",
+    )
+    tenant = _opaque(learner["tenant_id"], "learner tenant")
+    company = _opaque(learner["company_id"], "learner company")
+    del tenant
+    development = _validate_environment(
+        learner["development"], label="development", company=company,
+        evidence_cutoff=cutoff, allow_technical_metadata=allow_technical_metadata,
+        canonical_source_references=canonical_source_references,
+    )
+    evaluation = _validate_environment(
+        learner["evaluation"], label="evaluation", company=company,
+        evidence_cutoff=cutoff, allow_technical_metadata=allow_technical_metadata,
+        canonical_source_references=canonical_source_references,
+    )
+    if development["source_id"] == evaluation["source_id"] \
+            or development["instrument_sources"] & evaluation["instrument_sources"]:
+        raise ContractError("development and evaluation source domains must be distinct")
+    if development["authorizations"] & evaluation["authorizations"]:
+        raise ContractError("development and evaluation authorizations must be distinct")
+    if development["topology"] == evaluation["topology"]:
+        raise ContractError("evaluation metadata must have a materially different topology")
+    releases = _exact(
+        package["outcome_releases"], {"development", "evaluation"}, "outcome_releases"
+    )
+    if not isinstance(releases["development"], list) or len(releases["development"]) != 2 \
+            or not isinstance(releases["evaluation"], list) \
+            or len(releases["evaluation"]) != 2:
+        raise ContractError("exactly two development and two evaluation releases are required")
+    release_results = []
+    cases = (
+        ("development-1", releases["development"][0], development, start + timedelta(days=1)),
+        ("development-2", releases["development"][1], development, start + timedelta(days=2)),
+        ("evaluation-1", releases["evaluation"][0], evaluation, start + timedelta(days=3)),
+        ("evaluation-2", releases["evaluation"][1], evaluation, start + timedelta(days=4)),
+    )
+    all_authorizations = set(development["authorizations"]) | set(evaluation["authorizations"])
+    for case_id, release, environment, expected in cases:
+        result = _validate_release(
+            release, case_id=case_id, expected_available_at=expected, company=company,
+            resources=environment["resource_ids"],
+        )
+        if all_authorizations & result["authorizations"]:
+            raise ContractError("outcome release reuses discovery or semantic authorization")
+        all_authorizations.update(result["authorizations"])
+        release_results.append((case_id, result))
+    development_sources = {item[1]["source_id"] for item in release_results[:2]}
+    evaluation_sources = {item[1]["source_id"] for item in release_results[2:]}
+    if len(development_sources) != 1 or len(evaluation_sources) != 1 \
+            or development_sources & evaluation_sources:
+        raise ContractError("development/evaluation releases require distinct fixed sources")
+    prior_sources = {
+        development["source_id"], evaluation["source_id"],
+        *development["instrument_sources"], *evaluation["instrument_sources"],
+    }
+    if development_sources & prior_sources or evaluation_sources & prior_sources:
+        raise ContractError("outcome sources must be distinct from discovery and instruments")
+    commitment = _exact(package["evaluator_only_commitment"], {
+        "sealed_expected_results_sha256", "held_by", "economic_value_criterion",
+    }, "evaluator_only_commitment")
+    _sha256(commitment["sealed_expected_results_sha256"], "sealed expected results")
+    _text(commitment["held_by"], "evaluator-only commitment holder")
+    criterion = commitment["economic_value_criterion"]
+    if criterion is not None:
+        criterion = _exact(
+            criterion, {"metric", "threshold", "unit", "evidence_required"},
+            "economic_value_criterion",
+        )
+        for key in ("metric", "unit", "evidence_required"):
+            _text(criterion[key], f"economic_value_criterion.{key}")
+        if type(criterion["threshold"]) not in (int, float):
+            raise ContractError("economic value threshold must be numeric")
+    return {
+        "status": "READY_FOR_SINGLE_FROZEN_EVALUATION",
+        "protocol_version": protocol["protocol_version"],
+        "protocol_sha256": protocol_sha256,
+        "dataset_id": dataset_id,
+        "dataset_material_sha256": content_identity,
+        "authorship_review": authorship_review,
+        "release_cases": [case_id for case_id, _ in release_results],
+        "economic_value_criterion_preregistered": criterion is not None,
+        "execution_allowed": False,
+        "allow_live_customer_access": False,
+        "LIVE_PILOT_READY": False,
+    }
+
+
+def _validate_package_v1(
     package: dict[str, Any], *, protocol: dict[str, Any], protocol_sha256: str,
     require_independent: bool = True,
 ) -> dict[str, object]:
@@ -471,12 +605,7 @@ def validate_package(
     if protocol_ref != {"version": PROTOCOL_VERSION, "sha256": protocol_sha256}:
         raise ContractError("dataset is not bound to this exact frozen protocol")
     dataset_id = _text(package["dataset_id"], "dataset_id", maximum=72)
-    content_identity = _digest_bytes(_canonical({
-        "timeline": package["timeline"],
-        "learner_inputs": package["learner_inputs"],
-        "outcome_releases": package["outcome_releases"],
-        "evaluator_only_commitment": package["evaluator_only_commitment"],
-    }))
+    content_identity = _material_digest(package)
     if dataset_id != "dataset-" + content_identity[:32]:
         raise ContractError("dataset_id does not bind the frozen staged material")
     authorship = _exact(package["authorship"], {
@@ -537,92 +666,147 @@ def validate_package(
     start = _timestamp(timeline["evaluation_clock_start"], "evaluation clock start")
     if not prepared_at <= cutoff <= fixed_at <= reviewed_at <= start:
         raise ContractError("authorship, review and evidence-cutoff chronology is invalid")
-    learner = _exact(
-        package["learner_inputs"], {"tenant_id", "company_id", "development", "evaluation"},
-        "learner_inputs",
-    )
-    tenant = _opaque(learner["tenant_id"], "learner tenant")
-    company = _opaque(learner["company_id"], "learner company")
-    del tenant
-    development = _validate_environment(
-        learner["development"], label="development", company=company,
-        evidence_cutoff=cutoff,
-    )
-    evaluation = _validate_environment(
-        learner["evaluation"], label="evaluation", company=company,
-        evidence_cutoff=cutoff,
-    )
-    if development["source_id"] == evaluation["source_id"] \
-            or development["instrument_sources"] & evaluation["instrument_sources"]:
-        raise ContractError("development and evaluation source domains must be distinct")
-    if development["authorizations"] & evaluation["authorizations"]:
-        raise ContractError("development and evaluation authorizations must be distinct")
-    if development["topology"] == evaluation["topology"]:
-        raise ContractError("evaluation metadata must have a materially different topology")
-    releases = _exact(
-        package["outcome_releases"], {"development", "evaluation"}, "outcome_releases"
-    )
-    if not isinstance(releases["development"], list) or len(releases["development"]) != 2 \
-            or not isinstance(releases["evaluation"], list) or len(releases["evaluation"]) != 2:
-        raise ContractError("exactly two development and two evaluation releases are required")
-    release_results = []
-    cases = (
-        ("development-1", releases["development"][0], development, start + timedelta(days=1)),
-        ("development-2", releases["development"][1], development, start + timedelta(days=2)),
-        ("evaluation-1", releases["evaluation"][0], evaluation, start + timedelta(days=3)),
-        ("evaluation-2", releases["evaluation"][1], evaluation, start + timedelta(days=4)),
-    )
-    all_authorizations = set(development["authorizations"]) | set(evaluation["authorizations"])
-    for case_id, release, environment, expected in cases:
-        result = _validate_release(
-            release, case_id=case_id, expected_available_at=expected, company=company,
-            resources=environment["resource_ids"],
-        )
-        if all_authorizations & result["authorizations"]:
-            raise ContractError("outcome release reuses discovery or semantic authorization")
-        all_authorizations.update(result["authorizations"])
-        release_results.append((case_id, result))
-    development_sources = {item[1]["source_id"] for item in release_results[:2]}
-    evaluation_sources = {item[1]["source_id"] for item in release_results[2:]}
-    if len(development_sources) != 1 or len(evaluation_sources) != 1 \
-            or development_sources & evaluation_sources:
-        raise ContractError("development/evaluation releases require distinct fixed sources")
-    prior_sources = {
-        development["source_id"], evaluation["source_id"],
-        *development["instrument_sources"], *evaluation["instrument_sources"],
-    }
-    if development_sources & prior_sources or evaluation_sources & prior_sources:
-        raise ContractError("outcome sources must be distinct from discovery and instruments")
-    commitment = _exact(package["evaluator_only_commitment"], {
-        "sealed_expected_results_sha256", "held_by", "economic_value_criterion",
-    }, "evaluator_only_commitment")
-    _sha256(commitment["sealed_expected_results_sha256"], "sealed expected results")
-    _text(commitment["held_by"], "evaluator-only commitment holder")
-    criterion = commitment["economic_value_criterion"]
-    if criterion is not None:
-        criterion = _exact(
-            criterion, {"metric", "threshold", "unit", "evidence_required"},
-            "economic_value_criterion",
-        )
-        for key in ("metric", "unit", "evidence_required"):
-            _text(criterion[key], f"economic_value_criterion.{key}")
-        if type(criterion["threshold"]) not in (int, float):
-            raise ContractError("economic value threshold must be numeric")
-    return {
-        "status": "READY_FOR_SINGLE_FROZEN_EVALUATION",
-        "protocol_version": protocol["protocol_version"],
-        "protocol_sha256": protocol_sha256,
-        "dataset_id": dataset_id,
-        "dataset_material_sha256": content_identity,
-        "authorship_review": (
+    return _validate_staged_material(
+        package, protocol=protocol, protocol_sha256=protocol_sha256,
+        dataset_id=dataset_id, content_identity=content_identity,
+        cutoff=cutoff, start=start,
+        authorship_review=(
             "DECLARED_PENDING_EVIDENCE" if require_independent else "NOT_PROVEN"
         ),
-        "release_cases": [case_id for case_id, _ in release_results],
-        "economic_value_criterion_preregistered": criterion is not None,
-        "execution_allowed": False,
-        "allow_live_customer_access": False,
-        "LIVE_PILOT_READY": False,
-    }
+    )
+
+
+def _validate_original_preparation(value: object) -> dict[str, object]:
+    original = _exact(value, {"status", "timestamp", "reason"}, "original preparation")
+    if original["status"] not in {"KNOWN", "UNKNOWN"}:
+        raise ContractError("original preparation status must be KNOWN or UNKNOWN")
+    reason = _text(original["reason"], "original preparation reason")
+    if original["status"] == "UNKNOWN":
+        if original["timestamp"] is not None:
+            raise ContractError("UNKNOWN original preparation must not invent a timestamp")
+        return {"status": "UNKNOWN", "timestamp": None, "reason": reason}
+    timestamp = _timestamp(original["timestamp"], "original preparation timestamp")
+    return {"status": "KNOWN", "timestamp": timestamp.isoformat(), "reason": reason}
+
+
+def _validate_package_v2(
+    package: dict[str, Any], *, protocol: dict[str, Any], protocol_sha256: str,
+    require_independent: bool = True,
+) -> dict[str, object]:
+    package = _exact(package, {
+        "package_version", "dataset_id", "protocol", "authorship", "timeline",
+        "learner_inputs", "outcome_releases", "evaluator_only_commitment",
+    }, "evaluation package")
+    if package["package_version"] != PACKAGE_VERSION_V2:
+        raise ContractError("unsupported evaluation package version")
+    protocol_ref = _exact(package["protocol"], {"version", "sha256"}, "protocol reference")
+    if protocol_ref != {"version": PROTOCOL_VERSION_V2, "sha256": protocol_sha256}:
+        raise ContractError("dataset is not bound to this exact successor protocol")
+    if protocol.get("protocol_version") != PROTOCOL_VERSION_V2:
+        raise ContractError("mixed evaluation contract versions are forbidden")
+    dataset_id = _text(package["dataset_id"], "dataset_id", maximum=72)
+    expected_dataset_id = _v2_dataset_id(package)
+    if dataset_id != expected_dataset_id:
+        raise ContractError("dataset_id does not bind the v2 envelope and staged material")
+    authorship = _exact(package["authorship"], {
+        "prepared_by", "preparer_role", "independence_basis",
+        "engine_source_seen_before_fixing", "engine_source_seen_details",
+        "engine_results_seen_before_fixing", "engine_results_seen_details",
+        "preparer_is_engine_implementer", "shared_fixture_engine_authorship",
+        "answers_fixed_before_execution", "learner_visible_material",
+        "evaluator_retained_material", "original_preparation",
+        "exposure_disclosure_sha256", "generation_record_sha256", "legacy_source",
+    }, "authorship")
+    for key in (
+        "prepared_by", "preparer_role", "independence_basis",
+        "engine_source_seen_details", "engine_results_seen_details",
+    ):
+        _text(authorship[key], f"authorship.{key}")
+    for key in (
+        "engine_source_seen_before_fixing", "engine_results_seen_before_fixing",
+        "preparer_is_engine_implementer", "shared_fixture_engine_authorship",
+        "answers_fixed_before_execution",
+    ):
+        if type(authorship[key]) is not bool:
+            raise ContractError(f"authorship.{key} must be boolean")
+    if authorship["answers_fixed_before_execution"] is not True:
+        raise ContractError("answers must be fixed before execution")
+    if require_independent and (
+        authorship["preparer_is_engine_implementer"] is not False
+        or authorship["shared_fixture_engine_authorship"] is not False
+    ):
+        raise ContractError("dataset does not declare independent precommitted authorship")
+    if not require_independent and not (
+        authorship["preparer_is_engine_implementer"] is True
+        or authorship["shared_fixture_engine_authorship"] is True
+    ):
+        raise ContractError("infrastructure fixture must disclose shared implementation authorship")
+    for key in ("learner_visible_material", "evaluator_retained_material"):
+        values = authorship[key]
+        if not isinstance(values, list) or not values or len(values) != len(set(values)):
+            raise ContractError(f"authorship.{key} must be a non-empty unique list")
+        for item in values:
+            _text(item, f"authorship.{key} item")
+    original = _validate_original_preparation(authorship["original_preparation"])
+    exposure_digest = _sha256(
+        authorship["exposure_disclosure_sha256"], "authorship exposure disclosure"
+    )
+    generation_digest = _sha256(
+        authorship["generation_record_sha256"], "authorship generation record"
+    )
+    legacy = authorship["legacy_source"]
+    if legacy is not None:
+        legacy = _exact(legacy, {
+            "package_version", "package_sha256", "dataset_id", "authorship_sha256",
+        }, "legacy source")
+        if legacy["package_version"] != PACKAGE_VERSION:
+            raise ContractError("legacy source must identify an original v1 package")
+        _sha256(legacy["package_sha256"], "legacy package digest")
+        _text(legacy["dataset_id"], "legacy dataset id", maximum=72)
+        _sha256(legacy["authorship_sha256"], "legacy authorship digest")
+    timeline = _exact(
+        package["timeline"], {"discovery_evidence_cutoff", "evaluation_clock_start"},
+        "timeline",
+    )
+    cutoff = _timestamp(timeline["discovery_evidence_cutoff"], "discovery evidence cutoff")
+    start = _timestamp(timeline["evaluation_clock_start"], "evaluation clock start")
+    validation = _validate_staged_material(
+        package, protocol=protocol, protocol_sha256=protocol_sha256,
+        dataset_id=dataset_id, content_identity=_material_digest(package),
+        cutoff=cutoff, start=start, authorship_review="PENDING_SEPARATE_ENVELOPE",
+        allow_technical_metadata=True,
+        canonical_source_references=True,
+    )
+    validation.update({
+        "original_preparation": original,
+        "exposure_disclosure_sha256": exposure_digest,
+        "generation_record_sha256": generation_digest,
+        "legacy_source_retained": legacy is not None,
+    })
+    return validation
+
+
+def validate_package(
+    package: dict[str, Any], *, protocol: dict[str, Any], protocol_sha256: str,
+    require_independent: bool = True,
+) -> dict[str, object]:
+    """Strictly dispatch a package to its matching versioned contract."""
+    version = package.get("package_version")
+    protocol_version = protocol.get("protocol_version")
+    if version == PACKAGE_VERSION and protocol_version == PROTOCOL_VERSION:
+        return _validate_package_v1(
+            package, protocol=protocol, protocol_sha256=protocol_sha256,
+            require_independent=require_independent,
+        )
+    if version == PACKAGE_VERSION_V2 and protocol_version == PROTOCOL_VERSION_V2:
+        return _validate_package_v2(
+            package, protocol=protocol, protocol_sha256=protocol_sha256,
+            require_independent=require_independent,
+        )
+    if version in {PACKAGE_VERSION, PACKAGE_VERSION_V2} \
+            or protocol_version in SUPPORTED_PROTOCOLS:
+        raise ContractError("mixed evaluation contract versions are forbidden")
+    raise ContractError("unsupported evaluation package or protocol version")
 
 
 def verify_review_evidence(
@@ -661,6 +845,280 @@ def verify_review_evidence(
         "sha256": actual,
         "identity_authentication": "NOT_PROVEN_BY_DIGEST_ALONE",
     }
+
+
+def create_freeze_receipt_v2(
+    package: dict[str, Any], validation: Mapping[str, object], *,
+    package_path: Path, exposure_disclosure: Path, generation_record: Path,
+    observed_at: datetime | None = None,
+) -> dict[str, object]:
+    """Create a local receipt without opening evaluator-retained sealed answers."""
+    if package.get("package_version") != PACKAGE_VERSION_V2:
+        raise ContractError("freeze receipts are only defined for v2 packages")
+    authorship = package["authorship"]
+    if not isinstance(authorship, Mapping):
+        raise ContractError("package authorship is missing")
+    exposure_sha256 = _digest_file(exposure_disclosure)
+    generation_sha256 = _digest_file(generation_record)
+    if exposure_sha256 != authorship["exposure_disclosure_sha256"]:
+        raise ContractError("exposure disclosure digest does not bind the package")
+    if generation_sha256 != authorship["generation_record_sha256"]:
+        raise ContractError("generation record digest does not bind the package")
+    observed = (observed_at or datetime.now(UTC)).astimezone(UTC)
+    return {
+        "freeze_receipt_version": FREEZE_RECEIPT_VERSION_V2,
+        "protocol": {
+            "version": PROTOCOL_VERSION_V2,
+            "sha256": validation["protocol_sha256"],
+        },
+        "package": {
+            "version": PACKAGE_VERSION_V2,
+            "sha256": _digest_file(package_path),
+            "dataset_id": validation["dataset_id"],
+            "material_sha256": validation["dataset_material_sha256"],
+        },
+        "sealed_expected_results_sha256": package["evaluator_only_commitment"][
+            "sealed_expected_results_sha256"
+        ],
+        "exposure_disclosure_sha256": exposure_sha256,
+        "generation_record_sha256": generation_sha256,
+        "observed_at": observed.isoformat(),
+        "clock_provenance": {
+            "source": "LOCAL_CONTROLLER_CLOCK",
+            "authenticated_time": False,
+            "claim": "RECEIPT_OBSERVATION_ONLY",
+        },
+    }
+
+
+def verify_freeze_receipt_v2(
+    package: Mapping[str, object], validation: Mapping[str, object], *,
+    receipt_path: Path, package_path: Path, exposure_disclosure: Path,
+    generation_record: Path, not_after: datetime,
+) -> dict[str, object]:
+    receipt = _exact(_load(receipt_path), {
+        "freeze_receipt_version", "protocol", "package",
+        "sealed_expected_results_sha256", "exposure_disclosure_sha256",
+        "generation_record_sha256", "observed_at", "clock_provenance",
+    }, "freeze receipt")
+    if receipt["freeze_receipt_version"] != FREEZE_RECEIPT_VERSION_V2:
+        raise ContractError("unsupported freeze receipt version")
+    protocol_ref = _exact(receipt["protocol"], {"version", "sha256"}, "receipt protocol")
+    if protocol_ref != {
+        "version": PROTOCOL_VERSION_V2,
+        "sha256": validation["protocol_sha256"],
+    }:
+        raise ContractError("freeze receipt protocol does not bind the package")
+    package_ref = _exact(
+        receipt["package"], {"version", "sha256", "dataset_id", "material_sha256"},
+        "receipt package",
+    )
+    expected_package = {
+        "version": PACKAGE_VERSION_V2,
+        "sha256": _digest_file(package_path),
+        "dataset_id": validation["dataset_id"],
+        "material_sha256": validation["dataset_material_sha256"],
+    }
+    if package_ref != expected_package:
+        raise ContractError("freeze receipt does not bind the exact raw package and material")
+    commitment = package["evaluator_only_commitment"]
+    authorship = package["authorship"]
+    if not isinstance(commitment, Mapping) or not isinstance(authorship, Mapping):
+        raise ContractError("validated package envelope is missing")
+    expected_hashes = {
+        "sealed_expected_results_sha256": commitment["sealed_expected_results_sha256"],
+        "exposure_disclosure_sha256": authorship["exposure_disclosure_sha256"],
+        "generation_record_sha256": authorship["generation_record_sha256"],
+    }
+    actual_hashes = {
+        "sealed_expected_results_sha256": receipt["sealed_expected_results_sha256"],
+        "exposure_disclosure_sha256": _digest_file(exposure_disclosure),
+        "generation_record_sha256": _digest_file(generation_record),
+    }
+    for key, expected in expected_hashes.items():
+        if receipt[key] != expected or actual_hashes[key] != expected:
+            raise ContractError(f"freeze receipt {key} does not bind retained evidence")
+    provenance = _exact(
+        receipt["clock_provenance"], {"source", "authenticated_time", "claim"},
+        "receipt clock provenance",
+    )
+    if provenance != {
+        "source": "LOCAL_CONTROLLER_CLOCK",
+        "authenticated_time": False,
+        "claim": "RECEIPT_OBSERVATION_ONLY",
+    }:
+        raise ContractError("freeze receipt must not claim authenticated time")
+    observed = _timestamp(receipt["observed_at"], "freeze receipt observed_at")
+    if observed > not_after.astimezone(UTC):
+        raise ContractError("freeze receipt timestamp is in the future")
+    original = authorship["original_preparation"]
+    if isinstance(original, Mapping) and original.get("status") == "KNOWN":
+        prepared = _timestamp(original.get("timestamp"), "original preparation timestamp")
+        if prepared > observed:
+            raise ContractError("known original preparation follows the freeze receipt")
+    return {
+        "status": "AVAILABLE_AND_PACKAGE_BOUND",
+        "sha256": _digest_file(receipt_path),
+        "observed_at": observed,
+        "authenticated_time": False,
+        "authorship_authentication": "NOT_PROVEN_BY_RECEIPT",
+    }
+
+
+def verify_review_evidence_v2(
+    package: Mapping[str, object], validation: Mapping[str, object], *,
+    receipt: Mapping[str, object], path: Path, run_start: datetime,
+) -> dict[str, object]:
+    document = _exact(_load(path), {
+        "review_version", "protocol", "package", "freeze_receipt_sha256",
+        "freeze_observed_at", "prepared_by", "preparer_role", "reviewed_by",
+        "reviewer_role", "reviewed_at", "review_scope", "decision",
+        "independence_basis", "identity_authentication",
+    }, "review evidence")
+    if document["review_version"] != REVIEW_VERSION_V2:
+        raise ContractError("unsupported review evidence version")
+    if document["protocol"] != {
+        "version": PROTOCOL_VERSION_V2,
+        "sha256": validation["protocol_sha256"],
+    }:
+        raise ContractError("review protocol does not bind the package")
+    if document["package"] != {
+        "version": PACKAGE_VERSION_V2,
+        "dataset_id": validation["dataset_id"],
+        "material_sha256": validation["dataset_material_sha256"],
+    }:
+        raise ContractError("review package identity does not bind the package")
+    authorship = package["authorship"]
+    if not isinstance(authorship, Mapping):
+        raise ContractError("package authorship is missing")
+    expected_values = {
+        "freeze_receipt_sha256": receipt["sha256"],
+        "freeze_observed_at": receipt["observed_at"].isoformat(),
+        "prepared_by": authorship["prepared_by"],
+        "preparer_role": authorship["preparer_role"],
+    }
+    for key, expected in expected_values.items():
+        if document[key] != expected:
+            raise ContractError(f"review evidence {key} does not bind retained evidence")
+    reviewer = _text(document["reviewed_by"], "reviewed_by")
+    _text(document["reviewer_role"], "reviewer_role")
+    _text(document["review_scope"], "review_scope")
+    _text(document["independence_basis"], "review independence basis")
+    if reviewer == authorship["prepared_by"]:
+        raise ContractError("review must be performed by a different declared person")
+    if document["decision"] != "VERIFIED":
+        raise ContractError("independent execution requires a VERIFIED review decision")
+    if document["identity_authentication"] != "NOT_PROVEN_BY_DIGEST_ALONE":
+        raise ContractError("review must not overstate identity authentication")
+    reviewed_at = _timestamp(document["reviewed_at"], "reviewed_at")
+    freeze_at = receipt["observed_at"]
+    if not isinstance(freeze_at, datetime):
+        raise ContractError("verified freeze receipt is required")
+    if not freeze_at <= reviewed_at <= run_start.astimezone(UTC):
+        raise ContractError("freeze, review and controller run chronology is invalid")
+    return {
+        "status": "AVAILABLE_AND_PACKAGE_BOUND",
+        "sha256": _digest_file(path),
+        "reviewed_at": reviewed_at.isoformat(),
+        "identity_authentication": "NOT_PROVEN_BY_DIGEST_ALONE",
+        "independence_authentication": "REQUIRES_HUMAN_OR_EXTERNAL_TRUST",
+    }
+
+
+def _bind_trusted_review_approval(
+    review_result: Mapping[str, object], supplied_sha256: object,
+) -> dict[str, str]:
+    """Bind a separately trusted controller approval to the exact review bytes."""
+    supplied = _sha256(supplied_sha256, "trusted review approval digest")
+    if supplied != review_result.get("sha256"):
+        raise ContractError("trusted review approval does not bind the review artifact")
+    return {
+        "status": "SEPARATELY_TRUSTED_EXACT_REVIEW_DIGEST",
+        "review_evidence_sha256": supplied,
+    }
+
+
+def convert_v1_package(
+    package: dict[str, Any], *, original_package_sha256: str,
+    protocol_sha256_v1: str, protocol_sha256_v2: str,
+    exposure_disclosure_sha256: str, generation_record_sha256: str,
+    unknown_preparation_reason: str,
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Create a successor envelope while retaining the original v1 artifact by digest."""
+    if package.get("package_version") != PACKAGE_VERSION:
+        raise ContractError("conversion requires an original v1 package")
+    if package.get("protocol") != {
+        "version": PROTOCOL_VERSION, "sha256": protocol_sha256_v1,
+    }:
+        raise ContractError("original package is not bound to the supplied v1 protocol")
+    _sha256(original_package_sha256, "original package digest")
+    _sha256(exposure_disclosure_sha256, "exposure disclosure digest")
+    _sha256(generation_record_sha256, "generation record digest")
+    reason = _text(unknown_preparation_reason, "unknown preparation reason")
+    original_authorship = package["authorship"]
+    if not isinstance(original_authorship, dict):
+        raise ContractError("original package authorship is missing")
+    converted = json.loads(json.dumps(package))
+    converted["package_version"] = PACKAGE_VERSION_V2
+    converted["protocol"] = {
+        "version": PROTOCOL_VERSION_V2, "sha256": protocol_sha256_v2,
+    }
+    converted["authorship"] = {
+        key: original_authorship[key] for key in (
+            "prepared_by", "preparer_role", "independence_basis",
+            "engine_source_seen_before_fixing", "engine_source_seen_details",
+            "engine_results_seen_before_fixing", "engine_results_seen_details",
+            "preparer_is_engine_implementer", "shared_fixture_engine_authorship",
+            "answers_fixed_before_execution", "learner_visible_material",
+            "evaluator_retained_material",
+        )
+    }
+    converted["authorship"].update({
+        "original_preparation": {
+            "status": "UNKNOWN", "timestamp": None, "reason": reason,
+        },
+        "exposure_disclosure_sha256": exposure_disclosure_sha256,
+        "generation_record_sha256": generation_record_sha256,
+        "legacy_source": {
+            "package_version": PACKAGE_VERSION,
+            "package_sha256": original_package_sha256,
+            "dataset_id": package["dataset_id"],
+            "authorship_sha256": _digest_bytes(_canonical(original_authorship)),
+        },
+    })
+    converted["dataset_id"] = _v2_dataset_id(converted)
+    old_material = _material_digest(package)
+    new_material = _material_digest(converted)
+    if old_material != new_material:
+        raise ContractError("conversion changed immutable staged material")
+    old_commitment = package["evaluator_only_commitment"]["sealed_expected_results_sha256"]
+    new_commitment = converted["evaluator_only_commitment"]["sealed_expected_results_sha256"]
+    if old_commitment != new_commitment:
+        raise ContractError("conversion changed the sealed oracle commitment")
+    report = {
+        "conversion_version": "orion-v1-to-v2-envelope-conversion-v1",
+        "original": {
+            "package_version": PACKAGE_VERSION,
+            "package_sha256": original_package_sha256,
+            "dataset_id": package["dataset_id"],
+            "protocol_sha256": protocol_sha256_v1,
+            "authorship_sha256": _digest_bytes(_canonical(original_authorship)),
+        },
+        "successor": {
+            "package_version": PACKAGE_VERSION_V2,
+            "dataset_id": converted["dataset_id"],
+            "protocol_sha256": protocol_sha256_v2,
+            "authorship_sha256": _digest_bytes(_canonical(converted["authorship"])),
+        },
+        "material_sha256_before": old_material,
+        "material_sha256_after": new_material,
+        "operational_material_identical": True,
+        "sealed_expected_results_sha256": old_commitment,
+        "original_artifact_overwritten": False,
+        "original_preparation_status": "UNKNOWN",
+        "original_preparation_reason": reason,
+    }
+    return converted, report
 
 
 class _PackageMetadataAdapter:
@@ -975,10 +1433,10 @@ def _prediction_documents(ledger_path: Path) -> tuple[dict[str, object], ...]:
 def _unknown_execution_result(
     *, validation: Mapping[str, object], frozen_before: Mapping[str, object],
     frozen_after: Mapping[str, object], started: Mapping[str, object],
-    independent: bool, calls: list[dict[str, str]],
+    independent: bool, calls: list[dict[str, str]], protocol_version: str,
 ) -> dict[str, object]:
     return {
-        "version": PROTOCOL_VERSION, "status": "UNKNOWN",
+        "version": protocol_version, "status": "UNKNOWN",
         "protocol_sha256": validation["protocol_sha256"],
         "dataset_identity": validation["dataset_id"],
         "frozen_learner_before": frozen_before,
@@ -1002,8 +1460,14 @@ def _unknown_execution_result(
 def execute_package(
     package: dict[str, Any], *, protocol: dict[str, Any], protocol_sha256: str,
     repository: Path, state_dir: Path, independent: bool,
+    authorized_ids: frozenset[str] | None,
+    trusted_review_approval_sha256: str | None,
     review_evidence: Path | None = None,
-    authorized_ids: frozenset[str] | None = None,
+    package_path: Path | None = None,
+    freeze_receipt: Path | None = None,
+    exposure_disclosure: Path | None = None,
+    generation_record: Path | None = None,
+    controller_clock: Callable[[], datetime] | None = None,
 ) -> dict[str, object]:
     """Run one package through the frozen learner using trusted local separation."""
     frozen_before = verify_frozen_learner(protocol, repository)
@@ -1011,17 +1475,62 @@ def execute_package(
         package, protocol=protocol, protocol_sha256=protocol_sha256,
         require_independent=independent,
     )
+    protocol_version = str(protocol["protocol_version"])
     review_result = {"status": "NOT_PROVEN"}
+    run_start: datetime | None = None
+    receipt_result: dict[str, object] | None = None
     if independent:
         if review_evidence is None:
             raise ContractError("independent execution requires available review evidence")
-        review_result = verify_review_evidence(package, validation, review_evidence)
-    elif review_evidence is not None:
-        raise ContractError("infrastructure exercise cannot claim independent review evidence")
+        if protocol_version == PROTOCOL_VERSION:
+            if trusted_review_approval_sha256 is not None:
+                raise ContractError("trusted review approval is only defined for v2")
+            review_result = verify_review_evidence(package, validation, review_evidence)
+        else:
+            required = {
+                "package_path": package_path,
+                "freeze_receipt": freeze_receipt,
+                "exposure_disclosure": exposure_disclosure,
+                "generation_record": generation_record,
+            }
+            missing = [key for key, value in required.items() if value is None]
+            if missing:
+                raise ContractError(
+                    "v2 independent execution requires " + ", ".join(sorted(missing))
+                )
+            candidate_start = (controller_clock or (lambda: datetime.now(UTC)))()
+            if candidate_start.tzinfo is None or candidate_start.utcoffset() is None:
+                raise ContractError("controller clock must return an aware timestamp")
+            candidate_start = candidate_start.astimezone(UTC)
+            receipt_result = verify_freeze_receipt_v2(
+                package, validation, receipt_path=freeze_receipt,
+                package_path=package_path, exposure_disclosure=exposure_disclosure,
+                generation_record=generation_record, not_after=candidate_start,
+            )
+            review_result = verify_review_evidence_v2(
+                package, validation, receipt=receipt_result, path=review_evidence,
+                run_start=candidate_start,
+            )
+            if trusted_review_approval_sha256 is None:
+                raise ContractError(
+                    "v2 independent execution requires separately trusted review approval"
+                )
+            review_result["execution_approval"] = _bind_trusted_review_approval(
+                review_result, trusted_review_approval_sha256
+            )
+            run_start = candidate_start
+    elif review_evidence is not None or trusted_review_approval_sha256 is not None:
+        raise ContractError(
+            "infrastructure exercise cannot claim review evidence or trusted approval"
+        )
     references = package_authorization_references(package)
-    authorized = references if authorized_ids is None else authorized_ids
-    if not authorized <= references:
-        raise ContractError("trusted controller contains an unknown authorization reference")
+    if authorized_ids is None:
+        raise ContractError("execution requires separately trusted authorization IDs")
+    authorized = frozenset(authorized_ids)
+    if authorized != references:
+        raise ContractError(
+            "trusted controller authorization IDs must exactly match package references"
+        )
     if state_dir.exists() and any(state_dir.iterdir()):
         raise ContractError("evaluation state directory must be new and empty")
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -1029,6 +1538,26 @@ def execute_package(
     queue_path = state_dir / "events.sqlite3"
     if ledger_path.exists() or queue_path.exists():
         raise ContractError("evaluation state directory must not contain prior canonical state")
+    controller_record_path: Path | None = None
+    if run_start is not None:
+        if receipt_result is None:
+            raise ContractError("verified freeze receipt is required before run start")
+        controller_record_path = state_dir / "controller-run.json"
+        controller_record = {
+            "record_version": "orion-evaluation-controller-run-v2",
+            "protocol_sha256": protocol_sha256,
+            "dataset_id": validation["dataset_id"],
+            "dataset_material_sha256": validation["dataset_material_sha256"],
+            "freeze_receipt_sha256": receipt_result["sha256"],
+            "review_evidence_sha256": review_result["sha256"],
+            "trusted_review_approval": review_result["execution_approval"],
+            "run_started_at": run_start.isoformat(),
+            "clock_authentication": "NOT_PROVEN_BY_LOCAL_CLOCK",
+        }
+        controller_record_path.write_text(
+            json.dumps(controller_record, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
     learner = package["learner_inputs"]
     tenant, company = str(learner["tenant_id"]), str(learner["company_id"])
     cutoff = _timestamp(package["timeline"]["discovery_evidence_cutoff"], "cutoff")
@@ -1051,7 +1580,7 @@ def execute_package(
         return _unknown_execution_result(
             validation=validation, frozen_before=frozen_before,
             frozen_after=frozen_after, started=started,
-            independent=independent, calls=calls,
+            independent=independent, calls=calls, protocol_version=protocol_version,
         )
     question = select_prediction_question(development)
     if question.status != "SUPPORTED" or question.target_definition is None \
@@ -1086,7 +1615,7 @@ def execute_package(
     predictions = _prediction_documents(ledger_path)
     improved = bool(measured["predictive_improvement"])
     result = {
-        "version": PROTOCOL_VERSION,
+        "version": protocol_version,
         "status": "COMPLETED" if independent else "INFRASTRUCTURE_VERIFIED",
         "protocol_sha256": protocol_sha256,
         "dataset_identity": validation["dataset_id"],
@@ -1140,6 +1669,14 @@ def execute_package(
         "execution_allowed": False, "allow_live_customer_access": False,
         "LIVE_PILOT_READY": False, "candidate_host_qualification": "UNRESOLVED",
     }
+    if protocol_version == PROTOCOL_VERSION_V2:
+        result["controller_run_start"] = (
+            run_start.isoformat() if run_start is not None else None
+        )
+        result["controller_run_record_sha256"] = (
+            _digest_file(controller_record_path)
+            if controller_record_path is not None else None
+        )
     return result
 
 
@@ -1162,7 +1699,7 @@ def execution_owner_report(result: Mapping[str, object]) -> str:
 def blocked_result(protocol: dict[str, Any], protocol_sha256: str) -> dict[str, object]:
     learner = protocol["frozen_learner"]
     return {
-        "version": PROTOCOL_VERSION,
+        "version": protocol["protocol_version"],
         "status": "BLOCKED",
         "protocol_sha256": protocol_sha256,
         "dataset_identity": None,
@@ -1211,7 +1748,10 @@ def blocked_result(protocol: dict[str, Any], protocol_sha256: str) -> dict[str, 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("status", "preflight", "run", "exercise"))
+    parser.add_argument(
+        "command",
+        choices=("status", "preflight", "run", "exercise", "freeze-receipt", "convert"),
+    )
     parser.add_argument("package", nargs="?", type=Path)
     parser.add_argument(
         "--protocol",
@@ -1220,20 +1760,38 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--repository", type=Path, default=Path.cwd())
     parser.add_argument("--review-evidence", type=Path)
+    parser.add_argument("--freeze-receipt", type=Path)
+    parser.add_argument("--exposure-disclosure", type=Path)
+    parser.add_argument("--generation-record", type=Path)
+    parser.add_argument("--source-protocol", type=Path)
+    parser.add_argument("--conversion-report", type=Path)
+    parser.add_argument("--unknown-preparation-reason")
     parser.add_argument("--state-dir", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--owner-report", type=Path)
+    parser.add_argument(
+        "--authorized-id", action="append",
+        help=(
+            "separately trusted authorization ID; repeat for every package reference "
+            "when running or exercising"
+        ),
+    )
+    parser.add_argument("--trusted-review-approval-sha256")
     arguments = parser.parse_args(argv)
     protocol_path = arguments.protocol.resolve()
     protocol = _load(protocol_path)
-    if protocol.get("protocol_version") != PROTOCOL_VERSION:
+    if protocol.get("protocol_version") not in SUPPORTED_PROTOCOLS:
         raise ContractError("unsupported protocol version")
     protocol_sha256 = _digest_file(protocol_path)
     frozen = verify_frozen_learner(protocol, arguments.repository.resolve())
     if arguments.command == "status":
         if any(value is not None for value in (
-            arguments.package, arguments.review_evidence, arguments.state_dir,
-            arguments.output, arguments.owner_report,
+            arguments.package, arguments.review_evidence, arguments.freeze_receipt,
+            arguments.exposure_disclosure, arguments.generation_record,
+            arguments.source_protocol, arguments.conversion_report,
+            arguments.unknown_preparation_reason, arguments.state_dir,
+            arguments.output, arguments.owner_report, arguments.authorized_id,
+            arguments.trusted_review_approval_sha256,
         )):
             parser.error("status does not accept package, review, state or output paths")
         output = blocked_result(protocol, protocol_sha256)
@@ -1244,6 +1802,56 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"{arguments.command} requires a package path")
     package_path = arguments.package.resolve()
     package = _load(package_path)
+    if arguments.command == "convert":
+        if protocol["protocol_version"] != PROTOCOL_VERSION_V2:
+            parser.error("convert requires the v2 --protocol")
+        if arguments.source_protocol is None or arguments.exposure_disclosure is None \
+                or arguments.generation_record is None or arguments.output is None \
+                or arguments.conversion_report is None \
+                or arguments.unknown_preparation_reason is None:
+            parser.error(
+                "convert requires --source-protocol, --exposure-disclosure, "
+                "--generation-record, --output, --conversion-report and "
+                "--unknown-preparation-reason"
+            )
+        source_protocol = arguments.source_protocol.resolve()
+        converted, report = convert_v1_package(
+            package, original_package_sha256=_digest_file(package_path),
+            protocol_sha256_v1=_digest_file(source_protocol),
+            protocol_sha256_v2=protocol_sha256,
+            exposure_disclosure_sha256=_digest_file(arguments.exposure_disclosure.resolve()),
+            generation_record_sha256=_digest_file(arguments.generation_record.resolve()),
+            unknown_preparation_reason=arguments.unknown_preparation_reason,
+        )
+        arguments.output.resolve().write_text(
+            json.dumps(converted, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
+        arguments.conversion_report.resolve().write_text(
+            json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
+        print(json.dumps(report, sort_keys=True, indent=2))
+        return 0
+    if arguments.command == "freeze-receipt":
+        if protocol["protocol_version"] != PROTOCOL_VERSION_V2:
+            parser.error("freeze-receipt requires the v2 --protocol")
+        if arguments.exposure_disclosure is None or arguments.generation_record is None \
+                or arguments.output is None:
+            parser.error(
+                "freeze-receipt requires --exposure-disclosure, --generation-record and --output"
+            )
+        validation = validate_package(
+            package, protocol=protocol, protocol_sha256=protocol_sha256,
+        )
+        receipt = create_freeze_receipt_v2(
+            package, validation, package_path=package_path,
+            exposure_disclosure=arguments.exposure_disclosure.resolve(),
+            generation_record=arguments.generation_record.resolve(),
+        )
+        arguments.output.resolve().write_text(
+            json.dumps(receipt, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
+        print(json.dumps(receipt, sort_keys=True, indent=2))
+        return 0
     if arguments.command == "preflight":
         if arguments.state_dir is not None or arguments.output is not None \
                 or arguments.owner_report is not None:
@@ -1258,22 +1866,68 @@ def main(argv: list[str] | None = None) -> int:
             output["authorship_review"] = "NOT_PROVEN"
             print(json.dumps(output, sort_keys=True, indent=2))
             return 2
-        output["authorship_review"] = verify_review_evidence(
-            package, output, arguments.review_evidence.resolve())
+        if protocol["protocol_version"] == PROTOCOL_VERSION:
+            output["authorship_review"] = verify_review_evidence(
+                package, output, arguments.review_evidence.resolve())
+        else:
+            if arguments.freeze_receipt is None or arguments.exposure_disclosure is None \
+                    or arguments.generation_record is None:
+                raise ContractError(
+                    "v2 review preflight requires freeze receipt, exposure disclosure "
+                    "and generation record"
+                )
+            checked_at = datetime.now(UTC)
+            receipt = verify_freeze_receipt_v2(
+                package, output, receipt_path=arguments.freeze_receipt.resolve(),
+                package_path=package_path,
+                exposure_disclosure=arguments.exposure_disclosure.resolve(),
+                generation_record=arguments.generation_record.resolve(),
+                not_after=checked_at,
+            )
+            output["authorship_review"] = verify_review_evidence_v2(
+                package, output, receipt=receipt,
+                path=arguments.review_evidence.resolve(), run_start=checked_at,
+            )
+            if arguments.trusted_review_approval_sha256 is None:
+                output["status"] = "BLOCKED_TRUSTED_REVIEW_APPROVAL_REQUIRED"
+                output["review_execution_approval"] = "NOT_PROVIDED"
+                print(json.dumps(output, sort_keys=True, indent=2))
+                return 2
+            output["review_execution_approval"] = _bind_trusted_review_approval(
+                output["authorship_review"],
+                arguments.trusted_review_approval_sha256,
+            )
         output["status"] = "READY_FOR_SINGLE_FROZEN_EVALUATION"
         print(json.dumps(output, sort_keys=True, indent=2))
         return 0
     if arguments.state_dir is None:
         parser.error(f"{arguments.command} requires --state-dir")
+    if arguments.authorized_id is None:
+        parser.error(
+            f"{arguments.command} requires at least one separately trusted --authorized-id"
+        )
     independent = arguments.command == "run"
     if independent and arguments.review_evidence is None:
         parser.error("run requires --review-evidence")
+    if independent and protocol["protocol_version"] == PROTOCOL_VERSION_V2 \
+            and arguments.trusted_review_approval_sha256 is None:
+        parser.error("v2 run requires --trusted-review-approval-sha256")
+    if not independent and arguments.trusted_review_approval_sha256 is not None:
+        parser.error("exercise does not accept --trusted-review-approval-sha256")
     result = execute_package(
         package, protocol=protocol, protocol_sha256=protocol_sha256,
         repository=arguments.repository.resolve(), state_dir=arguments.state_dir.resolve(),
-        independent=independent,
+        independent=independent, authorized_ids=frozenset(arguments.authorized_id),
+        trusted_review_approval_sha256=arguments.trusted_review_approval_sha256,
         review_evidence=(arguments.review_evidence.resolve()
                          if arguments.review_evidence is not None else None),
+        package_path=package_path,
+        freeze_receipt=(arguments.freeze_receipt.resolve()
+                        if arguments.freeze_receipt is not None else None),
+        exposure_disclosure=(arguments.exposure_disclosure.resolve()
+                             if arguments.exposure_disclosure is not None else None),
+        generation_record=(arguments.generation_record.resolve()
+                           if arguments.generation_record is not None else None),
     )
     result["package_sha256"] = _digest_file(package_path)
     encoded = json.dumps(result, sort_keys=True, indent=2) + "\n"

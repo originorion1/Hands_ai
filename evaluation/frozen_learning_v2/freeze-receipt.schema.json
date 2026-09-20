@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/orion/frozen-learning-evaluation-v2/freeze-receipt.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["freeze_receipt_version", "protocol", "package", "sealed_expected_results_sha256", "exposure_disclosure_sha256", "generation_record_sha256", "observed_at", "clock_provenance"],
+  "properties": {
+    "freeze_receipt_version": {"const": "orion-evaluator-freeze-receipt-v2"},
+    "protocol": {"type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": {"version": {"const": "orion-frozen-learning-evaluation-v2"}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "package": {"type": "object", "additionalProperties": false, "required": ["version", "sha256", "dataset_id", "material_sha256"], "properties": {"version": {"const": "orion-independent-restaurant-dataset-v2"}, "sha256": {"$ref": "#/$defs/sha256"}, "dataset_id": {"type": "string", "pattern": "^dataset-[a-f0-9]{32}$"}, "material_sha256": {"$ref": "#/$defs/sha256"}}},
+    "sealed_expected_results_sha256": {"$ref": "#/$defs/sha256"},
+    "exposure_disclosure_sha256": {"$ref": "#/$defs/sha256"},
+    "generation_record_sha256": {"$ref": "#/$defs/sha256"},
+    "observed_at": {"type": "string", "format": "date-time"},
+    "clock_provenance": {"const": {"source": "LOCAL_CONTROLLER_CLOCK", "authenticated_time": false, "claim": "RECEIPT_OBSERVATION_ONLY"}}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}
