@@ -32,6 +32,7 @@ META_KEYS = (
 )
 SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
 BRANCH_RE = re.compile(r"codex/[A-Za-z0-9._/-]+\Z")
+PR_URL_RE = re.compile(r"https://[^/\s]+/[^/\s]+/[^/\s]+/pull/[1-9][0-9]*\Z")
 TEST_COUNT_RE = re.compile(r"(\d+) passed")
 
 _NETWORK_MODULES = (
@@ -89,6 +90,13 @@ class ChangeSnapshot:
 
 
 @dataclass(frozen=True)
+class PullRequestRef:
+    number: int
+    url: str
+    draft: bool
+
+
+@dataclass(frozen=True)
 class ReviewReport:
     issue: int
     full_sha: str
@@ -104,6 +112,9 @@ class ReviewReport:
     canonical_branch: str = CANONICAL_BRANCH
     merge_performed: bool = False
     live_customer_access: bool = False
+    pull_request_number: int | None = None
+    pull_request_url: str | None = None
+    pull_request_draft: bool | None = None
 
 
 Run = Callable[..., subprocess.CompletedProcess[str]]
@@ -719,6 +730,142 @@ class Orchestrator:
             json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
 
+    @staticmethod
+    def _pull_request_ref(
+        value: object, contract: AutomationContract
+    ) -> PullRequestRef:
+        if not isinstance(value, dict):
+            raise SafeFail("pull_request_response_malformed")
+        number = value.get("number")
+        url = value.get("url")
+        draft = value.get("isDraft")
+        if (
+            type(number) is not int
+            or number < 1
+            or not isinstance(url, str)
+            or not PR_URL_RE.fullmatch(url)
+            or type(draft) is not bool
+        ):
+            raise SafeFail("pull_request_response_malformed")
+        if (
+            value.get("state") != "OPEN"
+            or value.get("headRefName") != contract.branch
+            or value.get("baseRefName") != CANONICAL_BRANCH
+        ):
+            raise SafeFail("pull_request_scope_mismatch")
+        return PullRequestRef(number=number, url=url, draft=draft)
+
+    @staticmethod
+    def _pull_request_text(
+        issue: int, issue_title: str, contract: AutomationContract
+    ) -> tuple[str, str]:
+        safe_title = " ".join(issue_title.split())[:100] or f"ORION issue #{issue}"
+        title = f"ORION #{issue}: {safe_title}"
+        body = f"""Automated draft review surface for #{issue}.
+
+- base: `{CANONICAL_BRANCH}` at `{contract.base_sha}`
+- head: `{contract.branch}`
+- merge_performed: `false`
+- live_customer_access: `false`
+
+The local ORION runner created or refreshed this draft only after its independent
+verification, commit, and feature-branch push completed. Human review and merge
+authority remain separate.
+"""
+        return title, body
+
+    def ensure_draft_pull_request(
+        self,
+        issue: int,
+        issue_title: str,
+        contract: AutomationContract,
+        worktree: Path,
+    ) -> PullRequestRef:
+        """Create or refresh exactly one governed draft PR after a successful push."""
+        fields = "number,url,isDraft,state,headRefName,baseRefName"
+        raw = checked(
+            self.run,
+            (
+                "gh",
+                "pr",
+                "list",
+                "--state",
+                "open",
+                "--head",
+                contract.branch,
+                "--json",
+                fields,
+            ),
+            cwd=worktree,
+        )
+        try:
+            existing = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise SafeFail("pull_request_response_malformed") from error
+        if not isinstance(existing, list):
+            raise SafeFail("pull_request_response_malformed")
+        if len(existing) > 1:
+            raise SafeFail("pull_request_ambiguous")
+
+        title, body = self._pull_request_text(issue, issue_title, contract)
+        if existing:
+            reference = self._pull_request_ref(existing[0], contract)
+            checked(
+                self.run,
+                (
+                    "gh",
+                    "pr",
+                    "edit",
+                    str(reference.number),
+                    "--title",
+                    title,
+                    "--body",
+                    body,
+                ),
+                cwd=worktree,
+            )
+            if not reference.draft:
+                checked(
+                    self.run,
+                    ("gh", "pr", "ready", str(reference.number), "--undo"),
+                    cwd=worktree,
+                )
+            selector = str(reference.number)
+        else:
+            selector = checked(
+                self.run,
+                (
+                    "gh",
+                    "pr",
+                    "create",
+                    "--draft",
+                    "--base",
+                    CANONICAL_BRANCH,
+                    "--head",
+                    contract.branch,
+                    "--title",
+                    title,
+                    "--body",
+                    body,
+                ),
+                cwd=worktree,
+            )
+            if not PR_URL_RE.fullmatch(selector):
+                raise SafeFail("pull_request_response_malformed")
+
+        raw = checked(
+            self.run,
+            ("gh", "pr", "view", selector, "--json", fields),
+            cwd=worktree,
+        )
+        try:
+            reference = self._pull_request_ref(json.loads(raw), contract)
+        except json.JSONDecodeError as error:
+            raise SafeFail("pull_request_response_malformed") from error
+        if not reference.draft:
+            raise SafeFail("pull_request_not_draft")
+        return reference
+
     def commit_push_report(
         self,
         issue: int,
@@ -727,11 +874,16 @@ class Orchestrator:
         checks: list[CheckResult],
         changed: tuple[str, ...],
         tests: int | None,
+        issue_title: str = "",
     ) -> ReviewReport:
+        self.state_dir.mkdir(parents=True, exist_ok=True)
         checked(self.run, ("git", "add", "--", *changed), cwd=worktree)
         checked(self.run, ("git", "commit", "-m", f"feat: implement ORION issue #{issue}"), cwd=worktree)
         sha = self._git("rev-parse", "HEAD", cwd=worktree)
         checked(self.run, ("git", "push", "origin", f"HEAD:{contract.branch}"), cwd=worktree)
+        pull_request = self.ensure_draft_pull_request(
+            issue, issue_title or f"ORION issue #{issue}", contract, worktree
+        )
         statuses = {result.name: result.detail for result in checks}
         report = ReviewReport(
             issue=issue,
@@ -745,6 +897,9 @@ class Orchestrator:
             changed_files=changed,
             branch=contract.branch,
             base_sha=contract.base_sha,
+            pull_request_number=pull_request.number,
+            pull_request_url=pull_request.url,
+            pull_request_draft=pull_request.draft,
         )
         body = render_report(report)
         checked(self.run, ("gh", "issue", "comment", str(issue), "--body", body), cwd=self.repo)
@@ -773,7 +928,13 @@ class Orchestrator:
                     raise SafeFail(next(check.name for check in checks if not check.passed) + "_failed")
                 self.final_integrity_gate(contract, worktree, snapshot)
                 return self.commit_push_report(
-                    number, contract, worktree, checks, snapshot.files, tests
+                    number,
+                    contract,
+                    worktree,
+                    checks,
+                    snapshot.files,
+                    tests,
+                    str(issue["title"]),
                 )
             except SafeFail as error:
                 self._write_failure(number, str(error))
@@ -831,6 +992,9 @@ ORION automation review packet
 - branch: `{report.branch}`
 - base_sha: `{report.base_sha}`
 - canonical_branch: `{report.canonical_branch}`
+- pull_request_number: `{report.pull_request_number}`
+- pull_request_url: `{report.pull_request_url}`
+- pull_request_draft={str(report.pull_request_draft).lower()}
 - merge_performed=false
 - live_customer_access=false
 

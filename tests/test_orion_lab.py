@@ -265,6 +265,24 @@ def test_success_uses_feature_push_and_never_merge(tmp_path):
         commands.append(tuple(command))
         if command[:3] == ("git", "rev-parse", "HEAD"):
             return completed(command, stdout="c" * 40)
+        if command[:4] == ("gh", "pr", "list", "--state"):
+            return completed(command, stdout="[]")
+        if command[:3] == ("gh", "pr", "create"):
+            return completed(command, stdout="https://github.com/example/repo/pull/7\n")
+        if command[:3] == ("gh", "pr", "view"):
+            return completed(
+                command,
+                stdout=json.dumps(
+                    {
+                        "number": 7,
+                        "url": "https://github.com/example/repo/pull/7",
+                        "isDraft": True,
+                        "state": "OPEN",
+                        "headRefName": "codex/example",
+                        "baseRefName": "laboratory/orion-v0.1",
+                    }
+                ),
+            )
         return completed(command)
 
     runner = lab.Orchestrator(tmp_path, run=fake)
@@ -274,8 +292,237 @@ def test_success_uses_feature_push_and_never_merge(tmp_path):
     )]
     report = runner.commit_push_report(59, lab.parse_metadata(METADATA), tmp_path, checks, ("tools/x.py",), 12)
     assert ("git", "push", "origin", "HEAD:codex/example") in commands
+    assert any(command[:3] == ("gh", "pr", "create") for command in commands)
     assert not any("merge" in command for command in commands)
     assert report.merge_performed is False and report.live_customer_access is False
+    assert report.pull_request_number == 7
+    assert report.pull_request_url == "https://github.com/example/repo/pull/7"
+    assert report.pull_request_draft is True
+
+
+def test_matching_open_draft_pull_request_is_refreshed_and_reused(tmp_path):
+    commands = []
+    existing = {
+        "number": 7,
+        "url": "https://github.com/example/repo/pull/7",
+        "isDraft": True,
+        "state": "OPEN",
+        "headRefName": "codex/example",
+        "baseRefName": "laboratory/orion-v0.1",
+    }
+
+    def fake(command, **kwargs):
+        commands.append(tuple(command))
+        if command[:3] == ("gh", "pr", "list"):
+            return completed(command, stdout=json.dumps([existing]))
+        if command[:3] == ("gh", "pr", "view"):
+            return completed(command, stdout=json.dumps(existing))
+        return completed(command)
+
+    runner = lab.Orchestrator(tmp_path, run=fake)
+    reference = runner.ensure_draft_pull_request(
+        69, "Automate reviewer handoff", lab.parse_metadata(METADATA), tmp_path
+    )
+    assert reference.number == 7 and reference.draft is True
+    assert any(command[:3] == ("gh", "pr", "edit") for command in commands)
+    assert not any(command[:3] == ("gh", "pr", "create") for command in commands)
+
+
+def test_matching_ready_pull_request_is_returned_to_draft(tmp_path):
+    ready = {
+        "number": 7,
+        "url": "https://github.com/example/repo/pull/7",
+        "isDraft": False,
+        "state": "OPEN",
+        "headRefName": "codex/example",
+        "baseRefName": "laboratory/orion-v0.1",
+    }
+    draft = {**ready, "isDraft": True}
+    commands = []
+
+    def fake(command, **kwargs):
+        commands.append(tuple(command))
+        if command[:3] == ("gh", "pr", "list"):
+            return completed(command, stdout=json.dumps([ready]))
+        if command[:3] == ("gh", "pr", "view"):
+            return completed(command, stdout=json.dumps(draft))
+        return completed(command)
+
+    runner = lab.Orchestrator(tmp_path, run=fake)
+    reference = runner.ensure_draft_pull_request(
+        69, "Automate reviewer handoff", lab.parse_metadata(METADATA), tmp_path
+    )
+    assert reference.draft is True
+    assert any(command[:4] == ("gh", "pr", "ready", "7") for command in commands)
+    assert not any(command[:3] == ("gh", "pr", "create") for command in commands)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("headRefName", "codex/other"),
+        ("baseRefName", "main"),
+        ("state", "CLOSED"),
+    ],
+)
+def test_existing_pull_request_with_wrong_scope_is_rejected(tmp_path, field, value):
+    existing = {
+        "number": 7,
+        "url": "https://github.com/example/repo/pull/7",
+        "isDraft": True,
+        "state": "OPEN",
+        "headRefName": "codex/example",
+        "baseRefName": "laboratory/orion-v0.1",
+    }
+    existing[field] = value
+    commands = []
+
+    def fake(command, **kwargs):
+        commands.append(tuple(command))
+        return completed(command, stdout=json.dumps([existing]))
+
+    runner = lab.Orchestrator(tmp_path, run=fake)
+    with pytest.raises(lab.SafeFail, match="pull_request_scope_mismatch"):
+        runner.ensure_draft_pull_request(
+            69, "Automate reviewer handoff", lab.parse_metadata(METADATA), tmp_path
+        )
+    assert not any(command[:3] == ("gh", "pr", "create") for command in commands)
+
+
+def test_multiple_open_pull_requests_for_branch_are_rejected(tmp_path):
+    pull = {
+        "number": 7,
+        "url": "https://github.com/example/repo/pull/7",
+        "isDraft": True,
+        "state": "OPEN",
+        "headRefName": "codex/example",
+        "baseRefName": "laboratory/orion-v0.1",
+    }
+    runner = lab.Orchestrator(
+        tmp_path,
+        run=lambda command, **kwargs: completed(command, stdout=json.dumps([pull, pull])),
+    )
+    with pytest.raises(lab.SafeFail, match="pull_request_ambiguous"):
+        runner.ensure_draft_pull_request(
+            69, "Automate reviewer handoff", lab.parse_metadata(METADATA), tmp_path
+        )
+
+
+def test_pull_request_creation_occurs_after_commit_and_push(tmp_path):
+    commands = []
+    created = {
+        "number": 7,
+        "url": "https://github.com/example/repo/pull/7",
+        "isDraft": True,
+        "state": "OPEN",
+        "headRefName": "codex/example",
+        "baseRefName": "laboratory/orion-v0.1",
+    }
+
+    def fake(command, **kwargs):
+        commands.append(tuple(command))
+        if command[:3] == ("git", "rev-parse", "HEAD"):
+            return completed(command, stdout="c" * 40)
+        if command[:3] == ("gh", "pr", "list"):
+            return completed(command, stdout="[]")
+        if command[:3] == ("gh", "pr", "create"):
+            return completed(command, stdout=created["url"])
+        if command[:3] == ("gh", "pr", "view"):
+            return completed(command, stdout=json.dumps(created))
+        return completed(command)
+
+    runner = lab.Orchestrator(tmp_path, run=fake)
+    runner.state_dir.mkdir(parents=True)
+    checks = [lab.CheckResult(name, True, "passed") for name in (
+        "py_compile", "ruff", "pytest", "demo", "diff_check", "source_capability_scan"
+    )]
+    runner.commit_push_report(
+        69,
+        lab.parse_metadata(METADATA),
+        tmp_path,
+        checks,
+        ("tools/x.py",),
+        12,
+        issue_title="Automate reviewer handoff",
+    )
+    positions = {prefix: next(i for i, command in enumerate(commands) if command[:3] == prefix) for prefix in (
+        ("git", "commit", "-m"),
+        ("git", "push", "origin"),
+        ("gh", "pr", "create"),
+        ("gh", "issue", "comment"),
+    )}
+    assert positions[("git", "commit", "-m")] < positions[("git", "push", "origin")]
+    assert positions[("git", "push", "origin")] < positions[("gh", "pr", "create")]
+    assert positions[("gh", "pr", "create")] < positions[("gh", "issue", "comment")]
+
+
+def test_pull_request_creation_failure_stops_before_issue_report(tmp_path):
+    commands = []
+
+    def fake(command, **kwargs):
+        commands.append(tuple(command))
+        if command[:3] == ("git", "rev-parse", "HEAD"):
+            return completed(command, stdout="c" * 40)
+        if command[:3] == ("gh", "pr", "list"):
+            return completed(command, stdout="[]")
+        if command[:3] == ("gh", "pr", "create"):
+            return completed(command, returncode=1)
+        return completed(command)
+
+    runner = lab.Orchestrator(tmp_path, run=fake)
+    checks = [lab.CheckResult(name, True, "passed") for name in (
+        "py_compile", "ruff", "pytest", "demo", "diff_check", "source_capability_scan"
+    )]
+    with pytest.raises(lab.SafeFail, match="command_failed:gh"):
+        runner.commit_push_report(
+            69, lab.parse_metadata(METADATA), tmp_path, checks, ("tools/x.py",), 12
+        )
+    assert not any(command[:3] == ("gh", "issue", "comment") for command in commands)
+    assert not any("merge" in command or "reset" in command for command in commands)
+
+
+def test_verified_run_reaches_pull_request_handoff_only_after_verification(
+    tmp_path, monkeypatch
+):
+    events = []
+    snapshot = lab.ChangeSnapshot(("x.py",), "verified")
+    runner = lab.Orchestrator(tmp_path)
+    monkeypatch.setattr(runner, "doctor", lambda: None)
+    monkeypatch.setattr(
+        runner,
+        "fetch_issue",
+        lambda number: {
+            "number": number,
+            "title": "Automate reviewer handoff",
+            "body": METADATA,
+            "comments": [],
+            "state": "OPEN",
+        },
+    )
+    monkeypatch.setattr(runner, "verify_base", lambda contract: None)
+    monkeypatch.setattr(runner, "prepare_worktree", lambda number, contract: tmp_path)
+    monkeypatch.setattr(runner, "invoke_codex", lambda *args: None)
+    monkeypatch.setattr(runner, "_canonical_worktree", lambda: tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "_git",
+        lambda *args, **kwargs: BASE if args[:2] == ("rev-parse", "HEAD") else "",
+    )
+
+    def verify(*args):
+        events.append("verify")
+        return [lab.CheckResult("ruff", True, "passed")], snapshot, 1
+
+    monkeypatch.setattr(runner, "verify", verify)
+    monkeypatch.setattr(runner, "_change_snapshot", lambda *args: snapshot)
+
+    def handoff(*args):
+        events.append("handoff")
+        return object()
+
+    monkeypatch.setattr(runner, "commit_push_report", handoff)
+    runner.run_issue(69)
+    assert events == ["verify", "handoff"]
 
 
 def test_report_is_allowlisted_and_sanitized():
@@ -283,12 +530,74 @@ def test_report_is_allowlisted_and_sanitized():
         issue=1, full_sha="c" * 40, tests=3, ruff="passed", py_compile="passed",
         demo="passed", diff_check="passed", source_capability_scan="passed",
         changed_files=("safe.py",), branch="codex/example", base_sha=BASE,
+        pull_request_number=7,
+        pull_request_url="https://github.com/example/repo/pull/7",
+        pull_request_draft=True,
     )
     rendered = lab.render_report(report)
     assert "merge_performed=false" in rendered
     assert "live_customer_access=false" in rendered
     assert "execution_allowed=false" in rendered
+    assert "https://github.com/example/repo/pull/7" in rendered
+    assert "pull_request_draft=true" in rendered
     assert "credential" not in rendered and "transcript" not in rendered
+
+
+def test_claude_review_workflow_is_read_only_scoped_and_fixed():
+    workflow = (
+        MODULE_PATH.parents[1] / ".github/workflows/claude-read-only-review.yml"
+    ).read_text(encoding="utf-8")
+    assert "anthropics/claude-code-action@v1" in workflow
+    assert "branches: [laboratory/orion-v0.1]" in workflow
+    assert "startsWith(github.head_ref, 'codex/')" in workflow
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in workflow
+    assert "contents: read" in workflow
+    assert "contents: write" not in workflow
+    assert "pull-requests: read" in workflow
+    assert "pull-requests: write" not in workflow
+    assert "issues: write" in workflow
+    assert "ANTHROPIC_API_KEY" in workflow
+    assert "ANTHROPIC_API_KEY is not configured" in workflow
+    assert "<!-- ORION-CLAUDE-REVIEW -->" in workflow
+    assert "BLOCKER" in workflow and "NON_BLOCKING" in workflow
+    assert "Do not modify files" in workflow
+    assert "Do not approve or merge" in workflow
+    assert "customer or live ERP" in workflow
+    assert "execution authority" in workflow
+    assert "github.event.pull_request.body" not in workflow
+    assert "github.event.comment.body" not in workflow
+    assert "Edit" in workflow and "--disallowedTools" in workflow
+    assert "Bash(gh pr diff:*)" in workflow
+    assert "Bash(gh pr view:*)" in workflow
+    review, publisher = workflow.split("\n  publish:", 1)
+    assert "issues: read" in review and "issues: write" not in review
+    assert "Bash(gh issue view:*)" in review
+    assert "linked originating issue" in review
+    allowed = review.split('--allowedTools "', 1)[1].split('"', 1)[0]
+    assert "comment" not in allowed
+    assert "structured_output" in review and "--json-schema" in review
+    assert "issues: write" in publisher
+    assert "actions/checkout" not in publisher
+    assert "anthropics/" not in publisher and "ANTHROPIC_API_KEY" not in publisher
+    assert "${{ needs.review.outputs.review }}" in publisher
+    script = publisher.split("          script: |\n", 1)[1]
+    assert "${{" not in script
+
+
+def test_watch_queue_remains_lowest_first_and_skips_completed(tmp_path, monkeypatch):
+    payload = [
+        {"number": 12, "comments": []},
+        {"number": 3, "comments": [{"body": lab.REPORT_MARKER}]},
+        {"number": 8, "comments": []},
+    ]
+    runner = lab.Orchestrator(
+        tmp_path,
+        run=lambda command, **kwargs: completed(command, stdout=json.dumps(payload)),
+    )
+    processed = []
+    monkeypatch.setattr(runner, "run_issue", processed.append)
+    runner.watch(interval=60, once=True)
+    assert processed == [8]
 
 
 def test_lock_prevents_concurrent_processing(tmp_path):
