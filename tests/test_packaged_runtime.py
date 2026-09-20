@@ -165,6 +165,7 @@ def test_installed_artifact_tampering_denies_identity_and_startup(clean_artifact
     (
         "full",
         "erpnext_candidate",
+        "erpnext_grant_transition",
         "ipv6",
         "revision",
         "retention",
@@ -238,7 +239,7 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
         configs.append(harness.config)
     native_bodies = None
     source_credential = "SyntheticCredentialNoCustomer0123456789"
-    if case == "erpnext_candidate":
+    if case in ("erpnext_candidate", "erpnext_grant_transition"):
         import urllib.parse
 
         from orion.pilot.broker_contract import ERPNEXT_VERSION
@@ -252,12 +253,15 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
         )
         metadata_config.pop("source_path")
         metadata_config.pop("source_digest")
-        fields = ["name", "company", "docstatus", "posting_date", "amount"]
+        resource = "Opaque Ledger 7F3A"
+        date_field = "opaque_date_7f3a"
+        amount_field = "opaque_amount_2c9e"
+        fields = sorted(["name", "company", "docstatus", date_field, amount_field])
         window = record_config["grant"]["window"]
         window.update(
-            resource="Sales Invoice",
+            resource=resource,
             fields=fields,
-            date_field="posting_date",
+            date_field=date_field,
         )
         record_config["grant"].update(
             source_id=source,
@@ -285,37 +289,37 @@ def test_installed_runtime_against_unmodified_private_https_source(clean_artifac
             }
         )
         schema_path = "/api/method/frappe.desk.form.load.getdoctype?" + urllib.parse.urlencode(
-            {"doctype": "Sales Invoice"}
+            {"doctype": resource}
         )
         filters = [["company", "=", window["company"]], ["docstatus", "=", 1],
-                   ["posting_date", ">=", window["start"]],
-                   ["posting_date", "<=", window["end"]]]
-        record_path = "/api/resource/Sales%20Invoice?" + urllib.parse.urlencode(
+                   [date_field, ">=", window["start"]],
+                   [date_field, "<=", window["end"]]]
+        record_path = "/api/resource/" + urllib.parse.quote(resource, safe="") + "?" + urllib.parse.urlencode(
             {
                 "fields": json.dumps(fields, separators=(",", ":")),
                 "filters": json.dumps(filters, separators=(",", ":")),
-                "order_by": "posting_date desc, name desc",
+                "order_by": date_field + " desc, name desc",
                 "limit_start": 0,
                 "limit_page_length": 1,
             }
         )
         native_bodies = {
-            catalog: json.dumps({"data": [{"name": "Sales Invoice"}]}),
+            catalog: json.dumps({"data": [{"name": resource}]}),
             schema_path: json.dumps({"message": {"docs": [{
-                "name": "Sales Invoice",
+                "name": resource,
                 "is_submittable": 1,
                 "fields": [
                     {"fieldname": "company", "fieldtype": "Link", "options": "Company"},
-                    {"fieldname": "posting_date", "fieldtype": "Date"},
-                    {"fieldname": "amount", "fieldtype": "Currency"},
+                    {"fieldname": date_field, "fieldtype": "Date"},
+                    {"fieldname": amount_field, "fieldtype": "Currency"},
                 ],
             }]}}),
             record_path: json.dumps({"data": [{
                 "name": "SINV-0001",
                 "company": window["company"],
                 "docstatus": 1,
-                "posting_date": window["start"],
-                "amount": 9,
+                date_field: window["start"],
+                amount_field: 9,
             }]}),
         }
         source_credential = "CandidateKey123456:CandidateSecret123456"

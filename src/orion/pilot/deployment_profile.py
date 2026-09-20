@@ -9,7 +9,7 @@ import os
 import stat
 from pathlib import Path
 
-from .broker_contract import digest, exact
+from .broker_contract import digest, exact, transition_policy_from
 from .progress_witness import (
     WITNESS_VERSION,
     deployment_identity_for_manifest,
@@ -19,6 +19,7 @@ from .progress_witness import (
 
 PROFILE_VERSION = 3
 CANDIDATE_PROFILE_VERSION = 4
+TRANSITION_PROFILE_VERSION = 5
 ENTRYPOINT_MODULE = "orion.pilot.deployment"
 
 ROLE_POLICY = {
@@ -99,7 +100,7 @@ def profile_for_manifest(manifest, artifact, manifest_path):
         }
         for name, policy in ROLE_POLICY.items()
     }
-    candidate = manifest.get("version") == 4
+    candidate = manifest.get("version") in (4, 5)
     network = {
         "mode": "private_kernel_egress",
         "approved_host": manifest["host"],
@@ -110,8 +111,14 @@ def profile_for_manifest(manifest, artifact, manifest_path):
     }
     if candidate:
         network["protocol"] = "erpnext_read_only_v1"
-    return {
-        "version": CANDIDATE_PROFILE_VERSION if candidate else PROFILE_VERSION,
+    profile = {
+        "version": (
+            TRANSITION_PROFILE_VERSION
+            if manifest.get("version") == 5
+            else CANDIDATE_PROFILE_VERSION
+            if candidate
+            else PROFILE_VERSION
+        ),
         "artifact": {
             "name": artifact["name"],
             "version": artifact["version"],
@@ -144,7 +151,9 @@ def profile_for_manifest(manifest, artifact, manifest_path):
             "version": WITNESS_VERSION,
             "deployment_identity": expected_identity,
             "witness_identity": witness_identity(expected_identity),
-            "streams": witness_streams(manifest["configs"]),
+            "streams": witness_streams(
+                manifest["configs"], manifest.get("grant_transition")
+            ),
             "rollback_set": [str(Path(root) / "audit"), str(Path(root) / "evidence")],
             "storage_outside_rollback_set": witness,
             "whole_host_rollback_protection": False,
@@ -164,6 +173,17 @@ def profile_for_manifest(manifest, artifact, manifest_path):
             "witness_disagreement": "cutoff_and_deny",
         },
     }
+    if manifest.get("version") == 5:
+        policy = transition_policy_from(manifest["grant_transition"])
+        profile["authorization_transition"] = {
+            "version": policy["version"],
+            "envelope_sha256": digest(policy),
+            "generation_limit": 1,
+            "initial_state": "unprovisioned_no_record_authority",
+            "commit_order": ["evidence", "audit", "authorization", "gateway", "acquisition"],
+            "restart": "validate_complete_lineage_then_unarmed",
+        }
+    return profile
 
 
 def validate_profile(profile, manifest, artifact, manifest_path):
@@ -181,12 +201,16 @@ def validate_profile(profile, manifest, artifact, manifest_path):
             "network",
             "secret_references",
             "lifecycle",
-        ),
+        ) + (("authorization_transition",) if manifest.get("version") == 5 else ()),
     )
     if shape != expected:
         raise ValueError("deployment profile does not match installed runtime")
     expected_version = (
-        CANDIDATE_PROFILE_VERSION if manifest.get("version") == 4 else PROFILE_VERSION
+        TRANSITION_PROFILE_VERSION
+        if manifest.get("version") == 5
+        else CANDIDATE_PROFILE_VERSION
+        if manifest.get("version") == 4
+        else PROFILE_VERSION
     )
     if profile["version"] != expected_version:
         raise ValueError("unsupported deployment profile version")

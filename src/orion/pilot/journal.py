@@ -57,7 +57,7 @@ def grant_digest(grant):
 class AttemptJournal:
     """Single-writer ledger with durable reservations and externally pinned tip."""
 
-    def __init__(self,path,*,key,binding,limits,expected_head=None):
+    def __init__(self,path,*,key,binding,limits,expected_head=None,provision=None):
         if type(key) is not bytes or len(key)<32:
             raise JournalDenied('independent audit key required')
         if type(binding) is not str or len(binding)!=64:
@@ -74,6 +74,22 @@ class AttemptJournal:
         if parent.st_uid!=os.getuid() or stat.S_IMODE(parent.st_mode)&0o077:
             raise JournalDenied('private journal directory required')
         new=not self._path.exists()
+        self.created = new
+        if provision is not None and (
+            type(provision) is not dict
+            or set(provision) != {
+                'transition_reference', 'metadata_checkpoint',
+                'metadata_evidence_head', 'predecessor_generation',
+            }
+            or type(provision['metadata_checkpoint']) is not int
+            or provision['metadata_checkpoint'] < 2
+            or provision['predecessor_generation'] != 0
+            or any(
+                type(provision[name]) is not str or len(provision[name]) != 64
+                for name in ('transition_reference', 'metadata_evidence_head')
+            )
+        ):
+            raise JournalDenied('invalid grant transition reference')
         if new:
             if expected_head is not None:
                 raise JournalDenied('journal missing at trusted checkpoint')
@@ -92,11 +108,31 @@ class AttemptJournal:
                 body={'sequence':1,'event':'configure','binding':binding,
                       'limits':asdict(limits)|{'expires_at':limits.expires_at.isoformat()},'previous':self._head}
                 self._append(db,body)
+                if provision is not None:
+                    self._append(db, {
+                        'sequence': 2,
+                        'event': 'grant_transition',
+                        'binding': binding,
+                        'previous': self._head,
+                        **provision,
+                    })
             else:
                 events=self._verify(db)
                 expected=asdict(limits)|{'expires_at':limits.expires_at.isoformat()}
                 if events[0]['binding']!=binding or events[0]['limits']!=expected:
                     raise JournalDenied('journal configuration changed')
+                recorded = [event for event in events if event['event'] == 'grant_transition']
+                if ((provision is None and recorded)
+                        or (provision is not None and recorded != [{
+                            'sequence': 2,
+                            'event': 'grant_transition',
+                            'binding': binding,
+                            'previous': events[0] and hmac.new(
+                                self._key, _json(events[0]).encode(), hashlib.sha256
+                            ).hexdigest(),
+                            **provision,
+                        }])):
+                    raise JournalDenied('journal grant transition changed')
 
     @property
     def binding(self):

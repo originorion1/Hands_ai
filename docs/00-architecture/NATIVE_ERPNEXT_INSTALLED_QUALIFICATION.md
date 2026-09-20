@@ -33,30 +33,26 @@ must preserve that result, rather than rejecting discovery or inventing a record
 scope. The native normalization regression covers empty schemas and opaque typed
 fields in non-submittable schemas. Dates without executable fields still reject.
 
-## Outstanding post-discovery provisioning contract
+## Post-discovery provisioning contract
 
-The current installed acceptance preloads both metadata and record grants. Its
-later record `arm` operation does not provision a newly discovered scope. Thus
-issue #186's post-discovery operator-provisioning requirement remains incomplete.
+Issue #191 adds manifest/profile v5 for metadata-only enrollment and one
+operator-authenticated, generation-zero-to-one record-grant transition. The
+enrolled envelope and transition witness stream bind the immutable deployment,
+artifact, tenant, source and budget ceilings without naming or hashing the future
+resource, fields or grant. The exact grant is accepted only after current-start
+metadata is admitted and its retained evidence references and current witness
+snapshot are bound into the issuer-authenticated request.
 
-This cannot be resolved by editing the manifest and restarting: `witness_streams`
-hashes the complete configurations, `deployment_identity_for_manifest` binds those
-streams, and the immutable witness enrollment receipt also binds the profile.
-Changing the record grant changes the enrolled identity. Re-enrolling, replacing
-the witness, creating another evidence store, or resetting attempt budgets would
-break the existing recovery and rollback contract.
+The existing evidence, audit, authorization, gateway and acquisition owners commit
+the transition in that order. The record owner is created with its transition
+reference in the existing `AttemptJournal`, the existing witness is advanced, and
+the effective grant remains unarmed. There is no manifest rewrite, replacement
+witness, second store, budget reset, refund or authority restoration. Restart
+validates the same lineage and reconstructs the owner unarmed. See
+`POST_DISCOVERY_GRANT_TRANSITION.md` for the commit and failure contract.
 
-The required follow-up is a versioned, operator-authenticated grant-transition
-contract across the existing deployment, authorization, audit, evidence and
-witness owners. It must start with metadata authority only; bind one later exact
-record grant to retained admitted metadata and the existing deployment; preserve
-all earlier attempt/evidence chains and witness progress; keep record authority
-unarmed until separately armed; and reject unauthorized, stale, replayed,
-cross-scope, stopped or pending-acquisition transitions. Crash boundaries between
-the owners must fail closed without budget refund or automatic repair. Installed
-WSL acceptance must discover opaque resources/fields before supplying the record
-grant and prove those properties across restart. The current v4 contract does
-not implement that transition and must not be reported as satisfying it.
+Manifest/profile v4 remains the preloaded candidate contract. It must not be
+reported as post-discovery provisioning and is not silently migrated to v5.
 
 ## Explicit version compatibility
 
@@ -70,6 +66,12 @@ protocols `erpnext_metadata_v1` plus `erpnext_records_v1`. Mixed legacy/candidat
 configs reject. Profile v4 adds only the fixed `erpnext_read_only_v1` network
 protocol marker; it does not widen the existing reserved-address allowlist or add
 a production destination selector.
+
+Post-discovery provisioning is the separate manifest/profile v5 pair with mode
+`candidate_erpnext_post_discovery_read_only`. Its initial config list contains
+metadata only and its closed `erpnext-record-grant-transition-v1` envelope carries
+no placeholder read authority. Versions 1–4 reject the transition field; v5
+rejects preloaded record configs and mixed versions.
 
 ## Installed acceptance scenario
 
@@ -86,6 +88,12 @@ The candidate scenario proves these source-call boundaries:
 - admitted bounded catalog plus one schema: metadata 2, records 0;
 - record request while unarmed: unchanged at metadata 2, records 0;
 - separately armed exact record request: metadata 2, records 1.
+
+The v5 scenario additionally proves that opaque record resource/field names and
+the future grant digest are absent from the initial manifest, missing or invalid
+controller authentication leaves transition state and record I/O unchanged,
+provisioning remains unarmed at metadata 2 / records 0, and restart preserves the
+consumed record budget and audit prefix while restoring no active authority.
 
 The final path list must be exactly one bounded DocType catalog GET, one permitted
 `getdoctype` GET, and one bounded `Sales Invoice` record GET derived from the
@@ -106,7 +114,7 @@ Qualification command (non-connecting; WSL namespace capability required):
 ```sh
 ORION_BUILD_PYTHON=/tmp/orion-pr175-builder/bin/python3 \
   .venv/bin/python -m pytest -q tests/test_packaged_runtime.py \
-  -k erpnext_candidate -p no:cacheprovider
+  -k 'erpnext_candidate or erpnext_grant_transition' -p no:cacheprovider
 ```
 
 Exact final wheel, installed `RECORD`, deployment-profile, source-tree, and commit

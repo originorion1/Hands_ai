@@ -63,11 +63,16 @@ def source(value):
     lock = threading.Lock()
     credential = value["source_credential"]
     authentication = {"obsolete_credential_rejections": 0}
-    native = value["case"] == "erpnext_candidate"
+    native = value["case"] in ("erpnext_candidate", "erpnext_grant_transition")
     if native:
         bodies = {path: body.encode() for path, body in value["native_bodies"].items()}
         operations = {
-            path: ("read" if path.startswith("/api/resource/Sales%20Invoice?") else "metadata")
+            path: (
+                "read"
+                if path.startswith("/api/resource/")
+                and not path.startswith("/api/resource/DocType?")
+                else "metadata"
+            )
             for path in bodies
         }
     else:
@@ -374,13 +379,26 @@ def controller(value):
     )
     identity = json.loads(artifact.stdout)
     manifest = {
-        "version": 4 if value["case"] == "erpnext_candidate" else 1,
+        "version": (
+            5
+            if value["case"] == "erpnext_grant_transition"
+            else 4
+            if value["case"] == "erpnext_candidate"
+            else 1
+        ),
         "mode": (
+            "candidate_erpnext_post_discovery_read_only"
+            if value["case"] == "erpnext_grant_transition"
+            else
             "candidate_erpnext_read_only"
             if value["case"] == "erpnext_candidate"
             else "synthetic_read_only"
         ),
-        "configs": value["configs"],
+        "configs": (
+            value["configs"][:1]
+            if value["case"] == "erpnext_grant_transition"
+            else value["configs"]
+        ),
         "state_directory": str(state),
         "keys_directory": str(keys),
         "witness_directory": str(witness),
@@ -394,6 +412,25 @@ def controller(value):
             "ttl_seconds": 1 if value["case"] == "retention" else 3600,
         },
     }
+    if value["case"] == "erpnext_grant_transition":
+        from orion.pilot.broker_contract import GRANT_TRANSITION_VERSION
+
+        record = value["configs"][1]
+        window = record["grant"]["window"]
+        manifest["grant_transition"] = {
+            "version": GRANT_TRANSITION_VERSION,
+            "tenant_id": window["tenant_id"],
+            "company": window["company"],
+            "source_id": record["grant"]["source_id"],
+            "caller": record["caller"],
+            "secret_reference": record["secret_reference"],
+            "auth_reference": record["auth_reference"],
+            "limits": record["limits"],
+            "max_fields": 16,
+            "max_records": 5,
+            "max_window_days": 31,
+            "provenance_source": record["grant"]["provenance_source"],
+        }
     semantic_case = value["case"].startswith("semantic") or value[
         "case"
     ] == "witness_evidence_rollback"
@@ -876,6 +913,171 @@ def controller(value):
             return 1
         assert metadata["status"] == "admitted", metadata
         checks["metadata_governed_separate_grant"] = command(server, {"command": "stats"}) == expected_source_io(2, 0)
+        if value["case"] == "erpnext_grant_transition":
+            record_config = value["configs"][1]
+            window = record_config["grant"]["window"]
+            initial_manifest = manifest_path.read_text()
+            checks["initial_manifest_has_no_record_names_or_grant"] = (
+                window["resource"] not in initial_manifest
+                and window["date_field"] not in initial_manifest
+                and "opaque_amount_2c9e" not in initial_manifest
+                and digest(record_config) not in initial_manifest
+                and len(manifest["configs"]) == 1
+            )
+            enrollment_before = (state / "witness-enrollment").read_bytes()
+            witness_before = witness_rows()
+            challenge = command(runtime, {"command": "transition_challenge"})
+            payload = {
+                name: challenge[name]
+                for name in (
+                    "version",
+                    "deployment_identity",
+                    "generation",
+                    "predecessor_generation",
+                    "metadata",
+                    "expected_witness_sha256",
+                )
+            }
+            payload["config"] = record_config
+
+            def prepare_denied(transition):
+                try:
+                    rpc(
+                        endpoints["authorization"],
+                        "owner",
+                        owner_key,
+                        "transition_prepare",
+                        transition,
+                    )
+                except JournalDenied:
+                    return True
+                return False
+
+            wrong = dict(payload, mac="0" * 64)
+            evidence_before = rpc(
+                endpoints["evidence"],
+                "owner",
+                owner_key,
+                "transition",
+                {"binding": digest(value["configs"][0]), "arguments": {}},
+            )
+            checks["missing_or_mismatched_approval_denied_before_state_or_io"] = (
+                prepare_denied(payload)
+                and prepare_denied(wrong)
+                and rpc(
+                    endpoints["evidence"],
+                    "owner",
+                    owner_key,
+                    "transition",
+                    {"binding": digest(value["configs"][0]), "arguments": {}},
+                )
+                == evidence_before
+                and command(server, {"command": "stats"}) == expected_source_io(2, 0)
+            )
+            transition = dict(
+                payload,
+                mac=authenticate(
+                    value["issuer"].encode(), "grant_transition", payload
+                ),
+            )
+            provisioned = command(
+                runtime, {"command": "provision", "transition": transition}
+            )
+            witness_after_provision = witness_rows()
+            before_sequences = {
+                row["identity"]: row["sequence"] for row in witness_before
+            }
+            after_sequences = {
+                row["identity"]: row["sequence"] for row in witness_after_provision
+            }
+            checks["approved_transition_commits_unarmed_without_source_io"] = (
+                provisioned["status"] == "provisioned_unarmed"
+                and provisioned["generation"] == 1
+                and provisioned["binding"] == digest(record_config)
+                and provisioned["health"]["record_authority_provisioned"] is True
+                and provisioned["health"]["record_authority_armed"] is False
+                and provisioned["execution_allowed"] is False
+                and command(server, {"command": "stats"}) == expected_source_io(2, 0)
+            )
+            checks["transition_advances_existing_evidence_and_placeholder_streams"] = (
+                set(before_sequences) == set(after_sequences)
+                and sorted(
+                    after_sequences[identity] - sequence
+                    for identity, sequence in before_sequences.items()
+                )
+                == [0, 1, 2]
+                and (state / "witness-enrollment").read_bytes() == enrollment_before
+                and provisioned["commits"]["evidence"] != evidence_before["head"]
+            )
+            checks["records_remain_unarmed_after_provision"] = (
+                acquire("read", "transition-unarmed")["status"] == "denied"
+                and command(server, {"command": "stats"}) == expected_source_io(2, 0)
+            )
+            assert control("read", "arm")["status"] == "arm"
+            admitted = command(
+                runtime,
+                {"command": "read", "message": message("read", "transition-read")},
+            )["response"]
+            observations = observations_from(admitted["observations"])
+            checks["separately_armed_synthetic_read_uses_exact_discovered_scope"] = (
+                admitted["status"] == "admitted"
+                and len(observations) == 1
+                and observations[0].evidence.payload["resource"] == window["resource"]
+                and command(server, {"command": "stats"}) == expected_source_io(2, 1)
+            )
+            record_budget = status("read")["budget"]
+            record_audit = audit_records("read")
+            restarted = command(runtime, {"command": "restart"})
+            post_restart = acquire("read", "transition-restart-unarmed")
+            restarted_budget = status("read")["budget"]
+            restarted_audit = audit_records("read")
+            witness_after_restart = witness_rows()
+            restart_sequences = {
+                row["identity"]: row["sequence"] for row in witness_after_restart
+            }
+            preserved_budget_fields = (
+                "attempts", "failures", "reserved_bytes", "stopped", "pending"
+            )
+            value["rollback_result"] = {
+                "restart": restarted,
+                "budget_preserved": all(
+                    restarted_budget[name] == record_budget[name]
+                    for name in preserved_budget_fields
+                ),
+                "audit_preserved": restarted_audit[: len(record_audit)] == record_audit,
+                "post_restart": post_restart,
+                "source_io": command(server, {"command": "stats"}),
+            }
+            checks["restart_validates_lineage_preserves_budget_and_starts_unarmed"] = (
+                restarted["status"] == "unarmed"
+                and restarted["health"]["record_authority_provisioned"] is True
+                and restarted["health"]["record_authority_armed"] is False
+                and all(
+                    restarted_budget[name] == record_budget[name]
+                    for name in preserved_budget_fields
+                )
+                and restarted_audit[: len(record_audit)] == record_audit
+                and post_restart["status"] == "denied"
+                and command(server, {"command": "stats"}) == expected_source_io(2, 1)
+                and set(restart_sequences) == set(after_sequences)
+                and all(
+                    restart_sequences[identity] >= sequence
+                    for identity, sequence in after_sequences.items()
+                )
+                and (state / "witness-enrollment").read_bytes() == enrollment_before
+            )
+            value["semantic_result"] = {
+                "record_calls_before_provision": 0,
+                "record_calls_after_separate_arm": 1,
+                "record_budget_before_read": provisioned["health"]["budgets"]["read"],
+                "record_budget_after_restart": restarted_budget,
+                "evidence_head_before_transition": evidence_before["head"],
+                "evidence_head_after_transition": provisioned["commits"]["evidence"],
+                "witness_sequences_before": sorted(before_sequences.values()),
+                "witness_sequences_after_provision": sorted(after_sequences.values()),
+                "witness_sequences_after_restart": sorted(restart_sequences.values()),
+            }
+            return runtime_report(value, checks, identity, ready, named_denials)
         if value["case"] == "rotation":
             source_credential = keys / "source-credential"
             staged = keys / "source-credential.next"

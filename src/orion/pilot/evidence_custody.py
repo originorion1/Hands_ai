@@ -39,6 +39,9 @@ from .broker_contract import (
     metadata_grant_from,
     observations_from,
     private_bytes,
+    transition_policy_from,
+    transition_record_config,
+    transition_request_from,
 )
 from .broker_metadata import erpnext_proposal_from, proposal_from
 from .journal import JournalDenied, grant_digest
@@ -92,6 +95,8 @@ class EvidenceCustody:
         semantic_limit=1,
         witness=None,
         witness_stream=None,
+        transition=None,
+        deployment_identity=None,
     ):
         if type(key) is not bytes or len(key) < 32 or not callable(clock):
             raise JournalDenied("protected evidence key and clock required")
@@ -118,6 +123,15 @@ class EvidenceCustody:
         self.configs = {digest(c): json.loads(_json(c)) for c in configs}
         if len(self.configs) != len(configs):
             raise JournalDenied("duplicate evidence scopes denied")
+        self.enrolled_scopes = sorted(self.configs)
+        self.transition_policy = (
+            transition_policy_from(transition) if transition is not None else None
+        )
+        if (self.transition_policy is None) != (deployment_identity is None):
+            raise JournalDenied("complete grant transition custody required")
+        if deployment_identity is not None:
+            _reference(deployment_identity)
+        self.deployment_identity = deployment_identity
         self.key, self.clock, self.policy = key, clock, dict(policy)
         self.semantic_limit = semantic_limit
         if (witness is None) != (witness_stream is None):
@@ -154,14 +168,22 @@ class EvidenceCustody:
                     db,
                     {
                         "event": "configure",
-                        "scopes": sorted(self.configs),
+                        "scopes": self.enrolled_scopes,
                         "policy": self.policy,
                         "at": self._now().isoformat(),
+                        **(
+                            {"grant_transition_sha256": digest(self.transition_policy)}
+                            if self.transition_policy is not None
+                            else {}
+                        ),
                         **({"semantic_limit": semantic_limit} if semantic_limit != 1 else {}),
                     },
                 )
             else:
-                self._verify(db)
+                events, checkpoints, _, payloads = self._verify(db)
+                transitioned = self._transition_from(events, checkpoints, payloads)
+                if transitioned is not None:
+                    self.configs[digest(transitioned)] = transitioned
         if new:
             self._pin()
         self._verify_witness()
@@ -216,6 +238,48 @@ class EvidenceCustody:
         self.head = mac
         return sequence
 
+    def _transition_from(self, events, checkpoints, payloads):
+        transitions = [event for event in events if event["event"] == "grant_transition"]
+        if not transitions:
+            return None
+        if self.transition_policy is None or len(transitions) != 1:
+            raise JournalDenied("grant transition history denied")
+        event = exact(
+            transitions[0],
+            (
+                "event", "generation", "binding", "config", "transition_reference",
+                "metadata_checkpoint", "metadata_binding", "metadata_evidence_head",
+                "metadata_payload_sha256", "metadata_observation_id",
+                "metadata_evidence_id", "expected_witness_sha256", "at",
+                "sequence", "previous",
+            ),
+        )
+        config = json.loads(_json(event["config"]))
+        transition_record_config(config, self.transition_policy)
+        for name in (
+            "binding", "transition_reference", "metadata_binding",
+            "metadata_evidence_head", "metadata_payload_sha256",
+            "expected_witness_sha256",
+        ):
+            _reference(event[name])
+        checkpoint = checkpoints.get(event["metadata_checkpoint"])
+        references = [] if checkpoint is None else checkpoint["references"]
+        if (
+            event["generation"] != 1
+            or event["binding"] != digest(config)
+            or event["previous"] != event["metadata_evidence_head"]
+            or checkpoint is None
+            or checkpoint["binding"] != event["metadata_binding"]
+            or checkpoint["payload_sha256"] != event["metadata_payload_sha256"]
+            or event["metadata_checkpoint"] not in payloads
+            or len(references) != 1
+            or references[0]["observation_id"] != event["metadata_observation_id"]
+            or references[0]["evidence_id"] != event["metadata_evidence_id"]
+        ):
+            raise JournalDenied("grant transition metadata lineage denied")
+        datetime.fromisoformat(event["at"])
+        return config
+
     def _verify(self, db):
         if (
             db.execute("SELECT 1 FROM events WHERE length(body)>? LIMIT 1", (MAX_FRAME,)).fetchone()
@@ -224,11 +288,13 @@ class EvidenceCustody:
             ).fetchone()
         ):
             raise JournalDenied("oversized evidence storage entry")
+        transition_allowance = 1 if self.transition_policy is not None else 0
         rows = db.execute(
             "SELECT sequence,body,mac FROM events ORDER BY sequence LIMIT ?",
-            (2 * self.policy["max_entries"] + self.semantic_limit + 2,),
+            (2 * self.policy["max_entries"] + self.semantic_limit + transition_allowance + 2,),
         ).fetchall()
-        if not rows or len(rows) > 2 * self.policy["max_entries"] + self.semantic_limit + 1:
+        if (not rows or len(rows)
+                > 2 * self.policy["max_entries"] + self.semantic_limit + transition_allowance + 1):
             raise JournalDenied("evidence checkpoint bound invalid")
         events, previous, expired = [], "0" * 64, set()
         for sequence, encoded, mac in rows:
@@ -246,7 +312,9 @@ class EvidenceCustody:
                 if body["checkpoint"] in expired:
                     raise JournalDenied("duplicate retention tombstone")
                 expired.add(body["checkpoint"])
-            elif body["event"] not in ("configure", "append", "semantic_checkpoint"):
+            elif body["event"] not in (
+                "configure", "append", "semantic_checkpoint", "grant_transition"
+            ):
                 raise JournalDenied("evidence checkpoint event denied")
             events.append(body)
             previous = mac
@@ -256,9 +324,12 @@ class EvidenceCustody:
             raise JournalDenied("evidence history rollback detected")
         if (
             events[0]["event"] != "configure"
-            or events[0]["scopes"] != sorted(self.configs)
+            or events[0]["scopes"] != self.enrolled_scopes
             or events[0]["policy"] != self.policy
             or events[0].get("semantic_limit", 1) != self.semantic_limit
+            or events[0].get("grant_transition_sha256") != (
+                digest(self.transition_policy) if self.transition_policy is not None else None
+            )
         ):
             raise JournalDenied("evidence configuration changed")
         checkpoints = {e["sequence"]: e for e in events if e["event"] == "append"}
@@ -277,6 +348,7 @@ class EvidenceCustody:
                 or digest(json.loads(encoded)) != checkpoints[sequence]["payload_sha256"]
             ):
                 raise JournalDenied("admitted payload integrity mismatch")
+        self._transition_from(events, checkpoints, payloads)
         return events, checkpoints, expired, payloads
 
     def _check(self, db):
@@ -487,14 +559,70 @@ class EvidenceCustody:
             raise JournalDenied("explicit evidence operation required")
         return observations, company, source
 
+    def _metadata_transition_challenge(self, binding, events, checkpoints, expired, payloads):
+        if self.transition_policy is None or any(
+            event["event"] == "grant_transition"
+            for event in events
+        ):
+            raise JournalDenied("grant transition unavailable")
+        candidates = [
+            checkpoint
+            for checkpoint in checkpoints.values()
+            if checkpoint["binding"] == binding
+            and checkpoint["sequence"] not in expired
+            and checkpoint["sequence"] in payloads
+        ]
+        if not candidates:
+            raise JournalDenied("retained admitted metadata required")
+        checkpoint = max(candidates, key=lambda value: value["sequence"])
+        references = checkpoint["references"]
+        if len(references) != 1:
+            raise JournalDenied("exact metadata transition reference required")
+        reference = references[0]
+        return {
+            "binding": binding,
+            "checkpoint": checkpoint["sequence"],
+            "evidence_head": self.head,
+            "payload_sha256": checkpoint["payload_sha256"],
+            "journal_head": checkpoint["journal_head"],
+            "request_reference": checkpoint["request_reference"],
+            "observation_id": reference["observation_id"],
+            "evidence_id": reference["evidence_id"],
+        }
+
+    def _validate_transition_scope(self, request, payloads):
+        grant = transition_record_config(request["config"], self.transition_policy)
+        metadata = request["metadata"]
+        values = json.loads(payloads[metadata["checkpoint"]])
+        if type(values) is not list or len(values) != 1:
+            raise JournalDenied("one retained metadata observation required")
+        payload = values[0]["evidence"]["payload"]
+        proposals = [
+            proposal for proposal in payload["proposals"]
+            if proposal["resource"] == grant.window.resource
+        ]
+        if (
+            len(proposals) != 1
+            or tuple(proposals[0]["fields"]) != grant.window.fields
+            or grant.window.date_field not in proposals[0]["date_fields"]
+            or grant.identity_field not in proposals[0]["fields"]
+            or grant.company_field not in proposals[0]["fields"]
+        ):
+            raise JournalDenied("record grant not supported by retained metadata")
+        return grant
+
     def dispatch(self, role, action, value):
         if (role, action) not in {
             ("supervisor", "append"),
             ("supervisor", "availability"),
+            ("supervisor", "transition"),
             ("owner", "inspect"),
             ("owner", "load"),
             ("owner", "prune"),
             ("owner", "resolve"),
+            ("owner", "transition_challenge"),
+            ("owner", "provision"),
+            ("owner", "transition"),
         }:
             raise JournalDenied("evidence caller or operation denied")
         exact(value, ("binding", "arguments"))
@@ -510,6 +638,8 @@ class EvidenceCustody:
             if action == "resolve"
             else ("request_reference",)
             if action == "availability" and args != {}
+            else ("transition",)
+            if action == "provision"
             else (),
         )
         if action == "availability" and args:
@@ -635,6 +765,81 @@ class EvidenceCustody:
                         "references": checkpoint["references"],
                         "observations": json.loads(payloads[args["checkpoint"]]),
                         "authority_restored": False,
+                    }
+                elif action == "transition_challenge":
+                    result = {
+                        "version": self.transition_policy["version"],
+                        "deployment_identity": self.deployment_identity,
+                        "generation": 1,
+                        "predecessor_generation": 0,
+                        "metadata": self._metadata_transition_challenge(
+                            binding, events, checkpoints, expired, payloads
+                        ),
+                    }
+                elif action == "provision":
+                    request = transition_request_from(
+                        args["transition"], self.transition_policy, self.deployment_identity
+                    )
+                    challenge = self._metadata_transition_challenge(
+                        binding, events, checkpoints, expired, payloads
+                    )
+                    if request["metadata"] != challenge:
+                        raise JournalDenied("stale metadata transition challenge denied")
+                    self._validate_transition_scope(request, payloads)
+                    reference = digest({
+                        name: request[name] for name in request if name != "mac"
+                    })
+                    self._append_event(
+                        db,
+                        {
+                            "event": "grant_transition",
+                            "generation": 1,
+                            "binding": digest(request["config"]),
+                            "config": request["config"],
+                            "transition_reference": reference,
+                            "metadata_checkpoint": challenge["checkpoint"],
+                            "metadata_binding": challenge["binding"],
+                            "metadata_evidence_head": challenge["evidence_head"],
+                            "metadata_payload_sha256": challenge["payload_sha256"],
+                            "metadata_observation_id": challenge["observation_id"],
+                            "metadata_evidence_id": challenge["evidence_id"],
+                            "expected_witness_sha256": request["expected_witness_sha256"],
+                            "at": self._now().isoformat(),
+                        },
+                    )
+                    self.configs[digest(request["config"])] = json.loads(
+                        _json(request["config"])
+                    )
+                    result = {
+                        "status": "evidence_committed",
+                        "generation": 1,
+                        "binding": digest(request["config"]),
+                        "transition_reference": reference,
+                        "head": self.head,
+                    }
+                elif action == "transition":
+                    config = self._transition_from(events, checkpoints, payloads)
+                    transition_event = next(
+                        (event for event in events if event["event"] == "grant_transition"),
+                        None,
+                    )
+                    result = {
+                        "status": "provisioned" if config is not None else "unprovisioned",
+                        "generation": 1 if config is not None else 0,
+                        "config": config,
+                        "head": self.head,
+                        "audit_provision": (
+                            {
+                                "transition_reference": transition_event["transition_reference"],
+                                "metadata_checkpoint": transition_event["metadata_checkpoint"],
+                                "metadata_evidence_head": transition_event[
+                                    "metadata_evidence_head"
+                                ],
+                                "predecessor_generation": 0,
+                            }
+                            if transition_event is not None
+                            else None
+                        ),
                     }
                 else:
                     if (
