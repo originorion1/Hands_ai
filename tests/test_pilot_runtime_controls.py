@@ -291,9 +291,15 @@ def test_interrupted_final_supervised_attempt_stays_consumed_and_blocks_replay(t
                            references=_supervised_references(restored, reason='1'*64))
     restored.stop()
     assert restored.inspect()['attempts'] == settings.max_requests
-    assert restored.inspect()['stopped']
+    assert restored.inspect()['stopped'] and restored.inspect()['pending']
     with pytest.raises(JournalDenied, match='stopped'):
         restored.begin(interrupted_at+timedelta(seconds=4), 1)
+    stopped = AttemptJournal(tmp_path/'attempts.db', key=b'x'*32,
+        binding=grant_digest(grant()), limits=settings, expected_head=restored.head,
+        provision=provision)
+    assert stopped.inspect()['stopped'] and stopped.inspect()['pending']
+    with pytest.raises(JournalDenied, match='stopped'):
+        stopped.begin(interrupted_at+timedelta(seconds=6), 1)
 
 
 def test_upstream_exception_and_response_text_never_enter_journal(tmp_path):

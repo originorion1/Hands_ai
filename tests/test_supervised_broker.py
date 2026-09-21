@@ -17,7 +17,7 @@ from orion.discovery.pilot_read import PilotAuthorization, PilotRequest
 from orion.discovery.read_window import ReviewedReadWindow
 from orion.pilot.broker import Broker
 from orion.pilot.broker_contract import VERSION, authenticate, digest, observations_from
-from orion.pilot.journal import JournalDenied, TransportLimits
+from orion.pilot.journal import AttemptJournal, JournalDenied, TransportLimits
 from orion.understanding.role_checkpoint import _json
 
 
@@ -115,6 +115,80 @@ def test_unsupported_supervised_budget_denies_before_credentials_or_journal(tmp_
     with pytest.raises(JournalDenied, match='supervised request budget exceeds audit capacity'):
         Broker(harness.config, harness.state)
     assert not (harness.state/'broker.db').exists()
+
+
+def test_lifecycle_noise_blocks_source_before_capacity_and_preserves_terminal_chain(
+    tmp_path, monkeypatch,
+):
+    harness = Harness(tmp_path/'capacity-noise')
+    harness.config['limits'].update(max_requests=48, total_response_bytes=48 * 65536)
+    monkeypatch.setenv('BROKER_AUTH_KEY', harness.key.decode())
+    monkeypatch.setenv('BROKER_SOURCE_SECRET', harness.secret)
+    provision = {'transition_reference':'c'*64, 'metadata_checkpoint':2,
+                 'metadata_evidence_head':'d'*64, 'predecessor_generation':0}
+
+    def journal_factory(path, **arguments):
+        return AttemptJournal(path, provision=provision, **arguments)
+
+    broker = Broker(harness.config, harness.state, journal_factory=journal_factory)
+    control = {'control':'arm', 'nonce':broker.nonce, 'head':broker.journal.head}
+    control['mac'] = authenticate(broker.key, 'control', control)
+    assert broker.handle(control)['status'] == 'arm'
+    references = {'caller':digest(harness.config['caller']), 'scope':broker.binding,
+                  'version':digest(harness.config['version'])}
+    for index in range(47):
+        now = utc_now()+timedelta(seconds=2*index)
+        request = format(index, '064x')
+        broker.journal.lifecycle('broker_request', at=now,
+            references=references | {'request':request})
+        broker.journal.begin(now, 1)
+        broker.journal.finish(success=True, received_bytes=1)
+        broker.journal.lifecycle('broker_admitted', at=now,
+            references=references | {'request':request, 'observations':'e'*64})
+    for index in range(8):
+        broker.journal.lifecycle('broker_denied', at=utc_now(),
+            references=references | {'reason':format(index, '064x')})
+    assert broker.journal.progress()[0] == 200
+
+    source_calls = 0
+
+    def forbidden_worker(*unused, **ignored):
+        nonlocal source_calls
+        source_calls += 1
+        pytest.fail('source worker started without complete audit reservation')
+
+    monkeypatch.setattr(broker, '_worker', forbidden_worker)
+    blocked = broker.handle(harness.message('capacity-boundary'))
+    assert blocked['status'] == 'blocked'
+    assert source_calls == 0
+    assert broker.journal.progress()[0] == 200
+
+    control = {'control':'stop', 'nonce':broker.nonce, 'head':broker.journal.head}
+    control['mac'] = authenticate(broker.key, 'control', control)
+    assert broker.handle(control)['status'] == 'stop'
+    assert broker.journal.progress()[0] == 202
+    restored = AttemptJournal(harness.state/'broker.db', key=broker.key,
+        binding=broker.binding, limits=broker.limits, expected_head=broker.journal.head,
+        provision=provision)
+    assert restored.inspect()['stopped'] and not restored.inspect()['pending']
+
+
+def test_stopped_uncertain_attempt_still_denies_broker_restart(tmp_path, monkeypatch):
+    harness = Harness(tmp_path/'stopped-uncertain')
+    monkeypatch.setenv('BROKER_AUTH_KEY', harness.key.decode())
+    monkeypatch.setenv('BROKER_SOURCE_SECRET', harness.secret)
+    broker = Broker(harness.config, harness.state)
+    control = {'control':'arm', 'nonce':broker.nonce, 'head':broker.journal.head}
+    control['mac'] = authenticate(broker.key, 'control', control)
+    assert broker.handle(control)['status'] == 'arm'
+    identity = digest((harness.config['caller'], 'interrupted'))
+    broker._event('broker_request', request=identity)
+    broker.journal.begin(utc_now(), 1)
+    broker.journal.stop()
+    state = broker.journal.inspect()
+    assert state['stopped'] and state['pending']
+    with pytest.raises(JournalDenied, match='interrupted attempt requires external recovery'):
+        Broker(harness.config, harness.state, expected_head=broker.journal.head)
 
 
 @pytest.fixture

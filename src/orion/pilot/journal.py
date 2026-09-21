@@ -25,6 +25,12 @@ class JournalDenied(ValueError):
 _AUDIT_EVENT_LIMIT = 202
 _SUPERVISED_FIXED_EVENTS = 8
 _SUPERVISED_EVENTS_PER_REQUEST = 4
+_SAFE_TERMINAL_EVENTS = 2
+_REQUEST_FOLLOWUP_EVENTS = 5
+_ATTEMPT_FOLLOWUP_EVENTS = 4
+_RESULT_FOLLOWUP_EVENTS = 3
+_DIRECT_ATTEMPT_FOLLOWUP_EVENTS = 2
+_DIRECT_RESULT_FOLLOWUP_EVENTS = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,10 +175,14 @@ class AttemptJournal:
         db.execute('PRAGMA synchronous=FULL')
         return db
 
-    def _append(self,db,body):
+    def _append(self,db,body,*,reserve=0):
+        sequence = body.get('sequence')
+        if (type(sequence) is not int or type(reserve) is not int or reserve < 0
+                or sequence < 1 or sequence + reserve > _AUDIT_EVENT_LIMIT):
+            raise JournalDenied('audit capacity exhausted')
         encoded=_json(body)
         mac=hmac.new(self._key,encoded.encode(),hashlib.sha256).hexdigest()
-        db.execute('INSERT INTO events VALUES (?,?,?)',(body['sequence'],encoded,mac))
+        db.execute('INSERT INTO events VALUES (?,?,?)',(sequence,encoded,mac))
         self._head=mac
 
     def _verify(self,db):
@@ -208,10 +218,32 @@ class AttemptJournal:
             events=self._verify(db)
         attempts=sum(e['event']=='attempt' for e in events)
         failures=sum(e['event']=='failure' for e in events)
+        pending=self._unmatched_attempt(events)
         return {'attempts':attempts,'failures':failures,
                 'reserved_bytes':attempts*self.limits.response_bytes,
                 'stopped':any(e['event']=='stop' for e in events),
-                'pending':events[-1]['event']=='attempt','head':self.head}
+                'pending':pending,'head':self.head}
+
+    @staticmethod
+    def _unmatched_attempt(events):
+        pending=0
+        for event in events:
+            if event['event']=='attempt':
+                pending+=1
+            elif event['event'] in ('success','failure') and pending:
+                pending-=1
+        return pending>0
+
+    @staticmethod
+    def _supervised_request_open(events):
+        request=-1
+        outcome=-1
+        for index,event in enumerate(events):
+            if event['event']=='broker_request':
+                request=index
+            elif event['event'] in ('broker_admitted','broker_denied'):
+                outcome=index
+        return request>outcome
 
     def progress(self):
         """Verified chain position for the separately retained witness."""
@@ -236,12 +268,19 @@ class AttemptJournal:
         with self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
             events = self._verify(db)
-            if len(events) >= _AUDIT_EVENT_LIMIT - 1 or events[-1]['event'] == 'attempt':
-                raise JournalDenied('pending or exhausted audit')
+            if events[-1]['event'] == 'attempt':
+                raise JournalDenied('pending audit attempt')
+            reserve = {
+                'broker_request': _REQUEST_FOLLOWUP_EVENTS,
+                'broker_admitted': _SAFE_TERMINAL_EVENTS,
+                'broker_denied': _SAFE_TERMINAL_EVENTS,
+                'broker_start': _SAFE_TERMINAL_EVENTS,
+                'broker_arm': _SAFE_TERMINAL_EVENTS,
+            }.get(event, 0)
             self._append(db, {'sequence': len(events) + 1, 'event': event,
                 'binding': self.binding, 'previous': self.head, 'at': at.isoformat(),
                 'references': references, 'execution_allowed': False,
-                'execution_status': 'not_attempted'})
+                'execution_status': 'not_attempted'}, reserve=reserve)
 
     def lifecycle_records(self):
         """Detached verified values, not mutable journal authority."""
@@ -257,7 +296,8 @@ class AttemptJournal:
             events=self._verify(db)
             attempts=[e for e in events if e['event']=='attempt']
             failures=sum(e['event']=='failure' for e in events)
-            if (events[-1]['event']=='attempt' or any(e['event']=='stop' for e in events)
+            pending=self._unmatched_attempt(events)
+            if (pending or any(e['event']=='stop' for e in events)
                     or now>=self.limits.expires_at or failures>=self.limits.failures
                     or len(attempts)>=self.limits.max_requests
                     or (len(attempts)+1)*self.limits.response_bytes>self.limits.total_response_bytes):
@@ -266,7 +306,9 @@ class AttemptJournal:
                 raise JournalDenied('rate limit or clock rollback')
             body={'sequence':len(events)+1,'event':'attempt','binding':self.binding,
                   'previous':self.head,'at':now.timestamp(),'request_bytes':request_bytes}
-            self._append(db,body)
+            reserve = (_ATTEMPT_FOLLOWUP_EVENTS if self._supervised_request_open(events)
+                       else _DIRECT_ATTEMPT_FOLLOWUP_EVENTS)
+            self._append(db,body,reserve=reserve)
         self._active=True
 
     def check_active(self,now):
@@ -285,7 +327,9 @@ class AttemptJournal:
                 raise JournalDenied('no active attempt')
             body={'sequence':len(events)+1,'event':'success' if success else 'failure',
                   'binding':self.binding,'previous':self.head,'received_bytes':received_bytes}
-            self._append(db,body)
+            reserve = (_RESULT_FOLLOWUP_EVENTS if self._supervised_request_open(events)
+                       else _DIRECT_RESULT_FOLLOWUP_EVENTS)
+            self._append(db,body,reserve=reserve)
         self._active=False
 
     def stop(self):
@@ -294,6 +338,7 @@ class AttemptJournal:
             events=self._verify(db)
             if any(e['event']=='stop' for e in events):
                 return
+            reserve = 1 if any(e['event'].startswith('broker_') for e in events) else 0
             self._append(db,{'sequence':len(events)+1,'event':'stop',
-                             'binding':self.binding,'previous':self.head})
+                             'binding':self.binding,'previous':self.head},reserve=reserve)
         self._active=False

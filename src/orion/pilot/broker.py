@@ -408,7 +408,12 @@ class Broker:
                 raise ValueError('object required')
             return self.control(value) if 'control' in value else self.read(value)
         except Exception:  # noqa: BLE001 - fixed denial, no secret/record/traceback leakage
-            self._event('broker_denied', reason=self.phase)
+            try:
+                self._event('broker_denied', reason=self.phase)
+            except JournalDenied:
+                # Audit exhaustion is itself fail-closed. The journal retained
+                # terminal capacity but cannot truthfully append another denial.
+                return self.status('blocked')
             return self.status('denied')
 
 

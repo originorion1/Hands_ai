@@ -70,6 +70,10 @@ A pending attempt after supervisor termination denies restart. Budget reservatio
 are not refunded. Rate spacing and the failure circuit survive restart. Missing,
 stale or altered audit tips, changed configuration, and modified journal entries
 reject. The supervisor does not reconstruct or manufacture a lost trusted tip.
+Appending `stop` after an interrupted attempt preserves both facts: the journal is
+terminally stopped and the unmatched attempt remains pending/uncertain. Stop does
+not reconcile, clear, refund or authorize replay of that attempt, and restart still
+denies at the interrupted-attempt boundary.
 
 ## Audit and minimization
 
@@ -84,9 +88,15 @@ Existing supervised journals at 48 or fewer requests require no migration. The
 legacy direct `AttemptJournal` transport remains compatible with 100 requests
 because its configure, two-events-per-request and stop shape fits exactly.
 
-Events cannot be appended over an unfinished attempt. There is no second persistence
-system or unbounded audit growth. Additional denials and restarts still consume the
-bounded lifecycle journal, and exhaustion fails closed explicitly.
+The journal's single append invariant forbids sequence 203 or higher. Before a
+supervised request reservation or attempt can start, the same owner requires enough
+remaining capacity for the attempt result, admitted-or-denied lifecycle outcome and
+terminal `stop`/`broker_stop` accounting. Prior denials, starts or other lifecycle
+noise therefore cannot strand a source attempt beyond the authenticated bound. If
+that noise has consumed the required reserve, the broker reports `blocked` before
+worker creation or source I/O, appends no partial request/attempt, and leaves a valid
+reopenable chain with terminal capacity intact. Supported budget paths retain every
+required audit event; there is no second persistence system or unbounded audit growth.
 
 Events retain timestamps, the configuration/grant binding, hashed caller, request,
 version and observation-set identities. Denials retain a hash of the fixed stage:

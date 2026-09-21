@@ -119,6 +119,12 @@ new acquisition remain blocked; an operator signature cannot resolve that
 technical state. This limitation remains relevant to any proposed pilot and
 must be accepted or closed by a separately scoped recovery design.
 
+A terminal stop may be appended for containment after the interruption, but it
+does not change the verified-chain conclusion: the journal is both stopped and
+the unmatched attempt remains pending/uncertain. Restart checks the entire chain,
+not merely its final event, and still denies. No stop record is a completion,
+refund, replay instruction or evidence of a source outcome.
+
 That separate design must not clear or refund the attempt, replay its request, or
 infer success from an operator assertion. A reconciliation record would need to
 bind the exact journal head, attempt sequence, request and receipt identities,
