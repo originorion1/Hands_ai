@@ -1,11 +1,63 @@
 {
-  "scope": "Repository-wide source inventory; critical-path audit, not independent certification",
+  "schema_version": 2,
+  "inventory_revision": "7b86e6366159911352f0def5c6253016b69f679d",
+  "scope": "All tracked Python files under src/ and tools/ at inventory_revision",
+  "selection_rules": {
+    "tracked_roots": [
+      "src",
+      "tools"
+    ],
+    "suffix": ".py",
+    "source": "the Git tree identified by inventory_revision"
+  },
   "dependency_head": "8dc0c0cb8a72bde2907c547b25b7297aa7f027ec",
+  "dependency_head_role": "Historical dependency head retained from the original critical-path review provenance; it is neither the inventory target nor evidence that later files were reviewed.",
+  "inventory_coverage": {
+    "attests": [
+      "selected_tracked_path_completeness",
+      "sha256_blob_identity",
+      "top_level_definition_inventory"
+    ],
+    "statement": "At inventory_revision, files contains every path selected by selection_rules and records each selected blob digest and source-ordered top-level class/function definition."
+  },
+  "review_coverage": {
+    "attests_file_level_review": false,
+    "independent_exact_head_review_required": true,
+    "statement": "Inventory membership proves no file-level, security, architecture, or independent review. Historical review evidence retains its original scope; omitted files added here are inventory-corrected, not retrospectively reviewed."
+  },
+  "verification": {
+    "shallow_ci": "python3 scripts/verify_live_pilot_source_inventory.py --repository .",
+    "full_history_exact_revision": "python3 scripts/verify_live_pilot_source_inventory.py --repository . --revision 7b86e6366159911352f0def5c6253016b69f679d"
+  },
   "files": [
     {
       "file": "src/orion/__init__.py",
       "sha256": "afd854810b5011b6e625d3d06e24a3790f1d1c6804b04ae8446a1a5d96b10a47",
       "symbols": []
+    },
+    {
+      "file": "src/orion/business/__init__.py",
+      "sha256": "34154aa98a42a69f54d5856d5be1781e99fcc11e06bf9c1eed691b67874019f0",
+      "symbols": []
+    },
+    {
+      "file": "src/orion/business/coverage.py",
+      "sha256": "607c67f86d9ff7183e6b51598324fe954929aafba548b0d38819eb8ca8ab72b8",
+      "symbols": [
+        "manifest_digest",
+        "review_coverage"
+      ]
+    },
+    {
+      "file": "src/orion/business/fnb.py",
+      "sha256": "cc9d10890939d37283b6eb7e762ad64854ff1e9f761876c6cbbef996f89bdcb2",
+      "symbols": [
+        "_rule",
+        "_json",
+        "assess_restaurant",
+        "_assess_restaurant",
+        "owner_report"
+      ]
     },
     {
       "file": "src/orion/contracts.py",
@@ -461,13 +513,14 @@
     },
     {
       "file": "src/orion/discovery/pilot_metadata.py",
-      "sha256": "c232e21145c677cc573696a39f87cb241ca925aacdfecc0ef6dfd0dec7dd0c57",
+      "sha256": "4b0c3fc07bba162485c6ef09a787f876fc03a747f41dcc1770853225f5c81218",
       "symbols": [
         "MetadataRequest",
         "MetadataTarget",
         "MetadataAuthorization",
         "ScopeProposal",
         "MetadataDiscovery",
+        "_metadata_guard",
         "launch_pilot_metadata",
         "_freeze"
       ]
@@ -802,8 +855,15 @@
       "symbols": []
     },
     {
+      "file": "src/orion/pilot/boundary_report.py",
+      "sha256": "06feb31007fe368b178a62c11c367b68fb04844f09bc9155b8514dd87b7f8b32",
+      "symbols": [
+        "boundary_report"
+      ]
+    },
+    {
       "file": "src/orion/pilot/broker.py",
-      "sha256": "98fad1c19deeccf06137478cceb3fb180603a460d08ac3d319d989c03e12c09e",
+      "sha256": "db49e69ecf648259111c0441bcbc067d20b208efeefaac1096e737b2691c4a69",
       "symbols": [
         "Broker",
         "main"
@@ -811,7 +871,7 @@
     },
     {
       "file": "src/orion/pilot/broker_contract.py",
-      "sha256": "0c729e39d548f71be3a97f9ed7c07b166fb90a625c5e90f0ee2c435ac81b7c2a",
+      "sha256": "1175541a9d5d3470d715eac5a57af8cf081ca47391f340fa1c8b598c9bb4e984",
       "symbols": [
         "digest",
         "authenticate",
@@ -820,12 +880,23 @@
         "request_from",
         "grant_from",
         "private_bytes",
-        "observations_from"
+        "observations_from",
+        "validate_field_classifications",
+        "metadata_request_from",
+        "metadata_grant_from"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/broker_metadata.py",
+      "sha256": "17ed45ccb5b441c06b40e79e92c719466eb9d61057f12704a7fc82c4df1e21f5",
+      "symbols": [
+        "proposal_from",
+        "acquire_metadata"
       ]
     },
     {
       "file": "src/orion/pilot/broker_worker.py",
-      "sha256": "cd5a892c5535ca1c10bc56c60fa5a4b5196e6cfb75e57e5dc455267cad235a9d",
+      "sha256": "8b120bde3515ca0d834406dff9243fd821e0fd6b3606110cf2022b432e58d410",
       "symbols": [
         "acquire",
         "authenticated_acquire",
@@ -1084,6 +1155,51 @@
       ]
     },
     {
+      "file": "tools/broker_namespace_probe.py",
+      "sha256": "2997501e65f1af0c1be51ddf701fa460321420c2dfa3d92ef2c622f690ed15be",
+      "symbols": [
+        "run"
+      ]
+    },
+    {
+      "file": "tools/confined_https_broker_probe.py",
+      "sha256": "55e2b3e08e574cd3b834bed107246db1ffaa24a378774eee555edc747493e256",
+      "symbols": [
+        "valid_report",
+        "_run_fixture",
+        "run"
+      ]
+    },
+    {
+      "file": "tools/isolated_broker_probe.py",
+      "sha256": "bdaa9e2d6e3b6cefd8712f0c295cb8e37114b6b04830332af3238b9dce3bf99b",
+      "symbols": [
+        "run"
+      ]
+    },
+    {
+      "file": "tools/isolated_https_broker_probe.py",
+      "sha256": "ad6da01d53896785c7e623438b6261b2b374c471aff29052369cda697dc25ec1",
+      "symbols": []
+    },
+    {
+      "file": "tools/kernel_destination_https_probe.py",
+      "sha256": "7e3370f0c01b36bd9999e13855b0c7bdeba2112f84a4cb5e4eea251354de218c",
+      "symbols": [
+        "true_checks",
+        "valid_case",
+        "valid_report",
+        "run"
+      ]
+    },
+    {
+      "file": "tools/local_https_broker_probe.py",
+      "sha256": "b9b4dd66afb92abc85410833e477b78c60ec73fbb0aa6230a44fc5f178127ada",
+      "symbols": [
+        "run"
+      ]
+    },
+    {
       "file": "tools/orion_lab.py",
       "sha256": "6625141b31b8c695fb86df52682f98def1bdc6576d6ce0acd109241bdffaf13b",
       "symbols": [
@@ -1102,6 +1218,20 @@
         "render_report",
         "parser",
         "main"
+      ]
+    },
+    {
+      "file": "tools/pilot_isolation_probe.py",
+      "sha256": "688c4cc465d0901a918c5413bfaaa99084ee47762b2e974c86723aad49e8cc64",
+      "symbols": [
+        "run"
+      ]
+    },
+    {
+      "file": "tools/read_only_boundary_gate.py",
+      "sha256": "c7c96ad20afb7115ef69583be396833c494689f246e555ba7cc26d210acf2424",
+      "symbols": [
+        "run"
       ]
     },
     {

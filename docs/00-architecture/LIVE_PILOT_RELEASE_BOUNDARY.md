@@ -4,11 +4,16 @@
 
 **NOT_LIVE_PILOT_READY.** This tree must not touch a real organization.
 
-The source inventory covers every production Python module. The accompanying
-`LIVE_PILOT_GAP_MATRIX.json` maps 34 architectural areas to implementation,
-source evidence, risk, missing primitives, required changes/tests and live status.
-This is a repository-wide inventory plus critical-path implementation audit,
-not an independent full-code penetration test or a certification.
+The corrected source inventory accounts for every tracked `src/**/*.py` and
+`tools/**/*.py` blob and its top-level definitions at exact revision
+`7b86e6366159911352f0def5c6253016b69f679d`. Inventory membership is not
+file-level review: files omitted by the earlier artifact are not retroactively
+treated as reviewed, and exact-head independent review remains required. The
+accompanying `LIVE_PILOT_GAP_MATRIX.json` maps 34 architectural areas to
+implementation, source evidence, risk, missing primitives, required changes/tests
+and live status. This is a repository-wide inventory plus critical-path
+implementation audit, not an independent full-code penetration test or a
+certification.
 
 The audited stack is PR130 above PR128 above laboratory head 40c02b3. Historical
 window PR124 is already a dependency of PR128. Prediction/outcome code is in

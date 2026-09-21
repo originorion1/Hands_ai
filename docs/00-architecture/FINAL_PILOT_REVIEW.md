@@ -58,9 +58,14 @@ not pretend otherwise. No live integration is exercised.
 
 ## Repository and architecture assessment
 
-The updated source inventory covers all production/tool Python modules. The
-34-requirement gap matrix records implementation evidence and unresolved pilot
-constraints. Entrypoints are local demos, legacy discovery/study CLIs, offline
+The corrected source inventory accounts for every tracked `src/**/*.py` and
+`tools/**/*.py` blob and its top-level definitions at exact revision
+`7b86e6366159911352f0def5c6253016b69f679d`. This is inventory completeness,
+not evidence that every listed file received file-level or independent review;
+the original critical-path review scope is unchanged, and exact-head independent
+review remains required. The 34-requirement gap matrix records implementation
+evidence and unresolved pilot constraints. Entrypoints are local demos, legacy
+discovery/study CLIs, offline
 proposal composition, semantic verification and the denying readiness CLI.
 SQLite stores implement legacy historical evidence and study checkpoints, not a
 production semantic admission archive or protected authorization service.
