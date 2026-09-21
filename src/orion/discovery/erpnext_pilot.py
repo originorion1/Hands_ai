@@ -17,11 +17,12 @@ class PilotAdapterReadError(ValueError):
 
 
 class ERPNextPilotReader:
-    def __init__(self, *, source_id, api_key, api_secret, opener=None):
+    def __init__(self, *, source_id, api_key, api_secret, opener=None, journal=None):
         self._source_id = _normalize_base_url(source_id)
         self._api_key = api_key
         self._api_secret = api_secret
         self._opener = opener
+        self._journal = journal
 
     @property
     def source_id(self):
@@ -56,7 +57,7 @@ class ERPNextPilotReader:
                 raise ValueError('encoded request differs from authorized read')
             permit.bind_wire(http_request)
             return open_pilot_read(http_request, permit=permit, timeout=timeout,
-                                   opener=self._opener)
+                                   opener=self._opener, journal=self._journal)
 
         adapter = ERPNextHistoricalSampleAdapter(
             base_url=self._source_id, tenant_id=request.tenant_id,

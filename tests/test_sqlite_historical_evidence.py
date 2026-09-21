@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import UTC, datetime
 
@@ -10,8 +11,10 @@ from orion.history.evidence import (
     HistoricalEvidenceIntegrityError,
     HistoricalEvidenceSequenceError,
 )
+from orion.stores import sqlite_historical_evidence
 from orion.stores.sqlite_historical_evidence import (
     SQLiteHistoricalEvidenceStore,
+    ensure_private_storage_directory,
 )
 
 
@@ -43,6 +46,110 @@ def test_sqlite_round_trip_and_reopen(tmp_path):
     assert SQLiteHistoricalEvidenceStore(path).load_all(
         tenant_id="customer-a", resource="Purchase Invoice"
     ) == (original,)
+
+
+def test_sqlite_creates_owner_only_database(tmp_path):
+    path = tmp_path / "historical.sqlite3"
+
+    SQLiteHistoricalEvidenceStore(path)
+
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+def test_sqlite_rejects_unsafe_existing_database_mode(tmp_path, read_only):
+    path = tmp_path / "historical.sqlite3"
+    SQLiteHistoricalEvidenceStore(path)
+    path.chmod(0o640)
+
+    with pytest.raises(ValueError, match="owner-only"):
+        SQLiteHistoricalEvidenceStore(path, read_only=read_only)
+
+
+def test_sqlite_rejects_unsafe_parent_before_file_creation(tmp_path):
+    parent = tmp_path / "shared"
+    parent.mkdir(mode=0o755)
+    parent.chmod(0o755)
+    path = parent / "historical.sqlite3"
+
+    with pytest.raises(ValueError, match="parent directory must be owner-only"):
+        SQLiteHistoricalEvidenceStore(path)
+
+    assert not path.exists()
+
+
+def test_private_directory_creation_rejects_existing_unsafe_mode_without_changing_it(
+    tmp_path,
+):
+    parent = tmp_path / "shared"
+    parent.mkdir(mode=0o755)
+    parent.chmod(0o755)
+
+    with pytest.raises(ValueError, match="parent directory must be owner-only"):
+        ensure_private_storage_directory(parent, create=True)
+
+    assert parent.stat().st_mode & 0o777 == 0o755
+
+
+def test_private_directory_creation_rejects_symlink_without_changing_target(tmp_path):
+    target = tmp_path / "shared"
+    target.mkdir(mode=0o755)
+    target.chmod(0o755)
+    symlink = tmp_path / "state"
+    symlink.symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="parent directory must be owner-only"):
+        ensure_private_storage_directory(symlink, create=True)
+
+    assert target.stat().st_mode & 0o777 == 0o755
+
+
+def test_sqlite_rejects_foreign_parent_owner(tmp_path, monkeypatch):
+    path = tmp_path / "historical.sqlite3"
+    SQLiteHistoricalEvidenceStore(path)
+    real_euid = os.geteuid()
+    monkeypatch.setattr(
+        sqlite_historical_evidence.os,
+        "geteuid",
+        lambda: real_euid + 1,
+    )
+
+    with pytest.raises(ValueError, match="parent directory must be owner-only"):
+        SQLiteHistoricalEvidenceStore(path)
+
+
+def test_sqlite_rejects_foreign_database_owner(tmp_path, monkeypatch):
+    path = tmp_path / "historical.sqlite3"
+    SQLiteHistoricalEvidenceStore(path)
+    real_euid = os.geteuid()
+    monkeypatch.setattr(
+        sqlite_historical_evidence,
+        "ensure_private_storage_directory",
+        lambda _path: None,
+    )
+    monkeypatch.setattr(
+        sqlite_historical_evidence.os,
+        "geteuid",
+        lambda: real_euid + 1,
+    )
+
+    with pytest.raises(ValueError, match="regular owner-only"):
+        SQLiteHistoricalEvidenceStore(path)
+
+
+@pytest.mark.parametrize("read_only", [False, True])
+def test_sqlite_rejects_symlink_and_hard_link_database(tmp_path, read_only):
+    target = tmp_path / "target.sqlite3"
+    SQLiteHistoricalEvidenceStore(target)
+    symlink = tmp_path / "symlink.sqlite3"
+    symlink.symlink_to(target)
+    hardlink = tmp_path / "hardlink.sqlite3"
+    os.link(target, hardlink)
+
+    with pytest.raises(ValueError, match="regular owner-only"):
+        SQLiteHistoricalEvidenceStore(symlink, read_only=read_only)
+    with pytest.raises(ValueError, match="one link"):
+        SQLiteHistoricalEvidenceStore(hardlink, read_only=read_only)
 
 
 def test_sqlite_read_only_load_does_not_modify_database(tmp_path):
@@ -88,6 +195,7 @@ def test_sqlite_read_only_requires_expected_schema(tmp_path):
     path = tmp_path / "wrong-schema.sqlite3"
     connection = sqlite3.connect(path)
     connection.close()
+    path.chmod(0o600)
     database_bytes = path.read_bytes()
 
     with pytest.raises(sqlite3.OperationalError, match="schema is missing"):

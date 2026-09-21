@@ -1,0 +1,1247 @@
+{
+  "schema_version": 2,
+  "inventory_revision": "7b86e6366159911352f0def5c6253016b69f679d",
+  "scope": "All tracked Python files under src/ and tools/ at inventory_revision",
+  "selection_rules": {
+    "tracked_roots": [
+      "src",
+      "tools"
+    ],
+    "suffix": ".py",
+    "source": "the Git tree identified by inventory_revision"
+  },
+  "dependency_head": "8dc0c0cb8a72bde2907c547b25b7297aa7f027ec",
+  "dependency_head_role": "Historical dependency head retained from the original critical-path review provenance; it is neither the inventory target nor evidence that later files were reviewed.",
+  "inventory_coverage": {
+    "attests": [
+      "selected_tracked_path_completeness",
+      "sha256_blob_identity",
+      "top_level_definition_inventory"
+    ],
+    "statement": "At inventory_revision, files contains every path selected by selection_rules and records each selected blob digest and source-ordered top-level class/function definition."
+  },
+  "review_coverage": {
+    "attests_file_level_review": false,
+    "independent_exact_head_review_required": true,
+    "statement": "Inventory membership proves no file-level, security, architecture, or independent review. Historical review evidence retains its original scope; omitted files added here are inventory-corrected, not retrospectively reviewed."
+  },
+  "verification": {
+    "working_tree_exact_snapshot_only": "python3 scripts/verify_live_pilot_source_inventory.py --repository .",
+    "working_tree_scope": "Default working-tree verification is valid only when HEAD is the exact snapshot named by inventory_revision; it refuses descendant commits rather than treating later legitimate sources as historical omissions.",
+    "descendant_shallow_ci": "Descendant CI uses deterministic miniature-Git-repository fixtures and omission/hash/symbol failure tests; it does not compare the descendant source tree with this historical inventory.",
+    "full_history_exact_revision": "python3 scripts/verify_live_pilot_source_inventory.py --repository . --revision 7b86e6366159911352f0def5c6253016b69f679d"
+  },
+  "files": [
+    {
+      "file": "src/orion/__init__.py",
+      "sha256": "afd854810b5011b6e625d3d06e24a3790f1d1c6804b04ae8446a1a5d96b10a47",
+      "symbols": []
+    },
+    {
+      "file": "src/orion/business/__init__.py",
+      "sha256": "34154aa98a42a69f54d5856d5be1781e99fcc11e06bf9c1eed691b67874019f0",
+      "symbols": []
+    },
+    {
+      "file": "src/orion/business/coverage.py",
+      "sha256": "607c67f86d9ff7183e6b51598324fe954929aafba548b0d38819eb8ca8ab72b8",
+      "symbols": [
+        "manifest_digest",
+        "review_coverage"
+      ]
+    },
+    {
+      "file": "src/orion/business/fnb.py",
+      "sha256": "cc9d10890939d37283b6eb7e762ad64854ff1e9f761876c6cbbef996f89bdcb2",
+      "symbols": [
+        "_rule",
+        "_json",
+        "assess_restaurant",
+        "_assess_restaurant",
+        "owner_report"
+      ]
+    },
+    {
+      "file": "src/orion/contracts.py",
+      "sha256": "98fb0bb84f41eee6729ea8127a5e225b598738472412e528e013f8c1b3cc886d",
+      "symbols": [
+        "utc_now",
+        "EvidenceKind",
+        "ObservationMode",
+        "Evidence",
+        "Observation",
+        "ProposedAction",
+        "Outcome",
+        "ShadowResult"
+      ]
+    },
+    {
+      "file": "src/orion/demo.py",
+      "sha256": "3e5080b7bf4f69bf03b42ace3b73dc6307f1bab85a476bd3197b416bf8c53281",
+      "symbols": [
+        "DemoReport",
+        "_MockResponse",
+        "_mock_erpnext_opener",
+        "run_mock_erpnext_shadow_demo",
+        "_StaticDiscoverySource",
+        "_validate",
+        "_ensure_shadow_only"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/autonomous_study.py",
+      "sha256": "935e7ab4541ace366ad27df3fa2ffe249405acb05d3d41f139b72b4205b91a60",
+      "symbols": [
+        "AutonomousStudyError",
+        "AutonomousStudyStopReason",
+        "AutonomousStudyLimits",
+        "AutonomousStudyReport",
+        "AutonomousStudyProgress",
+        "_report",
+        "run_autonomous_study"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/bound.py",
+      "sha256": "8073651ed8a4d4a46f3345ec03afabf3bf4e4dfab9dbfdee55fdc6e7a9ffc4d1",
+      "symbols": [
+        "BoundReadOnlyDiscoveryAdapter"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/checkpoint.py",
+      "sha256": "ab8a14f28fd0804731e7b0c67a9a9dcf4a6ac9f11c77d78c1f6cd4f3bd8088f2",
+      "symbols": [
+        "StudyCheckpointError",
+        "StudyCheckpointIntegrityError",
+        "StudyCheckpointConflictError",
+        "StudyCheckpointSequenceError",
+        "StudyCheckpoint",
+        "StudyCheckpointStore",
+        "_field_payload",
+        "_entity_payload",
+        "checkpoint_to_json",
+        "checkpoint_checksum",
+        "_require_mapping",
+        "_require_exact_keys",
+        "_require_string",
+        "_optional_string",
+        "_require_bool",
+        "_decode_field",
+        "_decode_entity",
+        "_decode_string_list",
+        "checkpoint_from_json"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/demo_adapter.py",
+      "sha256": "70d1d7d0cdb73549921fc8dfdf164835a318ecc7c9b12f92389d97d0a219578d",
+      "symbols": [
+        "DemoDiscoveryAdapter"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_adapter.py",
+      "sha256": "202c92023c195d2cf5feee40cc077514f90b4a26d304679de18d5bb0fca644ed",
+      "symbols": [
+        "_default_opener",
+        "_normalize_base_url",
+        "_require_non_empty",
+        "_require_bounded_int",
+        "_validate_resource",
+        "ERPNextDiscoveryAdapter"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_bounded_trial.py",
+      "sha256": "7e1bf5e6765f596c95cee6b568bad8c388a4cf7d27884faacb3e4f40abe7db92",
+      "symbols": [
+        "BoundedTrialError",
+        "BoundedTrialReadinessReport",
+        "BoundedTrialRunReport",
+        "_TrialInputs",
+        "_load_candidate",
+        "_trial_inputs",
+        "_TrialLedger",
+        "inspect_bounded_trial_readiness",
+        "_result",
+        "run_bounded_trial",
+        "bounded_trial_report_json",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_company_record_evidence.py",
+      "sha256": "d69725847477a00f6f22796d3b325110f8144fc1edd2b81f2ad14e6df40ecde1",
+      "symbols": [
+        "run_erpnext_company_record_evidence"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_company_record_sample.py",
+      "sha256": "c99cd9f92ddd02e32f02af0139c6cd23a9865e52a16893d1b6fcd2e9d03df224",
+      "symbols": [
+        "ERPNextCompanyRecordSampleError",
+        "ERPNextCompanyRecordSampleAdapter"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_governed_record_evidence.py",
+      "sha256": "f420303230daf938305300ca9f88badea617e572b23e44dc72beeda9acd7a5cc",
+      "symbols": [
+        "run_erpnext_submitted_company_record_evidence"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_historical_capture.py",
+      "sha256": "0917aa888380ec84cb2a6da1ccda5bb91211e8c9e4612be0a78852c5a4152c72",
+      "symbols": [
+        "ERPNextHistoricalCaptureConfig",
+        "ERPNextHistoricalCaptureSummary",
+        "default_historical_evidence_path",
+        "capture_erpnext_historical_sample",
+        "_default_state_root",
+        "_ensure_state_directory",
+        "_reject_repository_destination",
+        "_repository_root"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_historical_corpus_expansion.py",
+      "sha256": "7c1733fef775a464b9b8230d97b17ec826292965bda190ab16f240165e5d9fd6",
+      "symbols": [
+        "_ERPNextPurchaseInvoiceCorpusAdapter",
+        "ERPNextHistoricalCorpusExpansionSummary",
+        "_UnseenCorpusSource",
+        "expand_erpnext_historical_corpus"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_historical_expansion.py",
+      "sha256": "e5bc3e6ffb1819ebf3cbdf05d17c587fc37a0ae622c6ef0799fc16d6ac735624",
+      "symbols": [
+        "ERPNextHistoricalExpansionConfig",
+        "ERPNextHistoricalExpansionSummary",
+        "_UnseenHistoricalSource",
+        "expand_erpnext_historical_sample",
+        "_is_verified_first_state",
+        "_validate_history_unique"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_historical_sample.py",
+      "sha256": "1c80b56bcbf97f9802b6bc0e717654e08e1cec2542e95f89dd2ca6599539ab3d",
+      "symbols": [
+        "ERPNextHistoricalSampleError",
+        "_validate_field_name",
+        "_validate_order_by",
+        "ERPNextHistoricalSampleAdapter"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_identity_record_evidence.py",
+      "sha256": "9242c2e7d3d543b5c529f3c7e49770b31617290cc2fdcdfbe3d1ac139aedec4b",
+      "symbols": [
+        "run_erpnext_identity_record_evidence"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_identity_record_sample.py",
+      "sha256": "340f9792d1e3c9a777dc3ed99a6fbdcfa8cc4882ae9915b4c17a1e66bdeb0d06",
+      "symbols": [
+        "ERPNextIdentityRecordSampleError",
+        "_validate_record_identity",
+        "ERPNextIdentityRecordSampleAdapter"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_learning_comparison.py",
+      "sha256": "0809c5c699dd8260938cc1ac2f5b672444fcca0ab67d95601d83f8caafe3cb32",
+      "symbols": [
+        "LearningComparisonError",
+        "_digest",
+        "_json_digest",
+        "_private_json",
+        "ComparisonInputs",
+        "_paths",
+        "_historical_rows",
+        "_lineage",
+        "_report",
+        "_state",
+        "_coverage",
+        "_identities",
+        "_baseline",
+        "ComparisonPolicy",
+        "prepare_comparison_manifest",
+        "_validate_manifest",
+        "_ComparisonLedger",
+        "inspect_learning_comparison_readiness",
+        "_ComparisonMetrics",
+        "run_learning_comparison",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_live_session.py",
+      "sha256": "91066cc9de09502348c9d97767a0f89a5ea39237b7e6128e3093fa5cb3206a18",
+      "symbols": [
+        "LiveSessionError",
+        "LiveSessionStorageError",
+        "_PreflightTermination",
+        "_PreflightDuration",
+        "_safe_text",
+        "_tokens",
+        "_reject_sensitive_name",
+        "is_sensitive_metadata_name",
+        "ERPNextCompanyAuthorization",
+        "ReviewedMetadataScope",
+        "CredentialEnvironmentReferences",
+        "_ResolvedCredentials",
+        "LiveSessionLimits",
+        "ERPNextLiveSessionConfig",
+        "LiveSessionReadinessReport",
+        "LiveSessionRunReport",
+        "_validate_report_authority",
+        "_validate_exact_integer_fields",
+        "_AuthorizedCompanyEvidenceStore",
+        "_MetadataReadBudget",
+        "_CompanyScheduler",
+        "inspect_live_session_readiness",
+        "run_erpnext_live_session",
+        "_validate_reviewed_understanding",
+        "derive_metadata_scope_candidate",
+        "_is_safe_study_field",
+        "_structural_study_intent",
+        "_study_intent",
+        "_study_authorization",
+        "_persist_understanding_checkpoint",
+        "_metadata_checkpoint_path",
+        "_read_clock",
+        "_read_monotonic",
+        "_empty_run_report",
+        "_run_report_from_soak",
+        "live_session_report_json",
+        "_write_report",
+        "_validate_configured_paths",
+        "_validate_absolute_path",
+        "_reject_symlink_path",
+        "_nearest_existing_parent",
+        "_destination_ready",
+        "_prepare_destinations",
+        "_validate_storage_file",
+        "_reject_storage_role_collision",
+        "_enforce_private_file",
+        "live_session_config_from_environment",
+        "_unique_json_object",
+        "_TerminationLatch",
+        "_live_session_termination_signals",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_metadata_adapter.py",
+      "sha256": "a73f5fcbd8f1a19c75302de6d743eac63b6d14e56890ae040e8ace5daa5fefdd",
+      "symbols": [
+        "ERPNextMetadataAdapter"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_metadata_preflight.py",
+      "sha256": "2ddf451eb5c06347380ec5f54f90f0cb2e00edf50b90d7b082a624ddca65bf4b",
+      "symbols": [
+        "_validate_ledger_snapshot",
+        "MetadataPreflightError",
+        "MetadataPreflightBudgetError",
+        "_MetadataCatalogRetryRefused",
+        "_CategorizedPreflightError",
+        "_PreflightInterrupted",
+        "ERPNextMetadataPreflightConfig",
+        "ReviewedAdministratorCatalog",
+        "load_reviewed_administrator_catalog",
+        "MetadataPreflightReadinessReport",
+        "MetadataPreflightRunReport",
+        "MetadataCatalogRetryReport",
+        "_scope_digest",
+        "_admin_binding_digest",
+        "_ledger_path",
+        "_candidate_path",
+        "_retry_report_path",
+        "_permission_retry_report_path",
+        "_path_entry_exists",
+        "_RunLedger",
+        "_BudgetedOpener",
+        "_ConsolidatedBudgetedOpener",
+        "_SingleRetryOpener",
+        "_read_name_catalog",
+        "_metadata_target_failure_bucket",
+        "_contains_sensitive_embedded_value",
+        "_name_contains_sensitive_token",
+        "_write_private_json",
+        "_validated_candidate",
+        "_unique_json_object",
+        "metadata_preflight_config_from_environment",
+        "inspect_metadata_preflight_readiness",
+        "_run_report",
+        "metadata_preflight_report_json",
+        "_write_run_report",
+        "_existing_private_retry_ledger",
+        "_validated_company_permission_failure_report",
+        "_write_retry_report",
+        "_validated_permission_failure_report",
+        "_run_erpnext_doctype_catalog_retry_once",
+        "run_erpnext_doctype_catalog_retry_once",
+        "run_erpnext_doctype_catalog_permission_retry_once",
+        "run_erpnext_metadata_preflight",
+        "run_consolidated_reviewed_metadata",
+        "_AuthenticatedOpener",
+        "_TerminationLatch",
+        "_termination_signals",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_metadata_refresh.py",
+      "sha256": "3a76d0dc54f8303606877215b758fbfa7132803d87b373c7f7475787d09992e3",
+      "symbols": [
+        "MetadataRefreshTargetResult",
+        "MetadataRefreshReadinessReport",
+        "MetadataRefreshRunReport",
+        "_PriorState",
+        "_refresh_candidate_path",
+        "_refresh_report_path",
+        "_read_private_bytes",
+        "_validated_completion_report",
+        "_refresh_table_present",
+        "_validated_prior_state",
+        "_RefreshLedger",
+        "_RefreshBudgetedOpener",
+        "inspect_metadata_refresh_readiness",
+        "_report_json",
+        "run_metadata_refresh",
+        "_RefreshInterrupted",
+        "_TerminationLatch",
+        "_termination_signals",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_pilot.py",
+      "sha256": "d2bed470585457984a132db77741f13d0dfd4ca583d7ce297b187c1fb00e6106",
+      "symbols": [
+        "PilotAdapterReadError",
+        "ERPNextPilotReader"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_pilot_metadata.py",
+      "sha256": "febe5045ec990999260751c9cd1b7438d72c499325678c80ccf2a1f05519eb5c",
+      "symbols": [
+        "_CatalogLocation",
+        "ERPNextPilotMetadataReader"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_post_comparison.py",
+      "sha256": "a3303ad02780d04d0baa250b4eecdb1c590c8dd872ca8a0d696f2c1cc84a4ef7",
+      "symbols": [
+        "PostComparisonInputs",
+        "_historical_rows",
+        "_bound_json",
+        "_baseline",
+        "_PostMetrics",
+        "prepare_post_comparison_manifest",
+        "inspect_post_comparison_readiness",
+        "run_post_comparison",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_six_hour_continuation.py",
+      "sha256": "feb127e6a8e48c04f2782ede8ca891735d6e708a9ed972cb06de7403fd8f897f",
+      "symbols": [
+        "SixHourContinuationError",
+        "SixHourContinuationReadinessReport",
+        "SixHourContinuationRunReport",
+        "_ContinuationInputs",
+        "_continuation_inputs",
+        "_deserialize_private_database",
+        "_validate_trial_report",
+        "_validate_prior_evidence",
+        "_ContinuationLedger",
+        "inspect_six_hour_continuation_readiness",
+        "_result",
+        "run_six_hour_continuation",
+        "continuation_report_json",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/erpnext_study_router.py",
+      "sha256": "2aa878de812c2f5bd352a37139a6fd0751cc16c634cc14b794dd4701e105612d",
+      "symbols": [
+        "run_erpnext_governed_study"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/governed_runner.py",
+      "sha256": "efafd088e40244a6f3fbf564bea54d02322f2ead03cee4f9ea0d0c4882f68226",
+      "symbols": [
+        "GovernedDiscoveryError",
+        "GovernedDiscoveryItemResult",
+        "GovernedDiscoveryReport",
+        "_understood_targets",
+        "_known_provenance",
+        "_referenced_metadata_targets",
+        "preflight_governed_discovery",
+        "_validate_observations",
+        "run_governed_discovery"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/http_adapter.py",
+      "sha256": "dc90c31469489e7317ed9f94e18792777a30f43f4bea9ab2055801d5324e0e8f",
+      "symbols": [
+        "DiscoveryTransportError",
+        "_default_fetcher",
+        "ReadOnlyHttpDiscoveryAdapter"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/json_boundary.py",
+      "sha256": "895bfebd1ac04691a9051588747a74b7d37219952caf2df4367f4f2377ea88ac",
+      "symbols": [
+        "unique_json_object"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/pilot_metadata.py",
+      "sha256": "4b0c3fc07bba162485c6ef09a787f876fc03a747f41dcc1770853225f5c81218",
+      "symbols": [
+        "MetadataRequest",
+        "MetadataTarget",
+        "MetadataAuthorization",
+        "ScopeProposal",
+        "MetadataDiscovery",
+        "_metadata_guard",
+        "launch_pilot_metadata",
+        "_freeze"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/pilot_read.py",
+      "sha256": "bf8fc2979669224120973f9702f2602c3ce4ff3d60531e86ecd011e6c4646a1f",
+      "symbols": [
+        "_text",
+        "PilotAuthorization",
+        "PilotRequest",
+        "PilotReadPermit",
+        "PilotReader",
+        "_authorize",
+        "_admit",
+        "launch_pilot_read",
+        "_run_permitted_read"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/pilot_transport.py",
+      "sha256": "ed080ffabc6209d628390c7f5f4892e5b087bb165825b373d94f38de651cac3d",
+      "symbols": [
+        "open_pilot_read"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/pipeline.py",
+      "sha256": "d6d20ffcebb761343bfe03b38cd58a74ab5d70f1af0de9ad3a82a97df2f560e1",
+      "symbols": [
+        "DiscoverySource",
+        "DiscoveryPipelineResult",
+        "DiscoveryPipeline"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/planner.py",
+      "sha256": "5c00c333ece4d7a3c5f193dde80e0a061e9105f38d74b3e7b55da0644801b73c",
+      "symbols": [
+        "DiscoveryPlanError",
+        "DiscoveryTargetKind",
+        "DiscoveryAuthorization",
+        "DiscoveryPlanItem",
+        "DiscoveryPlan",
+        "validate_discovery_target",
+        "_merge_provenance",
+        "plan_authorized_discovery"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/projector.py",
+      "sha256": "79a4a06c7b6d6910d34a74b614f07073abd3a941a3458b699f86c0c9e05a4b6f",
+      "symbols": [
+        "project_observations"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/read_window.py",
+      "sha256": "00213fa0624fec1c204b4906470ee31066695dde18adbc25ac6fbb3fce26d0e0",
+      "symbols": [
+        "ReviewedReadWindow"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/resumable_study.py",
+      "sha256": "9fd34cfd4d8302250ff8af686714f3ded51c4e6ed63982b774306a315c523082",
+      "symbols": [
+        "ResumableStudySessionError",
+        "ResumableStudySessionResult",
+        "_utc_now",
+        "_merge_unique",
+        "run_resumable_study_session"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/retained_investigation_session.py",
+      "sha256": "22be8b58f8d864f2e3c4e30d190a7f574bbbef7158212b2f9a787877f8407ecb",
+      "symbols": [
+        "_recover_published_temporary",
+        "_artifact",
+        "_run_memory",
+        "run_retained_investigation",
+        "_disposition_prefix",
+        "_planned_artifact",
+        "run_retained_investigation_planner"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/runner.py",
+      "sha256": "fcf809a06fb5b138f7b7597962ddbc22b583e3543b7faf99fc298e5fa50ef7d2",
+      "symbols": [
+        "DiscoveryRun",
+        "DiscoveryRunner"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/snapshot.py",
+      "sha256": "8ef853c034219833876bd85db7ffe2e717e1a87ebc59021a32ac52d9278a1450",
+      "symbols": [
+        "DiscoveredObject",
+        "DiscoverySnapshot"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/study_cycle.py",
+      "sha256": "af6b6eb0696ccf387570d685ffcbcb8c69e4ab81a1467d9db441d5e84678a394",
+      "symbols": [
+        "StudyCycleResult",
+        "_subplan",
+        "run_study_cycle"
+      ]
+    },
+    {
+      "file": "src/orion/discovery/system_graph.py",
+      "sha256": "362448982af310448d8ad79798cd6b224ac84c4ea7ad41aca3c0d92da015d201",
+      "symbols": [
+        "GraphNode",
+        "SystemGraph"
+      ]
+    },
+    {
+      "file": "src/orion/history/__init__.py",
+      "sha256": "55271d5cb5700e93258e226f6259f42c47da5db183ae635474918e1f04d17a1e",
+      "symbols": []
+    },
+    {
+      "file": "src/orion/history/evidence.py",
+      "sha256": "ff68947f0c4c1c637afca30d6afc535a68504ce4632d1d883247a69ed0900fec",
+      "symbols": [
+        "HistoricalEvidenceError",
+        "HistoricalEvidenceConflictError",
+        "HistoricalEvidenceSequenceError",
+        "HistoricalEvidenceIntegrityError",
+        "HistoricalEvidenceStore",
+        "HistoricalEvidenceBatch",
+        "historical_evidence_to_json",
+        "historical_evidence_checksum",
+        "historical_evidence_from_json",
+        "_observation_to_data",
+        "_observation_from_data",
+        "_validate_tenant",
+        "_validate_resource_value",
+        "_validate_datetime",
+        "_validate_confidence",
+        "_validate_json_value",
+        "_normalize_json_value",
+        "_require_exact_keys",
+        "_datetime_from_data",
+        "_reject_json_constant"
+      ]
+    },
+    {
+      "file": "src/orion/history/sampling.py",
+      "sha256": "04c2bbaf4911118189b509896049869334f929f888eec708e09f3f9b07808a76",
+      "symbols": [
+        "HistoricalSampleSource",
+        "PersistedHistoricalSample",
+        "persist_historical_sample",
+        "_validate_scope",
+        "_validate_verified_history"
+      ]
+    },
+    {
+      "file": "src/orion/kernel.py",
+      "sha256": "40f6c114037d2ab77556643465ad54ace715fee46691f328eaf119569b3fa6a6",
+      "symbols": [
+        "TenantBoundaryViolation",
+        "OrionKernel"
+      ]
+    },
+    {
+      "file": "src/orion/knowledge/promotion.py",
+      "sha256": "4464cb90313e0f4104361bdfee13380c5635703b0fb92f96a8f86161b5f56c44",
+      "symbols": [
+        "KnowledgeEntry",
+        "KnowledgeStore"
+      ]
+    },
+    {
+      "file": "src/orion/learning/__init__.py",
+      "sha256": "468ecdb93b2e8c1c3def84df9451a4832cc8093560fa3dcbba86783303d0ee8c",
+      "symbols": []
+    },
+    {
+      "file": "src/orion/learning/autonomous_loop.py",
+      "sha256": "e79c9423a33fb536d9dd13698c8c5fb6c82d8964c41d08040393ac1620914824",
+      "symbols": [
+        "StudyStopReason",
+        "UnsupportedStudyCapabilityError",
+        "_target",
+        "_nonnegative_int",
+        "_finite",
+        "is_missing_evidence",
+        "_missing_evidence_gap",
+        "LearningObjective",
+        "EvidenceCoverage",
+        "AuthorizationEnvelope",
+        "StudyOpportunity",
+        "StudyIntent",
+        "AuthorizedStudyRequest",
+        "StudyOutcome",
+        "MetadataStudyState",
+        "LearningMemory",
+        "StudyRun",
+        "LearningCheckpoint",
+        "_understanding",
+        "_structural_relevance",
+        "discover_opportunities",
+        "generate_intent",
+        "authorize_intent",
+        "_canonical_coverage",
+        "run_autonomous_loop",
+        "_learn",
+        "_validate_outcome",
+        "resume_checkpoint"
+      ]
+    },
+    {
+      "file": "src/orion/learning/customer_patterns.py",
+      "sha256": "34d0bf1898b0240bdf2b53b7ec913defa831aea3469477e7959178f465810fc6",
+      "symbols": [
+        "SampleSufficiency",
+        "CustomerPatternSnapshot",
+        "project_customer_patterns",
+        "format_safe_pattern_summary",
+        "_validate_scope",
+        "_collect_text",
+        "_parse_date",
+        "_stats",
+        "_ordered_counts",
+        "_sufficiency"
+      ]
+    },
+    {
+      "file": "src/orion/learning/governed_record_evidence.py",
+      "sha256": "cbf4eb7b0d908cd1045be8b6b4bb75e4c64e6bb0ecafd94d5c7133d9afbc93e9",
+      "symbols": [
+        "GovernedEvidenceScopeError",
+        "_record_intent",
+        "validate_governed_record_observations",
+        "run_governed_record_evidence"
+      ]
+    },
+    {
+      "file": "src/orion/learning/investigation_disposition.py",
+      "sha256": "f4a07b16b8427553ca53f0643b27f8fb320f63f754b1991fa135be6e31e31459",
+      "symbols": [
+        "InvestigationDisposition",
+        "disposition_from_finding",
+        "disposition_to_json",
+        "disposition_from_json"
+      ]
+    },
+    {
+      "file": "src/orion/learning/offline_proposal.py",
+      "sha256": "fd6a04e4dca8988a4c65a0405110d0ae1c96e71557756b8171ed451a8917ac5b",
+      "symbols": [
+        "project_historical_learning_memory",
+        "project_historical_coverage",
+        "select_study_proposal",
+        "OfflineProposalReport",
+        "run_offline_proposal",
+        "canonical_historical_value",
+        "_existing_file",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/learning/retained_quality_investigation.py",
+      "sha256": "8ca059f7b6b88f490578b5cae704aa21ab61d4ddd53c44eb3769476213c36cb4",
+      "symbols": [
+        "RetainedFieldEvidence",
+        "MissingValueFinding",
+        "RetainedInvestigation",
+        "_scoped_fields",
+        "investigate_retained_missing_values"
+      ]
+    },
+    {
+      "file": "src/orion/learning/shadow_backtest.py",
+      "sha256": "46327c43f48e501b6fa53727bc99390681ef39133f1bb6907d407b318b43676a",
+      "symbols": [
+        "ShadowBacktestResult",
+        "run_shadow_backtest",
+        "format_safe_shadow_summary",
+        "_validate_history",
+        "_valid_text",
+        "_parse_date"
+      ]
+    },
+    {
+      "file": "src/orion/learning/shadow_soak.py",
+      "sha256": "acb98e91aa7f253edcd498e55cdaa4e5eed06f058fd708f2288f41cde884b8b6",
+      "symbols": [
+        "ShadowSoakStopReason",
+        "ShadowSoakSessionEnvelope",
+        "ShadowSoakReport",
+        "ShadowSoakEvidenceStore",
+        "_ValidatedObservationSource",
+        "_PersistenceFailure",
+        "_ReaderContractFailure",
+        "_StopBeforeRead",
+        "_SingleReadPermit",
+        "_VerifiedEvidenceSink",
+        "run_autonomous_shadow_soak",
+        "_select_authorized_opportunity",
+        "_load_current_memory",
+        "_load_current_coverage",
+        "_has_meaningful_evidence_change",
+        "_validate_runtime_inputs",
+        "_read_clock",
+        "_read_monotonic",
+        "_verified_sink_observation_count",
+        "_validate_study_outcome",
+        "_reconcile_failed_append"
+      ]
+    },
+    {
+      "file": "src/orion/learning/study_capability.py",
+      "sha256": "0294605b95a95e32e066760d00d64eaa6ab06100b2b616dd811506b3c198b5c7",
+      "symbols": [
+        "StudyCapability",
+        "_exact_entity",
+        "derive_study_capability",
+        "run_routed_governed_record_evidence",
+        "run_governed_study_cycles"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/__init__.py",
+      "sha256": "8b72ffb3a14a0b0356e6d4c214e41d4434c05bc35755af7c125f602a36cc8191",
+      "symbols": []
+    },
+    {
+      "file": "src/orion/pilot/boundary_report.py",
+      "sha256": "06feb31007fe368b178a62c11c367b68fb04844f09bc9155b8514dd87b7f8b32",
+      "symbols": [
+        "boundary_report"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/broker.py",
+      "sha256": "db49e69ecf648259111c0441bcbc067d20b208efeefaac1096e737b2691c4a69",
+      "symbols": [
+        "Broker",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/broker_contract.py",
+      "sha256": "1175541a9d5d3470d715eac5a57af8cf081ca47391f340fa1c8b598c9bb4e984",
+      "symbols": [
+        "digest",
+        "authenticate",
+        "exact",
+        "decode",
+        "request_from",
+        "grant_from",
+        "private_bytes",
+        "observations_from",
+        "validate_field_classifications",
+        "metadata_request_from",
+        "metadata_grant_from"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/broker_metadata.py",
+      "sha256": "17ed45ccb5b441c06b40e79e92c719466eb9d61057f12704a7fc82c4df1e21f5",
+      "symbols": [
+        "proposal_from",
+        "acquire_metadata"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/broker_worker.py",
+      "sha256": "8b120bde3515ca0d834406dff9243fd821e0fd6b3606110cf2022b432e58d410",
+      "symbols": [
+        "acquire",
+        "authenticated_acquire",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/budgeted_transport.py",
+      "sha256": "879cfaf70944ff7e618f6fd77f325fd087a005905a23ac27c5441ea18a2f8924",
+      "symbols": [
+        "open_budgeted_read",
+        "_Response"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/journal.py",
+      "sha256": "493871e558f57fddec0eaeedd0f7f1bc6b196da95697042e7fe70621d1a9f907",
+      "symbols": [
+        "JournalDenied",
+        "TransportLimits",
+        "_json",
+        "grant_digest",
+        "AttemptJournal"
+      ]
+    },
+    {
+      "file": "src/orion/pilot/readiness.py",
+      "sha256": "12afb6ef419254df7839baa3b5587b804748ed24cb66fe34ec12f048b8d2e479",
+      "symbols": [
+        "GateStatus",
+        "PilotConfig",
+        "load_config",
+        "release_report",
+        "start_pilot",
+        "main"
+      ]
+    },
+    {
+      "file": "src/orion/ports.py",
+      "sha256": "5cfeff9e10c1f370b7388b2aad86e311cfe8912a5a11ac424ca2c14a37324314",
+      "symbols": [
+        "DiscoveryAdapter",
+        "EvidenceStore",
+        "ShadowExecutor"
+      ]
+    },
+    {
+      "file": "src/orion/prototype.py",
+      "sha256": "da974c9a7650a1fd11e815b1b78a15066cc9e95b48805293620cdf5cc76c2a1c",
+      "symbols": [
+        "PrototypeReport",
+        "PrototypeRunner",
+        "_node_from_observation",
+        "StaticObservationAdapter"
+      ]
+    },
+    {
+      "file": "src/orion/shadow/decision.py",
+      "sha256": "f34adf0a1f204c00d33f87ab4100e9f12b13af90b7572e0e07cfcd23f68dbf92",
+      "symbols": [
+        "ShadowDecision",
+        "propose_from_knowledge"
+      ]
+    },
+    {
+      "file": "src/orion/shadow/semantic_review.py",
+      "sha256": "16b02a31fd97721e1583dd0fc58213d5ab41f5f83a5495619d6cbe4022bc9571",
+      "symbols": [
+        "SemanticReview",
+        "review_semantic_study"
+      ]
+    },
+    {
+      "file": "src/orion/stores/__init__.py",
+      "sha256": "b45af36d48251827c38a7b37994393a7decbede90f07a48d7d6f80397b283489",
+      "symbols": []
+    },
+    {
+      "file": "src/orion/stores/memory.py",
+      "sha256": "ef6e569e47365adcb3d8cf8547ac9a8a9fb3f85ed831000cc3a8b277e3f8aa02",
+      "symbols": [
+        "InMemoryEvidenceStore"
+      ]
+    },
+    {
+      "file": "src/orion/stores/sqlite_checkpoint.py",
+      "sha256": "461d8a1910dccf04f6dae352d2188308264b1aa4f821ce695c80d56ffe0996fe",
+      "symbols": [
+        "SQLiteStudyCheckpointStore"
+      ]
+    },
+    {
+      "file": "src/orion/stores/sqlite_historical_evidence.py",
+      "sha256": "b8b2d71c407d4b8e2a623091b5bb625cd7de7f789e36622aba91b1a14f938630",
+      "symbols": [
+        "SQLiteHistoricalEvidenceStore",
+        "_validate_query_scope"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/__init__.py",
+      "sha256": "c5a3830b93e66c327fb61214e47066382bd184aa58931b2cc3ae09df0941d221",
+      "symbols": []
+    },
+    {
+      "file": "src/orion/understanding/graph.py",
+      "sha256": "7f54dd4ad61b2bfd9ec30c854205abcb95be4e2a7fb0bcd1e148c6608879174f",
+      "symbols": [
+        "utc_now",
+        "NodeType",
+        "RelationshipType",
+        "GraphStatus",
+        "GraphNode",
+        "GraphRelationship",
+        "GraphQuery",
+        "GraphPath",
+        "GraphInvariantError",
+        "GraphStore",
+        "project_observations"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/hypotheses.py",
+      "sha256": "02105768a19718dc82819aa0cc9e8c81232b09091bac0c4425de94aef5091a6d",
+      "symbols": [
+        "Hypothesis",
+        "generate_hypotheses"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/inference.py",
+      "sha256": "52a0985215ec0438c756652920acd307cf744280352d21376e813bc9ad1c4374",
+      "symbols": [
+        "HypothesisStatus",
+        "InferenceEvidence",
+        "RelationshipHypothesis",
+        "RelationshipInferenceEngine"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/metadata.py",
+      "sha256": "ef32b8e57fdf294fa8c40bf3d4be049f9283a2df343bee8e45c207895064b69d",
+      "symbols": [
+        "MetadataUnderstandingError",
+        "StructuralField",
+        "StructuralEntity",
+        "MetadataUnderstanding",
+        "is_collection_relationship",
+        "relationship_target",
+        "MetadataProjectionReport",
+        "_optional_string",
+        "_flag",
+        "_extract_docs",
+        "_parse_fields",
+        "_parse_entity",
+        "_entity_signature",
+        "build_metadata_understanding",
+        "merge_metadata_understandings",
+        "_stable_id",
+        "_schema_key",
+        "_field_key",
+        "project_metadata_understanding"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/process_checkpoint.py",
+      "sha256": "5ad52db6858604c7b30642ae118899802dadb463b4678fa8e83bb44183cc39fa",
+      "symbols": [
+        "checkpoint_process",
+        "restore_process"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/process_roles.py",
+      "sha256": "1f0ffd08164ee721ddc4edf512f4cf33cc960f499e814e865d8485a724cb0893",
+      "symbols": [
+        "TraceProtocol",
+        "ProcessRoleStudy"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/role_checkpoint.py",
+      "sha256": "678deef8d412a990203a09ed0742cf7edf71d741f700ce9cfbd738474713fc54",
+      "symbols": [
+        "_plain",
+        "_json",
+        "_observation_digest",
+        "_scope_digest",
+        "checkpoint_sha256",
+        "checkpoint_study",
+        "restore_study"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/role_study.py",
+      "sha256": "e2965c29eaa226cd1ac86b6738cfe77d70177a45c444e0ccfcc8fb764f92407b",
+      "symbols": [
+        "RoleClaim",
+        "ObservationRequirement",
+        "RoleStudy"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/schema_evidence.py",
+      "sha256": "60091fa9191346cd3c1131c38ab4bfcc48d4baf2d9ace7a2f83ea8e2be791e39",
+      "symbols": [
+        "FieldDeclaration",
+        "FieldCandidate",
+        "SchemaInterpretation",
+        "interpret_schema"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/semantic_checkpoint.py",
+      "sha256": "29c90fb155e6dd6aec993a58738b54d43ae7986a6b664694673e6fac1e8257bf",
+      "symbols": [
+        "checkpoint_semantic",
+        "restore_semantic"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/semantic_rules.py",
+      "sha256": "aa794a9981c6227c2b1c9a94054da07da012771694d487fb285e0a5e77bb37c5",
+      "symbols": [
+        "SemanticRule"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/semantic_study.py",
+      "sha256": "65183eac44114130a5ce8dc6e14614ad940fb2363d76246732fb04d65a4bf5af",
+      "symbols": [
+        "Instrument",
+        "Origin",
+        "SemanticClaim",
+        "SemanticRevision",
+        "SemanticStudy"
+      ]
+    },
+    {
+      "file": "src/orion/understanding/validation.py",
+      "sha256": "4dd30f0040a243ec659a1a5dc464d967a5faab74ca84a933ea85d32672c71d10",
+      "symbols": [
+        "ValidationDecision",
+        "ValidationResult",
+        "ValidationPolicy",
+        "RelationshipValidator"
+      ]
+    },
+    {
+      "file": "src/orion/validation/claims.py",
+      "sha256": "c55c5686daa0865a4ccb1433198e9b470c86fcec4ed35bd556677973a82ea815",
+      "symbols": [
+        "Assurance",
+        "ValidationDecision",
+        "validate_hypothesis"
+      ]
+    },
+    {
+      "file": "tools/broker_namespace_probe.py",
+      "sha256": "2997501e65f1af0c1be51ddf701fa460321420c2dfa3d92ef2c622f690ed15be",
+      "symbols": [
+        "run"
+      ]
+    },
+    {
+      "file": "tools/confined_https_broker_probe.py",
+      "sha256": "55e2b3e08e574cd3b834bed107246db1ffaa24a378774eee555edc747493e256",
+      "symbols": [
+        "valid_report",
+        "_run_fixture",
+        "run"
+      ]
+    },
+    {
+      "file": "tools/isolated_broker_probe.py",
+      "sha256": "bdaa9e2d6e3b6cefd8712f0c295cb8e37114b6b04830332af3238b9dce3bf99b",
+      "symbols": [
+        "run"
+      ]
+    },
+    {
+      "file": "tools/isolated_https_broker_probe.py",
+      "sha256": "ad6da01d53896785c7e623438b6261b2b374c471aff29052369cda697dc25ec1",
+      "symbols": []
+    },
+    {
+      "file": "tools/kernel_destination_https_probe.py",
+      "sha256": "7e3370f0c01b36bd9999e13855b0c7bdeba2112f84a4cb5e4eea251354de218c",
+      "symbols": [
+        "true_checks",
+        "valid_case",
+        "valid_report",
+        "run"
+      ]
+    },
+    {
+      "file": "tools/local_https_broker_probe.py",
+      "sha256": "b9b4dd66afb92abc85410833e477b78c60ec73fbb0aa6230a44fc5f178127ada",
+      "symbols": [
+        "run"
+      ]
+    },
+    {
+      "file": "tools/orion_lab.py",
+      "sha256": "6625141b31b8c695fb86df52682f98def1bdc6576d6ce0acd109241bdffaf13b",
+      "symbols": [
+        "SafeFail",
+        "AutomationContract",
+        "CheckResult",
+        "ChangeSnapshot",
+        "ReviewReport",
+        "run_command",
+        "checked",
+        "parse_metadata",
+        "issue_contract",
+        "build_prompt",
+        "_PythonNetworkPolicy",
+        "Orchestrator",
+        "render_report",
+        "parser",
+        "main"
+      ]
+    },
+    {
+      "file": "tools/pilot_isolation_probe.py",
+      "sha256": "688c4cc465d0901a918c5413bfaaa99084ee47762b2e974c86723aad49e8cc64",
+      "symbols": [
+        "run"
+      ]
+    },
+    {
+      "file": "tools/read_only_boundary_gate.py",
+      "sha256": "c7c96ad20afb7115ef69583be396833c494689f246e555ba7cc26d210acf2424",
+      "symbols": [
+        "run"
+      ]
+    },
+    {
+      "file": "tools/semantic_discovery_gate.py",
+      "sha256": "4192c5017d8047bdb3617ea265ab2eb8be5d75992069b33942a4992eebc7265b",
+      "symbols": [
+        "run"
+      ]
+    }
+  ]
+}

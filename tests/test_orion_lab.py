@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import textwrap
@@ -51,10 +52,58 @@ def test_live_or_merge_permission_is_rejected():
         lab.parse_metadata(METADATA.replace("allow_merge: false", "allow_merge: true"))
 
 
-def test_latest_comment_metadata_supersedes_body():
+def test_latest_owner_comment_metadata_supersedes_body():
     newer = METADATA.replace(BASE, "b" * 40)
-    contract = lab.issue_contract({"body": METADATA, "comments": [{"body": newer}]})
+    contract = lab.issue_contract({
+        "body": METADATA,
+        "comments": [{"body": newer, "authorAssociation": "OWNER"}],
+    })
     assert contract.base_sha == "b" * 40
+
+
+@pytest.mark.parametrize("association", ["COLLABORATOR", "CONTRIBUTOR", "MEMBER", "NONE"])
+def test_non_owner_comment_cannot_replace_body_contract(association):
+    newer = METADATA.replace(BASE, "b" * 40)
+    contract = lab.issue_contract({
+        "body": METADATA,
+        "comments": [{"body": newer, "authorAssociation": association}],
+    })
+    assert contract.base_sha == BASE
+
+
+def test_comment_without_author_association_cannot_replace_body_contract():
+    newer = METADATA.replace(BASE, "b" * 40)
+
+    contract = lab.issue_contract({"body": METADATA, "comments": [{"body": newer}]})
+
+    assert contract.base_sha == BASE
+
+
+def test_malformed_owner_replacement_fails_closed():
+    with pytest.raises(lab.SafeFail, match="merge_permission_rejected"):
+        lab.issue_contract({
+            "body": METADATA,
+            "comments": [{
+                "body": METADATA.replace("allow_merge: false", "allow_merge: maybe"),
+                "authorAssociation": "OWNER",
+            }],
+        })
+
+
+def test_workflows_pin_third_party_actions_to_reviewed_commits():
+    root = MODULE_PATH.parents[1]
+    expected = {
+        "actions/checkout": "11d5960a326750d5838078e36cf38b85af677262",
+        "actions/setup-python": "a26af69be951a213d495a4c3e4e4022e16d87065",
+        "actions/github-script": "f28e40c7f34bde8b3046d885e986cb6290c5673b",
+        "anthropics/claude-code-action": "cfc3eb22bfed5c26ef66e3223c982af27e4524de",
+    }
+    workflows = tuple((root / ".github" / "workflows").glob("*.yml"))
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in workflows)
+
+    for action, revision in expected.items():
+        assert f"uses: {action}@{revision}" in combined
+    assert re.search(r"uses:\s+[^\s@]+@v\d+(?:\s|$)", combined) is None
 
 
 def test_prompt_is_issue_derived_and_governed():
@@ -547,7 +596,10 @@ def test_claude_review_workflow_is_read_only_scoped_and_fixed():
     workflow = (
         MODULE_PATH.parents[1] / ".github/workflows/claude-read-only-review.yml"
     ).read_text(encoding="utf-8")
-    assert "anthropics/claude-code-action@v1" in workflow
+    assert (
+        "anthropics/claude-code-action@"
+        "cfc3eb22bfed5c26ef66e3223c982af27e4524de # v1"
+    ) in workflow
     assert "branches: [laboratory/orion-v0.1]" in workflow
     assert "startsWith(github.head_ref, 'codex/')" in workflow
     assert "github.event.pull_request.head.repo.full_name == github.repository" in workflow
