@@ -13,7 +13,10 @@ from typing import Any
 from ..contracts import utc_now
 from ..history.evidence import HistoricalEvidenceError
 from ..history.sampling import persist_historical_sample
-from ..stores.sqlite_historical_evidence import SQLiteHistoricalEvidenceStore
+from ..stores.sqlite_historical_evidence import (
+    SQLiteHistoricalEvidenceStore,
+    ensure_private_storage_directory,
+)
 from .erpnext_historical_sample import ERPNextHistoricalSampleAdapter
 
 PURCHASE_INVOICE_RESOURCE = "Purchase Invoice"
@@ -134,11 +137,7 @@ def _default_state_root() -> Path:
 
 
 def _ensure_state_directory(path: Path) -> None:
-    path.mkdir(parents=True, exist_ok=True, mode=0o700)
-    try:
-        path.chmod(0o700)
-    except OSError:
-        pass
+    ensure_private_storage_directory(path, create=True)
 
 
 def _reject_repository_destination(path: Path) -> None:

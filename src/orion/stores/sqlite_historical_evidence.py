@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hmac
+import os
 import sqlite3
+import stat
 from pathlib import Path
 
 from ..history.evidence import (
@@ -32,6 +34,59 @@ CREATE TABLE IF NOT EXISTS orion_historical_evidence (
 """
 
 
+def ensure_private_storage_directory(path: Path, *, create: bool = False) -> None:
+    """Require one real owner-controlled directory for customer evidence."""
+
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        if not create:
+            raise ValueError("historical evidence parent directory is required") from None
+        try:
+            path.mkdir(parents=True, exist_ok=False, mode=0o700)
+        except OSError as exc:
+            raise ValueError(
+                "historical evidence parent directory could not be created privately"
+            ) from exc
+        try:
+            path.chmod(0o700)
+            info = path.lstat()
+        except OSError as exc:
+            raise ValueError(
+                "historical evidence parent directory could not be secured"
+            ) from exc
+    except OSError as exc:
+        raise ValueError("historical evidence parent directory is required") from exc
+    if (
+        not stat.S_ISDIR(info.st_mode)
+        or info.st_uid != os.geteuid()
+        or stat.S_IMODE(info.st_mode) != 0o700
+    ):
+        raise ValueError("historical evidence parent directory must be owner-only")
+
+
+def _validate_private_database(path: Path) -> None:
+    try:
+        info = path.lstat()
+    except OSError as exc:
+        raise ValueError("historical evidence database file is required") from exc
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid():
+        raise ValueError("historical evidence database must be a regular owner-only file")
+    if info.st_nlink != 1:
+        raise ValueError("historical evidence database must have exactly one link")
+    if stat.S_IMODE(info.st_mode) != 0o600:
+        raise ValueError("historical evidence database must be owner-only")
+
+
+def _create_private_database(path: Path) -> None:
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    os.close(descriptor)
+    path.chmod(0o600)
+    _validate_private_database(path)
+
+
 class SQLiteHistoricalEvidenceStore:
     """Transactional append-only store with tenant and resource isolation."""
 
@@ -41,16 +96,17 @@ class SQLiteHistoricalEvidenceStore:
         *,
         read_only: bool = False,
     ) -> None:
-        self._path = Path(database_path)
+        self._path = Path(database_path).expanduser()
         self._read_only = read_only
         if not str(self._path):
             raise ValueError("historical evidence database path must be non-empty")
-        if not self._path.parent.exists():
-            raise ValueError("historical evidence database parent directory does not exist")
-        if self._path.exists() and self._path.is_dir():
-            raise ValueError("historical evidence database path must not be a directory")
-        if self._read_only and not self._path.is_file():
+        ensure_private_storage_directory(self._path.parent)
+        if self._read_only and not self._path.exists():
             raise ValueError("historical evidence database file is required")
+        if self._path.exists() or self._path.is_symlink():
+            _validate_private_database(self._path)
+        else:
+            _create_private_database(self._path)
 
         connection = self._connect()
         try:
@@ -71,6 +127,7 @@ class SQLiteHistoricalEvidenceStore:
                 connection.commit()
         finally:
             connection.close()
+        _validate_private_database(self._path)
 
     def _connect(self) -> sqlite3.Connection:
         if self._read_only:

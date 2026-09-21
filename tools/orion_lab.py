@@ -190,9 +190,13 @@ def parse_metadata(text: str) -> AutomationContract:
 
 
 def issue_contract(issue: dict[str, object]) -> AutomationContract:
-    """Use the newest metadata block; comments deliberately supersede the body."""
+    """Use the issue contract or its newest repository-owner replacement."""
     candidates = [str(issue.get("body", ""))]
-    candidates.extend(str(comment.get("body", "")) for comment in issue.get("comments", []))
+    candidates.extend(
+        str(comment.get("body", ""))
+        for comment in issue.get("comments", [])
+        if comment.get("authorAssociation") == "OWNER"
+    )
     parsed: list[AutomationContract] = []
     for candidate in candidates:
         if META_HEADER in candidate:
