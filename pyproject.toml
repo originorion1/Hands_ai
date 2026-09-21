@@ -11,6 +11,9 @@ readme = "README.md"
 license = {text = "Apache-2.0"}
 dependencies = []
 
+[project.scripts]
+orion-report-ui = "orion.presentation.server:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.8"]
 
