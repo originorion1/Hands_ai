@@ -47,10 +47,14 @@ when their evidence supports it, the exact review-evidence JSON described in
 `REVIEWER_INSTRUCTIONS.md`. The runner's digest checks bind files; they do not
 authenticate a person, organization, chronology, or independence claim.
 
-No independent evaluation may run until the package and review evidence both
-pass public-contract preflight. No customer data, credentials, production
-network, business writes, execution authority, merge, activation, or release
-promotion is authorized.
+This V1 packet now supports validation and explicit conversion only. Even when
+the package and review evidence pass public-contract preflight, they do not
+authorize V1 execution. A trusted evaluator must preserve the V1 originals and
+use the explicit converter to create a V2 envelope; supported independent
+execution then requires V2 freeze/review evidence and separate trusted approval
+of the exact review artifact. No customer data, credentials, production network,
+business writes, execution authority, merge, activation, or release promotion
+is authorized.
 
 `execution_allowed=false`, `allow_live_customer_access=false`, and
 `LIVE_PILOT_READY=false` remain fixed.

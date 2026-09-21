@@ -1,5 +1,16 @@
 # Requirement-to-evidence matrix
 
+## Issue #198 compatibility correction
+
+V1 protocol and schema bytes, structural validation, review binding and
+conversion remain supported. V1 independent execution is now unconditionally
+denied before review-derived authority, state creation or source I/O. The table
+below is retained as a historical evidence snapshot at its named revisions;
+statements that the V1 bridge was runnable describe that earlier implementation
+and do not grant current execution eligibility. V2 is the only supported
+independent execution contract. The current contract lane contains ten nodes;
+the later nine-node statement is retained as issue #184's historical result.
+
 Fresh evidence distinguishes the current execution-bridge checks from issue
 #182's earlier protocol/preflight checks. PR #181 runtime evidence is inherited
 and is not presented as an independent evaluation.

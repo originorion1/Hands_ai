@@ -1,5 +1,14 @@
 # Owner report — frozen-engine independent learning evaluation
 
+## Current status after issue #198
+
+V1 is now validation/conversion-only for independent evaluation. Its protocol,
+schema and historical bridge evidence remain retained, but neither a valid V1
+review JSON nor package data can authorize V1 execution. Supported independent
+execution requires explicit conversion to V2 and V2's separate trusted approval.
+The report below remains the historical result at its recorded revision; it is
+not rewritten as evidence that the earlier bridge never ran.
+
 The frozen learner is identified and internally consistent, the evaluation
 protocol is preregistered, and the external-package execution bridge is now
 runnable. The product evaluation was not run because no independently authored

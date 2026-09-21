@@ -17,11 +17,13 @@ from orion.learning.organizational_cycle import (
 )
 from orion.learning.prediction_ledger import BusinessCohort
 from tools.frozen_learning_evaluation import (
+    V1_VALIDATION_ONLY_STATUS,
     ContractError,
     _discover_environment,
     _StagedReleaseController,
     blocked_result,
     execute_package,
+    main,
     package_authorization_references,
     validate_package,
     verify_frozen_learner,
@@ -38,6 +40,49 @@ SCHEMA_PATH = ROOT / "evaluation/frozen_learning_v1/dataset.schema.json"
 
 def protocol():
     return json.loads(PROTOCOL_PATH.read_text(encoding="utf-8"))
+
+
+def independent_v1_package_and_review(tmp_path):
+    protocol_sha256 = digest_file(PROTOCOL_PATH)
+    package = self_authored_package(protocol_sha256)
+    package["authorship"]["prepared_by"] = "synthetic external author"
+    package["authorship"]["preparer_role"] = "test-only author role"
+    package["authorship"]["preparer_is_engine_implementer"] = False
+    package["authorship"]["shared_fixture_engine_authorship"] = False
+    package["authorship"]["independence_basis"] = (
+        "Synthetic test declaration; not evidence of real independence."
+    )
+    package["authorship"]["review"].update({
+        "status": "VERIFIED",
+        "reviewed_by": "synthetic external reviewer",
+        "reviewer_role": "test-only reviewer role",
+    })
+    review = package["authorship"]["review"]
+    document = {
+        "review_version": "orion-independent-review-evidence-v1",
+        "dataset_id": package["dataset_id"],
+        "protocol_sha256": protocol_sha256,
+        "dataset_material_sha256": hashlib.sha256(canonical({
+            key: package[key] for key in (
+                "timeline", "learner_inputs", "outcome_releases",
+                "evaluator_only_commitment",
+            )
+        })).hexdigest(),
+        "prepared_by": package["authorship"]["prepared_by"],
+        "fixed_at": package["authorship"]["fixed_at"],
+        "reviewed_by": review["reviewed_by"],
+        "reviewed_at": review["reviewed_at"],
+        "review_scope": "Synthetic test-only V1 review binding.",
+    }
+    review_path = tmp_path / "review-v1.json"
+    encoded = json.dumps(document, sort_keys=True, indent=2) + "\n"
+    review_path.write_text(encoded, encoding="utf-8")
+    review["evidence_sha256"] = hashlib.sha256(encoded.encode()).hexdigest()
+    package_path = tmp_path / "package-v1.json"
+    package_path.write_text(
+        json.dumps(package, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+    )
+    return package, package_path, review_path
 
 
 def test_protocol_freezes_exact_pr181_learner_components():
@@ -353,19 +398,74 @@ def test_unsupported_semantics_remain_unknown_without_outcome_release(tmp_path):
     assert result["outcome_source_io_count"] == 0
 
 
-def test_independent_execution_requires_available_review_evidence(tmp_path):
-    package = self_authored_package(digest_file(PROTOCOL_PATH))
-    package["authorship"]["preparer_is_engine_implementer"] = False
-    package["authorship"]["shared_fixture_engine_authorship"] = False
-    package["authorship"]["review"]["status"] = "VERIFIED"
+@pytest.mark.parametrize("approval", [None, "0" * 64, "package-review-digest"])
+def test_v1_independent_execution_is_retired_before_state_or_source_io(
+    tmp_path, monkeypatch, approval,
+):
+    package, _, review_path = independent_v1_package_and_review(tmp_path)
+    if approval == "package-review-digest":
+        approval = package["authorship"]["review"]["evidence_sha256"]
+    source_calls = 0
 
-    with pytest.raises(ContractError, match="available review evidence"):
+    def forbidden_source_io(*args, **kwargs):
+        nonlocal source_calls
+        source_calls += 1
+        raise AssertionError("source I/O must not occur")
+
+    monkeypatch.setattr(
+        "tools.frozen_learning_evaluation._discover_environment", forbidden_source_io
+    )
+    state_dir = tmp_path / f"state-{approval or 'missing'}"
+    with pytest.raises(ContractError, match="v1 is validation/conversion-only"):
         execute_package(
             package, protocol=protocol(), protocol_sha256=digest_file(PROTOCOL_PATH),
-            repository=ROOT, state_dir=tmp_path / "state", independent=True,
+            repository=ROOT, state_dir=state_dir, independent=True,
             authorized_ids=package_authorization_references(package),
-            trusted_review_approval_sha256=None,
+            trusted_review_approval_sha256=approval,
+            review_evidence=review_path,
         )
+    assert source_calls == 0
+    assert not state_dir.exists()
+
+
+def test_v1_cli_preflight_is_validation_only_and_run_is_denied(
+    tmp_path, monkeypatch, capsys,
+):
+    package, package_path, review_path = independent_v1_package_and_review(tmp_path)
+    common = [
+        str(package_path), "--protocol", str(PROTOCOL_PATH),
+        "--repository", str(ROOT), "--review-evidence", str(review_path),
+    ]
+
+    assert main(["preflight", *common]) == 0
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == V1_VALIDATION_ONLY_STATUS
+    assert output["execution_contract"] == "V2_REQUIRED"
+    assert output["authorship_review"]["status"] == "AVAILABLE_AND_PACKAGE_BOUND"
+
+    with pytest.raises(SystemExit) as rejected:
+        main(["preflight", *common, "--trusted-review-approval-sha256", "0" * 64])
+    assert rejected.value.code == 2
+    assert "v1 preflight does not accept trusted review approval" in capsys.readouterr().err
+
+    source_calls = 0
+
+    def forbidden_source_io(*args, **kwargs):
+        nonlocal source_calls
+        source_calls += 1
+        raise AssertionError("source I/O must not occur")
+
+    monkeypatch.setattr(
+        "tools.frozen_learning_evaluation._discover_environment", forbidden_source_io
+    )
+    state_dir = tmp_path / "cli-state"
+    run_arguments = ["run", *common, "--state-dir", str(state_dir)]
+    for reference in sorted(package_authorization_references(package)):
+        run_arguments.extend(("--authorized-id", reference))
+    with pytest.raises(ContractError, match="v1 is validation/conversion-only"):
+        main(run_arguments)
+    assert source_calls == 0
+    assert not state_dir.exists()
 
 
 def test_review_evidence_must_be_available_and_bound(tmp_path):

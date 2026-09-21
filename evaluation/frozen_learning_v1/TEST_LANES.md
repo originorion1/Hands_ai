@@ -14,7 +14,7 @@ Use the listed selections after the repository's existing pytest prefix:
 Use `--collect-only -q` with the same selection for a dry-run inventory. The
 committed selections are:
 
-- **contract:** the nine explicit nodes in `test_lanes.json` covering protocol
+- **contract:** the ten explicit nodes in `test_lanes.json` covering protocol
   freeze, blocked status, schema, answer rejection, authorship/review binding,
   release gating, and engine drift;
 - **learning:** the existing prediction-ledger, event-outcome and organizational
@@ -23,8 +23,9 @@ committed selections are:
   module-scoped `clean_artifact` wheel build and running only on a capable host;
 - **full:** no selection at all: `.venv/bin/python -m pytest -q --durations=20`;
   and
-- **independent evaluation:** the standalone frozen evaluator command in the
-  manifest, never pytest, default CI, or an automatic rerun.
+- **legacy validation:** the standalone V1 preflight command in the manifest,
+  never execution, pytest, default CI, or an automatic rerun. Supported
+  independent execution requires explicit conversion to V2.
 
 Selections are intentionally written as explicit files or node IDs rather than
 new markers. To execute a lane, copy its `selection` array as ordinary pytest

@@ -1,5 +1,19 @@
 # Frozen-engine independent learning evaluation v1
 
+## Current compatibility status
+
+Issue #198 retires V1 independent execution. V1 retains byte-stable protocol and
+schema contracts for structural validation, review-evidence validation and
+explicit conversion to V2. A valid V1 review document binds evidence but
+supplies no execution authority: V1 `run` fails closed before review-derived
+authority, state creation or source I/O. V2 is the only supported independent
+execution contract and requires its existing separately trusted approval bound
+to the exact review artifact.
+
+The historical implementation and verification record below is retained as a
+record of what was demonstrated at its named commit. It must not be read as a
+current authorization or instruction to execute V1.
+
 This packet preregisters issue #182 against the unchanged PR #181 learner at
 commit `7ab613ebe6ea4fdd0ab16a2e2d60baf23d135d62`, tree
 `73776d74d32d9de72b528740aa977ba6d673daa8`.
@@ -76,7 +90,7 @@ package, and the material digest must match preflight. A digest or declaration
 alone does not authenticate a person. The evaluator retains the actual review
 artifact and reports that identity authentication limitation.
 
-## Runnable preflight and execution
+## Runnable validation and explicit migration
 
 From the repository root:
 
@@ -98,37 +112,34 @@ PYTHONPATH=src .venv/bin/python tools/frozen_learning_evaluation.py \
 Preflight validates the exact protocol binding, staged-material identity,
 opaque identifiers, authorship disclosure/review, chronology, source/grant
 separation, canonical instrument shape, absence of direct answers, fixed four
-release stages, available review-evidence binding, and safety flags. It returns
-`READY_FOR_SINGLE_FROZEN_EVALUATION` only when those prerequisites are present.
+release stages, available review-evidence binding, and safety flags. For valid
+V1 material it returns `VALIDATED_V1_MATERIAL_EXECUTION_UNSUPPORTED`; this is a
+successful validation result, not execution eligibility.
 Without the referenced review artifact it returns
 `BLOCKED_REVIEW_EVIDENCE_UNAVAILABLE` with exit status `2`. Preflight does not
 convert JSON into grants or authority and never executes arbitrary package code,
 modules, or callbacks.
 
-Run the single registered evaluation into a new state directory:
+V1 independent execution is unsupported. The former `run` invocation is
+retained in git history only and now fails closed. To prepare material for the
+supported execution contract, use the explicit V2 converter, which writes a new
+envelope and conversion report without overwriting the V1 source:
 
 ```bash
 PYTHONPATH=src .venv/bin/python tools/frozen_learning_evaluation.py \
-  run /path/to/package.json \
-  --review-evidence /path/to/review-evidence.json \
-  --authorized-id g_0123456789abcdef \
-  --authorized-id g_fedcba9876543210 \
-  --state-dir /path/to/new-empty-state \
-  --output /path/to/result.json \
-  --owner-report /path/to/owner-report.txt
+  convert /path/to/package-v1.json \
+  --protocol evaluation/frozen_learning_v2/protocol.json \
+  --source-protocol evaluation/frozen_learning_v1/protocol.json \
+  --exposure-disclosure /path/to/exposure.json \
+  --generation-record /path/to/generation.json \
+  --unknown-preparation-reason "Original exact preparation time was not retained" \
+  --output /path/to/package-v2.json \
+  --conversion-report /path/to/conversion-report.json
 ```
 
-Every package authorization reference must be repeated as a separately trusted
-`--authorized-id`; omission, an extra ID, or a package/controller mismatch
-fails before state creation or source I/O. The package never grants itself
-authority. The trusted local controller constructs bounded synthetic
-`MetadataAuthorization` and `PilotAuthorization` values through the existing
-launchers. Package authorization identifiers remain references. Opaque
-metadata, historical records and canonical instrument evidence are admitted
-into the existing `RoleStudy`/`SemanticStudy` and F&B assessment. The bridge
-then uses `begin_learning_cycle` and `resume_learning_cycle` with the canonical
-prediction ledger, event queue, outcome normalization, revision and paired
-score.
+Conversion does not authorize execution. The resulting V2 package must satisfy
+the V2 freeze, review and exact trusted-approval contract. Package authorization
+identifiers remain references and never become grants.
 
 Before every outcome read, the controller queries the actual SQLite prediction
 ledger and requires an unresolved prediction with the exact target, unit,
@@ -138,10 +149,16 @@ records and the evaluator-only commitment stay in controller memory; their
 commitment digest and holder are checked absent from learner databases. This is
 trusted local separation, not malicious-process isolation.
 
-`exercise` runs the same bridge only for a package that honestly declares
-shared engine/fixture authorship. Its result is
-`SELF_AUTHORED_INFRASTRUCTURE`, keeps `INDEPENDENT_EVALUATION=BLOCKED`, and must
-not be used as a product-evaluation result.
+For compatibility with the historical bridge evidence, `exercise` runs the
+same bridge only for an explicitly self-authored, non-product fixture. Its
+result is `SELF_AUTHORED_INFRASTRUCTURE`, keeps
+`INDEPENDENT_EVALUATION=BLOCKED`, and must not be used as a product-evaluation
+result.
+
+The sole tracked runtime caller is this tool's CLI. Direct test callers retain
+V1 structural validation and self-authored exercise coverage; V1 independent
+`execute_package(..., independent=True)` is intentionally incompatible and must
+convert to V2. There is no silent migration or V1 trusted-approval option.
 
 ## Execution-bridge evidence
 

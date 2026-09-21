@@ -1,5 +1,14 @@
 # Issue #187 requirement-to-evidence matrix
 
+V2 is the sole supported independent execution contract. V1 review evidence is
+validation-only and cannot be promoted into V2 trusted approval; explicit
+conversion preserves the V1 original and still requires the complete V2
+freeze/review/approval boundary.
+
+The table below is retained as issue #187's historical snapshot. Its statement
+that V1 files were unchanged refers to that revision, not to the later issue
+#198 documentation and execution-eligibility correction.
+
 | Requirement | Implementation | Executable evidence | Status |
 |---|---|---|---|
 | Preserve v1 bytes and validation | Existing `frozen_learning_v1` files are unchanged; strict dispatcher retains the v1 validator | `test_v1_contract_bytes_and_validation_remain_unchanged` plus existing v1 test file | SATISFIED |

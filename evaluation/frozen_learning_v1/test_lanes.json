@@ -21,7 +21,8 @@
         "tests/test_frozen_learning_evaluation.py::test_record_preflight_rejects_precomputed_answers",
         "tests/test_frozen_learning_evaluation.py::test_self_authored_or_unreviewed_package_cannot_be_qualified",
         "tests/test_frozen_learning_evaluation.py::test_release_gate_denies_mismatch_early_release_and_missing_grant_before_io",
-        "tests/test_frozen_learning_evaluation.py::test_independent_execution_requires_available_review_evidence",
+        "tests/test_frozen_learning_evaluation.py::test_v1_independent_execution_is_retired_before_state_or_source_io",
+        "tests/test_frozen_learning_evaluation.py::test_v1_cli_preflight_is_validation_only_and_run_is_denied",
         "tests/test_frozen_learning_evaluation.py::test_review_evidence_must_be_available_and_bound",
         "tests/test_frozen_learning_evaluation.py::test_engine_hash_drift_blocks_execution"
       ]
@@ -60,8 +61,8 @@
         "--durations=20"
       ]
     },
-    "independent_evaluation": {
-      "purpose": "One registered product experiment after external material and review exist; never a pytest or default-CI lane.",
+    "legacy_validation": {
+      "purpose": "Validate retained V1 material and review binding without granting execution; supported independent execution requires explicit V2 conversion.",
       "pytest": false,
       "environment": {
         "PYTHONPATH": "src"
@@ -69,16 +70,10 @@
       "command": [
         ".venv/bin/python",
         "tools/frozen_learning_evaluation.py",
-        "run",
+        "preflight",
         "/path/to/package.json",
         "--review-evidence",
-        "/path/to/review-evidence.json",
-        "--state-dir",
-        "/path/to/new-empty-state",
-        "--output",
-        "/path/to/result.json",
-        "--owner-report",
-        "/path/to/owner-report.txt"
+        "/path/to/review-evidence.json"
       ]
     }
   },

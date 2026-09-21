@@ -56,6 +56,10 @@ The raw SHA-256 of this exact review-evidence file becomes
 protocol, people, and timestamps must match the package and preflight result.
 The reviewer must differ from the preparer. A digest proves file equality only;
 it does not authenticate either identity or establish that review occurred.
+The document is accepted only for V1 validation and conversion. It does not
+authorize V1 execution, and there is no V1 trusted-approval argument that can
+make it executable. Supported execution requires a separately reviewed V2
+envelope and V2's trusted approval bound to that exact review artifact.
 
 Do not issue this file if the evidence is incomplete or rejected. Keep review
 `NOT_PROVEN`, identify the exact failed obligation, and return the evidence

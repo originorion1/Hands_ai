@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Preflight and execute the frozen ORION learning evaluation offline.
+"""Preflight frozen ORION evaluation material and execute supported V2 packages.
 
 This utility verifies the frozen learner and an evaluator-supplied package. A
 trusted local controller translates package mechanics into bounded synthetic
 authorizations; package authorization identifiers are references, never grants.
 Future releases stay evaluator-side until durable prediction commitments match.
-No package-supplied code is imported or executed.
+V1 remains available for validation and explicit conversion, but cannot run an
+independent evaluation. No package-supplied code is imported or executed.
 """
 
 from __future__ import annotations
@@ -66,6 +67,7 @@ PROTOCOL_VERSION_V2 = "orion-frozen-learning-evaluation-v2"
 PACKAGE_VERSION_V2 = "orion-independent-restaurant-dataset-v2"
 REVIEW_VERSION_V2 = "orion-independent-review-evidence-v2"
 FREEZE_RECEIPT_VERSION_V2 = "orion-evaluator-freeze-receipt-v2"
+V1_VALIDATION_ONLY_STATUS = "VALIDATED_V1_MATERIAL_EXECUTION_UNSUPPORTED"
 SUPPORTED_PROTOCOLS = frozenset({PROTOCOL_VERSION, PROTOCOL_VERSION_V2})
 OPAQUE = re.compile(r"^[a-z]_[a-f0-9]{16,64}$")
 SHA256 = re.compile(r"^[a-f0-9]{64}$")
@@ -1476,49 +1478,49 @@ def execute_package(
         require_independent=independent,
     )
     protocol_version = str(protocol["protocol_version"])
+    if independent and protocol_version == PROTOCOL_VERSION:
+        raise ContractError(
+            "v1 is validation/conversion-only; independent execution requires "
+            "an explicitly converted v2 package and trusted review approval"
+        )
     review_result = {"status": "NOT_PROVEN"}
     run_start: datetime | None = None
     receipt_result: dict[str, object] | None = None
     if independent:
         if review_evidence is None:
             raise ContractError("independent execution requires available review evidence")
-        if protocol_version == PROTOCOL_VERSION:
-            if trusted_review_approval_sha256 is not None:
-                raise ContractError("trusted review approval is only defined for v2")
-            review_result = verify_review_evidence(package, validation, review_evidence)
-        else:
-            required = {
-                "package_path": package_path,
-                "freeze_receipt": freeze_receipt,
-                "exposure_disclosure": exposure_disclosure,
-                "generation_record": generation_record,
-            }
-            missing = [key for key, value in required.items() if value is None]
-            if missing:
-                raise ContractError(
-                    "v2 independent execution requires " + ", ".join(sorted(missing))
-                )
-            candidate_start = (controller_clock or (lambda: datetime.now(UTC)))()
-            if candidate_start.tzinfo is None or candidate_start.utcoffset() is None:
-                raise ContractError("controller clock must return an aware timestamp")
-            candidate_start = candidate_start.astimezone(UTC)
-            receipt_result = verify_freeze_receipt_v2(
-                package, validation, receipt_path=freeze_receipt,
-                package_path=package_path, exposure_disclosure=exposure_disclosure,
-                generation_record=generation_record, not_after=candidate_start,
+        required = {
+            "package_path": package_path,
+            "freeze_receipt": freeze_receipt,
+            "exposure_disclosure": exposure_disclosure,
+            "generation_record": generation_record,
+        }
+        missing = [key for key, value in required.items() if value is None]
+        if missing:
+            raise ContractError(
+                "v2 independent execution requires " + ", ".join(sorted(missing))
             )
-            review_result = verify_review_evidence_v2(
-                package, validation, receipt=receipt_result, path=review_evidence,
-                run_start=candidate_start,
+        candidate_start = (controller_clock or (lambda: datetime.now(UTC)))()
+        if candidate_start.tzinfo is None or candidate_start.utcoffset() is None:
+            raise ContractError("controller clock must return an aware timestamp")
+        candidate_start = candidate_start.astimezone(UTC)
+        receipt_result = verify_freeze_receipt_v2(
+            package, validation, receipt_path=freeze_receipt,
+            package_path=package_path, exposure_disclosure=exposure_disclosure,
+            generation_record=generation_record, not_after=candidate_start,
+        )
+        review_result = verify_review_evidence_v2(
+            package, validation, receipt=receipt_result, path=review_evidence,
+            run_start=candidate_start,
+        )
+        if trusted_review_approval_sha256 is None:
+            raise ContractError(
+                "v2 independent execution requires separately trusted review approval"
             )
-            if trusted_review_approval_sha256 is None:
-                raise ContractError(
-                    "v2 independent execution requires separately trusted review approval"
-                )
-            review_result["execution_approval"] = _bind_trusted_review_approval(
-                review_result, trusted_review_approval_sha256
-            )
-            run_start = candidate_start
+        review_result["execution_approval"] = _bind_trusted_review_approval(
+            review_result, trusted_review_approval_sha256
+        )
+        run_start = candidate_start
     elif review_evidence is not None or trusted_review_approval_sha256 is not None:
         raise ContractError(
             "infrastructure exercise cannot claim review evidence or trusted approval"
@@ -1861,6 +1863,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         output["package_sha256"] = _digest_file(package_path)
         output["frozen_learner_verification"] = frozen
+        if protocol["protocol_version"] == PROTOCOL_VERSION \
+                and arguments.trusted_review_approval_sha256 is not None:
+            parser.error("v1 preflight does not accept trusted review approval")
         if arguments.review_evidence is None:
             output["status"] = "BLOCKED_REVIEW_EVIDENCE_UNAVAILABLE"
             output["authorship_review"] = "NOT_PROVEN"
@@ -1869,6 +1874,10 @@ def main(argv: list[str] | None = None) -> int:
         if protocol["protocol_version"] == PROTOCOL_VERSION:
             output["authorship_review"] = verify_review_evidence(
                 package, output, arguments.review_evidence.resolve())
+            output["status"] = V1_VALIDATION_ONLY_STATUS
+            output["execution_contract"] = "V2_REQUIRED"
+            print(json.dumps(output, sort_keys=True, indent=2))
+            return 0
         else:
             if arguments.freeze_receipt is None or arguments.exposure_disclosure is None \
                     or arguments.generation_record is None:

@@ -80,5 +80,8 @@ only; do not run the learner.
 
 Before review, required review fields must explicitly describe that no reviewer
 is assigned and must not be presented as evidence. The final package becomes
-eligible for independent preflight only after the separate reviewer supplies
-the bound review-evidence file and truthful `VERIFIED` fields.
+eligible for V1 validation-only preflight after the separate reviewer supplies
+the bound review-evidence file and truthful `VERIFIED` fields. It does not
+become executable. A trusted evaluator must preserve these originals and
+perform the explicit V1-to-V2 conversion before any supported independent
+execution can be considered.

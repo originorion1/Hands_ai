@@ -1,5 +1,9 @@
 # Frozen learning evaluation v2
 
+V2 is the only supported independent execution contract. V1 material remains
+validatable but cannot independently execute; it must be explicitly converted
+with originals and provenance retained. Conversion itself grants no authority.
+
 This successor contract corrects only the chronology envelope from v1. The
 frozen learner, operational material projection, synthetic experiment clock,
 question selection, normalization, prediction, revision and scoring remain

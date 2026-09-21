@@ -89,3 +89,9 @@ PYTHONPATH=src .venv/bin/python tools/frozen_learning_evaluation.py \
 The second command is for the trusted evaluator after the real review artifact
 exists. Authors and reviewers must not use repeated preflight or execution as a
 feedback loop for tuning data or answers.
+
+A successful V1 preflight reports
+`VALIDATED_V1_MATERIAL_EXECUTION_UNSUPPORTED`. V1 review JSON binds validation
+evidence but never supplies execution authority. Preserve the original files and
+use the explicit V1-to-V2 converter for any supported execution workflow; V2's
+freeze, review and separately trusted exact-review approval remain mandatory.
