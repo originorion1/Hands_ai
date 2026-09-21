@@ -119,6 +119,24 @@ new acquisition remain blocked; an operator signature cannot resolve that
 technical state. This limitation remains relevant to any proposed pilot and
 must be accepted or closed by a separately scoped recovery design.
 
+That separate design must not clear or refund the attempt, replay its request, or
+infer success from an operator assertion. A reconciliation record would need to
+bind the exact journal head, attempt sequence, request and receipt identities,
+durable gateway-redemption evidence, and the evidence-custody checkpoint to a
+separately authorized controller decision. Proof that redemption never occurred
+could terminate the attempt as abandoned-but-consumed; durable negative source
+evidence could terminate it as failed-but-consumed. Any possible source use without
+an exact admitted checkpoint remains `UNCERTAIN` and must terminally stop that grant
+or session. A later acquisition would require a distinct request identity and fresh
+authority, never automatic replay.
+
+The current implementation supplies none of that reconciliation machinery. Until
+a separate issue defines, implements and independently verifies it, operators must
+cut off before credential invalidation and stop and escalate after an unexpected
+source rejection, timeout or pending state. A source whose rotation cannot honor
+that ordering is ineligible for the constrained pilot unless the human release
+authority explicitly accepts the resulting availability limitation.
+
 ## Verification surfaces
 
 Deterministic unit coverage exercises explicit enrollment, missing/corrupt and

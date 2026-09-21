@@ -19,6 +19,7 @@ from orion.pilot.broker_contract import (
     authenticate,
     digest,
     transition_binding,
+    transition_policy_from,
     transition_record_config,
     transition_request_from,
 )
@@ -413,6 +414,43 @@ def test_restart_does_not_repair_evidence_only_partial_transition(tmp_path):
             require_existing=True,
         )
     assert not (directory / "broker.db").exists()
+
+
+def test_unsupported_transition_budget_denies_before_policy_admission():
+    _, _, policy = transition_inputs()
+    policy["limits"]["max_requests"] = 49
+    with pytest.raises(JournalDenied, match="supervised request budget exceeds audit capacity"):
+        transition_policy_from(policy)
+
+
+def test_unsupported_provisioned_budget_has_no_state_or_witness_effect(tmp_path):
+    metadata, records, policy = transition_inputs()
+    records = copy.deepcopy(records)
+    stream = stream_for(
+        [metadata], "audit", transition_binding(policy), transition=policy
+    )
+    records["limits"]["max_requests"] = 49
+    directory = tmp_path / "read"
+    directory.mkdir(mode=0o700)
+    witness_calls = []
+    provision = {
+        "transition_reference": "1" * 64,
+        "metadata_checkpoint": 2,
+        "metadata_evidence_head": "2" * 64,
+        "predecessor_generation": 0,
+    }
+    with pytest.raises(JournalDenied, match="supervised request budget exceeds audit capacity"):
+        AuditCustody(
+            directory,
+            KEY,
+            records,
+            witness=lambda *args: witness_calls.append(args),
+            witness_stream=stream,
+            provision=provision,
+            transition_initial=transition_initial_state([metadata], policy),
+        )
+    assert list(directory.iterdir()) == []
+    assert witness_calls == []
 
 
 @pytest.mark.parametrize(

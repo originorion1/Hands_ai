@@ -22,6 +22,11 @@ class JournalDenied(ValueError):
     pass
 
 
+_AUDIT_EVENT_LIMIT = 202
+_SUPERVISED_FIXED_EVENTS = 8
+_SUPERVISED_EVENTS_PER_REQUEST = 4
+
+
 @dataclass(frozen=True, slots=True)
 class TransportLimits:
     max_requests: int
@@ -43,6 +48,23 @@ class TransportLimits:
         if self.total_response_bytes < self.response_bytes:
             raise JournalDenied('response reservation exceeds budget')
         ReviewedReadWindow.check_time_type(self.expires_at)
+
+
+def validate_supervised_journal_capacity(limits):
+    """Reject a supervised budget that the fixed authenticated audit cannot hold.
+
+    The worst supported provisioned record lifecycle has configure/transition,
+    start/arm, four events per completed request, one expected over-budget
+    request/denial pair, and stop/broker_stop. Direct transport journals have a
+    smaller event shape and intentionally retain their existing max-100 contract.
+    """
+    if type(limits) is not TransportLimits:
+        raise JournalDenied('explicit limits required')
+    limits.__post_init__()
+    required = _SUPERVISED_FIXED_EVENTS + _SUPERVISED_EVENTS_PER_REQUEST * limits.max_requests
+    if required > _AUDIT_EVENT_LIMIT:
+        raise JournalDenied('supervised request budget exceeds audit capacity')
+    return limits
 
 
 def _json(value):
@@ -154,8 +176,11 @@ class AttemptJournal:
         self._head=mac
 
     def _verify(self,db):
-        rows=db.execute('SELECT sequence,body,mac FROM events ORDER BY sequence LIMIT 205').fetchall()
-        if not rows or len(rows)>202:
+        rows=db.execute(
+            'SELECT sequence,body,mac FROM events ORDER BY sequence LIMIT ?',
+            (_AUDIT_EVENT_LIMIT + 3,),
+        ).fetchall()
+        if not rows or len(rows)>_AUDIT_EVENT_LIMIT:
             raise JournalDenied('audit length invalid')
         previous='0'*64
         events=[]
@@ -211,7 +236,7 @@ class AttemptJournal:
         with self._connect() as db:
             db.execute('BEGIN IMMEDIATE')
             events = self._verify(db)
-            if len(events) >= 201 or events[-1]['event'] == 'attempt':
+            if len(events) >= _AUDIT_EVENT_LIMIT - 1 or events[-1]['event'] == 'attempt':
                 raise JournalDenied('pending or exhausted audit')
             self._append(db, {'sequence': len(events) + 1, 'event': event,
                 'binding': self.binding, 'previous': self.head, 'at': at.isoformat(),

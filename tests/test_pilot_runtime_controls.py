@@ -195,6 +195,107 @@ def test_journal_boundaries_are_read_only_and_missing_tip_denies(tmp_path):
         AttemptJournal(tmp_path/'attempts.db',key=b'x'*32,binding=grant_digest(grant()),limits=limits())
 
 
+def _supervised_references(journal, **updates):
+    references = {'caller':'a'*64, 'scope':journal.binding, 'version':'b'*64}
+    references.update(updates)
+    return references
+
+
+def _provisioned_journal(tmp_path, *, max_requests=48):
+    settings = limits(max_requests=max_requests, response_bytes=1,
+                      total_response_bytes=max_requests, failures=10)
+    provision = {'transition_reference':'c'*64, 'metadata_checkpoint':2,
+                 'metadata_evidence_head':'d'*64, 'predecessor_generation':0}
+    journal = AttemptJournal(tmp_path/'attempts.db', key=b'x'*32,
+        binding=grant_digest(grant()), limits=settings, provision=provision)
+    return journal, settings, provision
+
+
+def _complete_supervised_attempt(journal, index):
+    now = NOW+timedelta(seconds=index*2)
+    request = format(index, '064x')
+    journal.lifecycle('broker_request', at=now,
+                      references=_supervised_references(journal, request=request))
+    journal.begin(now, 1)
+    journal.finish(success=True, received_bytes=1)
+    journal.lifecycle('broker_admitted', at=now,
+                      references=_supervised_references(
+                          journal, request=request, observations='e'*64))
+
+
+def test_provisioned_supervised_budget_is_fully_representable_and_reopens(tmp_path):
+    journal, settings, provision = _provisioned_journal(tmp_path)
+    journal.lifecycle('broker_start', at=NOW,
+                      references=_supervised_references(journal))
+    journal.lifecycle('broker_arm', at=NOW,
+                      references=_supervised_references(journal))
+    for index in range(settings.max_requests):
+        _complete_supervised_attempt(journal, index + 1)
+
+    denied_at = NOW+timedelta(seconds=2*(settings.max_requests+1))
+    journal.lifecycle('broker_request', at=denied_at,
+                      references=_supervised_references(journal, request='f'*64))
+    with pytest.raises(JournalDenied, match='exhausted budget'):
+        journal.begin(denied_at, 1)
+    journal.lifecycle('broker_denied', at=denied_at,
+                      references=_supervised_references(journal, reason='1'*64))
+    journal.stop()
+    journal.lifecycle('broker_stop', at=denied_at,
+                      references=_supervised_references(journal))
+
+    restored = AttemptJournal(tmp_path/'attempts.db', key=b'x'*32,
+        binding=grant_digest(grant()), limits=settings, expected_head=journal.head,
+        provision=provision)
+    assert restored.inspect()['attempts'] == settings.max_requests
+    assert restored.inspect()['stopped'] and not restored.inspect()['pending']
+
+
+def test_direct_journal_retains_maximum_legacy_request_budget(tmp_path):
+    settings = limits(max_requests=100, response_bytes=1,
+                      total_response_bytes=100, failures=10)
+    journal = AttemptJournal(tmp_path/'attempts.db', key=b'x'*32,
+        binding=grant_digest(grant()), limits=settings)
+    for index in range(settings.max_requests):
+        now = NOW+timedelta(seconds=index*2)
+        journal.begin(now, 1)
+        journal.finish(success=True, received_bytes=1)
+    journal.stop()
+    restored = AttemptJournal(tmp_path/'attempts.db', key=b'x'*32,
+        binding=grant_digest(grant()), limits=settings, expected_head=journal.head)
+    assert restored.inspect()['attempts'] == settings.max_requests
+    assert restored.inspect()['stopped'] and not restored.inspect()['pending']
+
+
+def test_interrupted_final_supervised_attempt_stays_consumed_and_blocks_replay(tmp_path):
+    journal, settings, provision = _provisioned_journal(tmp_path)
+    journal.lifecycle('broker_start', at=NOW,
+                      references=_supervised_references(journal))
+    journal.lifecycle('broker_arm', at=NOW,
+                      references=_supervised_references(journal))
+    for index in range(settings.max_requests - 1):
+        _complete_supervised_attempt(journal, index + 1)
+    interrupted_at = NOW+timedelta(seconds=settings.max_requests*2)
+    journal.lifecycle('broker_request', at=interrupted_at,
+                      references=_supervised_references(journal, request='f'*64))
+    journal.begin(interrupted_at, 1)
+
+    restored = AttemptJournal(tmp_path/'attempts.db', key=b'x'*32,
+        binding=grant_digest(grant()), limits=settings, expected_head=journal.head,
+        provision=provision)
+    assert restored.inspect()['attempts'] == settings.max_requests
+    assert restored.inspect()['pending'] and not restored.inspect()['stopped']
+    with pytest.raises(JournalDenied, match='pending'):
+        restored.begin(interrupted_at+timedelta(seconds=2), 1)
+    with pytest.raises(JournalDenied, match='pending'):
+        restored.lifecycle('broker_denied', at=interrupted_at,
+                           references=_supervised_references(restored, reason='1'*64))
+    restored.stop()
+    assert restored.inspect()['attempts'] == settings.max_requests
+    assert restored.inspect()['stopped']
+    with pytest.raises(JournalDenied, match='stopped'):
+        restored.begin(interrupted_at+timedelta(seconds=4), 1)
+
+
 def test_upstream_exception_and_response_text_never_enter_journal(tmp_path):
     j=journal(tmp_path)
     calls=[]

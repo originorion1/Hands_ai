@@ -42,7 +42,12 @@ from .broker_contract import (
     validate_field_classifications,
 )
 from .broker_metadata import erpnext_proposal_from, proposal_from
-from .journal import AttemptJournal, JournalDenied, TransportLimits
+from .journal import (
+    AttemptJournal,
+    JournalDenied,
+    TransportLimits,
+    validate_supervised_journal_capacity,
+)
 
 
 class Broker:
@@ -109,7 +114,7 @@ class Broker:
             raise ValueError('pinned local source required')
         limits = dict(exact(config['limits'], TransportLimits.__dataclass_fields__))
         limits['expires_at'] = datetime.fromisoformat(limits['expires_at'])
-        self.limits = TransportLimits(**limits)
+        self.limits = validate_supervised_journal_capacity(TransportLimits(**limits))
         if self.limits.response_bytes > MAX_FRAME or self.limits.request_bytes > MAX_FRAME:
             raise ValueError('bounded broker frames required')
         refs = CredentialEnvironmentReferences(config['auth_reference'], config['secret_reference'])

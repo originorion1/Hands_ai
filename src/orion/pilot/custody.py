@@ -27,7 +27,12 @@ from .broker_contract import (
     exact,
     is_erpnext_candidate,
 )
-from .journal import AttemptJournal, JournalDenied, TransportLimits
+from .journal import (
+    AttemptJournal,
+    JournalDenied,
+    TransportLimits,
+    validate_supervised_journal_capacity,
+)
 from .progress_witness import progress_state
 
 
@@ -41,6 +46,9 @@ class AuditCustody:
 
     def __init__(self, directory, key, config, *, witness=None, witness_stream=None,
                  provision=None, transition_initial=None, require_existing=False):
+        limits = dict(config["limits"])
+        limits["expires_at"] = datetime.fromisoformat(limits["expires_at"])
+        limits = validate_supervised_journal_capacity(TransportLimits(**limits))
         self.directory = Path(directory)
         self.anchor = self.directory / "accepted-head"
         journal_path = self.directory / "broker.db"
@@ -50,13 +58,11 @@ class AuditCustody:
             raise JournalDenied("complete persisted grant transition required")
         self.binding = digest(config)
         self.caller = digest(config["caller"])
-        limits = dict(config["limits"])
-        limits["expires_at"] = datetime.fromisoformat(limits["expires_at"])
         self.journal = AttemptJournal(
             journal_path,
             key=key,
             binding=self.binding,
-            limits=TransportLimits(**limits),
+            limits=limits,
             expected_head=self.anchor.read_text() if self.anchor.exists() else None,
             provision=provision,
         )

@@ -50,11 +50,11 @@ def transition_policy_from(value):
         _text(value[name])
     if not value['source_id'].startswith('https://') or not value['source_id'].endswith('.test'):
         raise ValueError('bounded synthetic transition source required')
-    from .journal import TransportLimits
+    from .journal import TransportLimits, validate_supervised_journal_capacity
 
     limits = dict(exact(value['limits'], TransportLimits.__dataclass_fields__))
     limits['expires_at'] = datetime.fromisoformat(limits['expires_at'])
-    TransportLimits(**limits)
+    validate_supervised_journal_capacity(TransportLimits(**limits))
     for name, high in (('max_fields', 64), ('max_records', 25), ('max_window_days', 31)):
         if type(value[name]) is not int or not 1 <= value[name] <= high:
             raise ValueError('bounded grant transition envelope required')

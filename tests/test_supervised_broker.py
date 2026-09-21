@@ -12,10 +12,12 @@ from pathlib import Path
 import pytest
 
 from orion.contracts import EvidenceKind, utc_now
+from orion.discovery.erpnext_live_session import CredentialEnvironmentReferences
 from orion.discovery.pilot_read import PilotAuthorization, PilotRequest
 from orion.discovery.read_window import ReviewedReadWindow
+from orion.pilot.broker import Broker
 from orion.pilot.broker_contract import VERSION, authenticate, digest, observations_from
-from orion.pilot.journal import TransportLimits
+from orion.pilot.journal import JournalDenied, TransportLimits
 from orion.understanding.role_checkpoint import _json
 
 
@@ -100,6 +102,19 @@ class Harness:
         if self.process:
             assert self.secret not in self.process.stderr.read()
         return self.last
+
+
+def test_unsupported_supervised_budget_denies_before_credentials_or_journal(tmp_path, monkeypatch):
+    harness = Harness(tmp_path/'unsupported')
+    harness.config['limits']['max_requests'] = 49
+
+    def credential_access(*unused):
+        pytest.fail('credential resolution preceded journal-capacity validation')
+
+    monkeypatch.setattr(CredentialEnvironmentReferences, 'resolve', credential_access)
+    with pytest.raises(JournalDenied, match='supervised request budget exceeds audit capacity'):
+        Broker(harness.config, harness.state)
+    assert not (harness.state/'broker.db').exists()
 
 
 @pytest.fixture

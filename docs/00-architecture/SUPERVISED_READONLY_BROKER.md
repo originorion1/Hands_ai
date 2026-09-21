@@ -74,8 +74,19 @@ reject. The supervisor does not reconstruct or manufacture a lost trusted tip.
 ## Audit and minimization
 
 Broker lifecycle events use the existing journal HMAC chain and its fixed 202-event
-limit. Events cannot be appended over an unfinished attempt. There is no second
-persistence system or unbounded audit growth. Exhaustion fails closed.
+limit. The complete provisioned record lifecycle reserves configure and transition,
+start and arm, four events for each completed request, one expected over-budget
+request and denial, and terminal `stop` and `broker_stop`. That shape supports at
+most 48 supervised requests. A supervised configuration or post-discovery envelope
+requesting 49 through 100 is rejected before credential resolution, journal creation,
+witness advancement or source access; it is never clamped to a smaller budget.
+Existing supervised journals at 48 or fewer requests require no migration. The
+legacy direct `AttemptJournal` transport remains compatible with 100 requests
+because its configure, two-events-per-request and stop shape fits exactly.
+
+Events cannot be appended over an unfinished attempt. There is no second persistence
+system or unbounded audit growth. Additional denials and restarts still consume the
+bounded lifecycle journal, and exhaustion fails closed explicitly.
 
 Events retain timestamps, the configuration/grant binding, hashed caller, request,
 version and observation-set identities. Denials retain a hash of the fixed stage:
