@@ -13,7 +13,9 @@ accompanying `LIVE_PILOT_GAP_MATRIX.json` maps 34 architectural areas to
 implementation, source evidence, risk, missing primitives, required changes/tests
 and live status. This is a repository-wide inventory plus critical-path
 implementation audit, not an independent full-code penetration test or a
-certification.
+certification. Exact-revision qualification reads the declared Git object;
+descendant shallow CI exercises deterministic verifier fixtures rather than treating
+later legitimate source paths as omissions from this historical snapshot.
 
 The audited stack is PR130 above PR128 above laboratory head 40c02b3. Historical
 window PR124 is already a dependency of PR128. Prediction/outcome code is in

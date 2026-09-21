@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Verify the live-pilot path, blob, and top-level-symbol inventory.
 
-The default mode reads tracked files from the working tree so it remains useful in
-shallow CI checkouts.  ``--revision`` instead reads blobs from a named Git tree and
-requires that tree to be the exact revision declared by the inventory.
+``--revision`` is the authoritative mode and reads the exact declared Git tree.
+The default working-tree mode is guarded for a checkout whose HEAD is exactly the
+declared inventory revision; it must not reinterpret a descendant as that snapshot.
 """
 
 from __future__ import annotations
@@ -100,12 +100,24 @@ def verify_inventory_document(
 def _git(repository: Path, arguments: Sequence[str], *, text: bool = False) -> bytes | str:
     return subprocess.check_output(
         ["git", "-C", str(repository), *arguments],
+        stderr=subprocess.PIPE,
         text=text,
     )
 
 
+def resolve_revision(repository: Path, revision: str) -> str:
+    """Resolve a commit name without reading or changing the working tree."""
+    resolved = _git(
+        repository,
+        ["rev-parse", "--verify", f"{revision}^{{commit}}"],
+        text=True,
+    )
+    assert isinstance(resolved, str)
+    return resolved.strip()
+
+
 def working_tree_sources(repository: Path) -> dict[str, bytes]:
-    """Read selected files tracked by the working-tree index."""
+    """Read selected tracked files from an already-qualified exact checkout."""
     output = _git(repository, ["ls-files", "-z", "--", *SOURCE_ROOTS])
     assert isinstance(output, bytes)
     paths = sorted(
@@ -118,13 +130,7 @@ def working_tree_sources(repository: Path) -> dict[str, bytes]:
 
 def revision_sources(repository: Path, revision: str) -> tuple[str, dict[str, bytes]]:
     """Read selected files from an exact commit, independent of the worktree."""
-    resolved = _git(
-        repository,
-        ["rev-parse", "--verify", f"{revision}^{{commit}}"],
-        text=True,
-    )
-    assert isinstance(resolved, str)
-    resolved = resolved.strip()
+    resolved = resolve_revision(repository, revision)
     archive = _git(
         repository,
         ["archive", "--format=tar", resolved, *SOURCE_ROOTS],
@@ -174,11 +180,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     repository = arguments.repository.resolve()
     inventory = load_inventory(repository / Path(arguments.inventory))
+    declared_revision = inventory.get("inventory_revision")
     mode = "working-tree"
     if arguments.revision is None:
+        head = resolve_revision(repository, "HEAD")
+        if head != declared_revision:
+            print(
+                "inventory verification refused:\n"
+                f"- HEAD {head} is not inventory_revision {declared_revision}\n"
+                "- descendant trees are not historical inventory failures; fetch the "
+                "declared object and run:\n"
+                f"  python3 scripts/verify_live_pilot_source_inventory.py "
+                f"--repository . --revision {declared_revision}",
+                file=sys.stderr,
+            )
+            return 1
         sources = working_tree_sources(repository)
     else:
-        declared_revision = inventory.get("inventory_revision")
         resolved, sources = revision_sources(repository, arguments.revision)
         if resolved != declared_revision:
             print(

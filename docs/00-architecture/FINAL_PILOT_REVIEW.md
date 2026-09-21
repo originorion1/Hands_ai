@@ -65,8 +65,10 @@ not evidence that every listed file received file-level or independent review;
 the original critical-path review scope is unchanged, and exact-head independent
 review remains required. The 34-requirement gap matrix records implementation
 evidence and unresolved pilot constraints. Entrypoints are local demos, legacy
-discovery/study CLIs, offline
-proposal composition, semantic verification and the denying readiness CLI.
+discovery/study CLIs, offline proposal composition, semantic verification and the
+denying readiness CLI. Full-history qualification reads the declared revision
+directly; descendant shallow CI tests verifier behavior with deterministic fixtures
+and does not compare later source trees to this historical snapshot.
 SQLite stores implement legacy historical evidence and study checkpoints, not a
 production semantic admission archive or protected authorization service.
 There is no reviewed deployed supervisor, authenticated control plane, isolated

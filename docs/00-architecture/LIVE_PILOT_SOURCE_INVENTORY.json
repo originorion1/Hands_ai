@@ -26,7 +26,9 @@
     "statement": "Inventory membership proves no file-level, security, architecture, or independent review. Historical review evidence retains its original scope; omitted files added here are inventory-corrected, not retrospectively reviewed."
   },
   "verification": {
-    "shallow_ci": "python3 scripts/verify_live_pilot_source_inventory.py --repository .",
+    "working_tree_exact_snapshot_only": "python3 scripts/verify_live_pilot_source_inventory.py --repository .",
+    "working_tree_scope": "Default working-tree verification is valid only when HEAD is the exact snapshot named by inventory_revision; it refuses descendant commits rather than treating later legitimate sources as historical omissions.",
+    "descendant_shallow_ci": "Descendant CI uses deterministic miniature-Git-repository fixtures and omission/hash/symbol failure tests; it does not compare the descendant source tree with this historical inventory.",
     "full_history_exact_revision": "python3 scripts/verify_live_pilot_source_inventory.py --repository . --revision 7b86e6366159911352f0def5c6253016b69f679d"
   },
   "files": [

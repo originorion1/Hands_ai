@@ -1,5 +1,6 @@
 import hashlib
 import json
+import subprocess
 from copy import deepcopy
 from pathlib import Path
 
@@ -7,8 +8,9 @@ import pytest
 
 from scripts.verify_live_pilot_source_inventory import (
     load_inventory,
+    main,
+    revision_sources,
     verify_inventory_document,
-    working_tree_sources,
 )
 
 ROOT = Path(__file__).parents[1]
@@ -31,12 +33,71 @@ def _inventory(entries: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
-def test_checked_out_inventory_matches_every_selected_tracked_source():
-    inventory = load_inventory(INVENTORY_PATH)
-    sources = working_tree_sources(ROOT)
+def _git(repository: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(repository), *arguments],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
+
+def _miniature_repository(tmp_path: Path) -> tuple[Path, str]:
+    repository = tmp_path / "repository"
+    source = b"def kept():\n    pass\n"
+    (repository / "src/orion").mkdir(parents=True)
+    (repository / "tools").mkdir()
+    (repository / "src/orion/kept.py").write_bytes(source)
+    (repository / "tools/check.py").write_bytes(source)
+    _git(repository, "init", "-q")
+    _git(repository, "config", "user.name", "Inventory Test")
+    _git(repository, "config", "user.email", "inventory@example.test")
+    _git(repository, "add", "src", "tools")
+    _git(repository, "commit", "-q", "-m", "inventory snapshot")
+    revision = _git(repository, "rev-parse", "HEAD")
+    inventory = _inventory([
+        _entry("src/orion/kept.py", source),
+        _entry("tools/check.py", source),
+    ])
+    inventory["inventory_revision"] = revision
+    inventory_path = repository / "inventory.json"
+    inventory_path.write_text(json.dumps(inventory), encoding="utf-8")
+    return repository, revision
+
+
+def test_inventory_matches_declared_revision_when_object_is_available():
+    inventory = load_inventory(INVENTORY_PATH)
+    try:
+        resolved, sources = revision_sources(ROOT, inventory["inventory_revision"])
+    except subprocess.CalledProcessError:
+        pytest.skip("declared historical object is unavailable in this shallow checkout")
+
+    assert resolved == inventory["inventory_revision"]
     assert len(sources) == 104
     assert verify_inventory_document(inventory, sources) == []
+
+
+def test_default_refuses_descendant_and_exact_revision_remains_authoritative(
+    tmp_path, capsys
+):
+    repository, revision = _miniature_repository(tmp_path)
+    arguments = ["--repository", str(repository), "--inventory", "inventory.json"]
+
+    assert main(arguments) == 0
+    assert "working-tree" in capsys.readouterr().out
+
+    added = repository / "src/orion/later.py"
+    added.write_text("class Later:\n    pass\n", encoding="utf-8")
+    _git(repository, "add", "src/orion/later.py")
+    _git(repository, "commit", "-q", "-m", "legitimate descendant")
+
+    assert main(arguments) == 1
+    error = capsys.readouterr().err
+    assert "descendant trees are not historical inventory failures" in error
+    assert f"--revision {revision}" in error
+
+    assert main([*arguments, "--revision", revision]) == 0
+    assert f"revision:{revision}" in capsys.readouterr().out
 
 
 def test_verifier_reports_an_omitted_tracked_source():
@@ -93,6 +154,8 @@ def test_inventory_document_has_explicit_non_review_semantics():
     ]
     assert inventory["review_coverage"]["attests_file_level_review"] is False
     assert inventory["review_coverage"]["independent_exact_head_review_required"] is True
+    assert "exact snapshot" in inventory["verification"]["working_tree_scope"]
+    assert "fixture" in inventory["verification"]["descendant_shallow_ci"]
 
 
 @pytest.mark.parametrize("revision", [None, "short"])
