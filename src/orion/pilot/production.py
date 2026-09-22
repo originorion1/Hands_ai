@@ -227,7 +227,7 @@ def access_ledger_from(value, manifest, destination, *, now=None):
         type(prior) is not list
         or len(prior) > 128
         or prior != sorted(set(prior))
-        or value["session_id"] in prior
+        or digest(value["session_id"]) in prior
         or any(_reference(item, "consumed session") != item for item in prior)
     ):
         raise ValueError("consumed session lineage required")
