@@ -32,6 +32,25 @@ Keep ORION understandable, testable, replaceable, and extensible as the system g
 
 The Kernel coordinates. It must not become the storage layer, ERP implementation, model implementation, agent runtime, or business-rule dumping ground.
 
+## ORION Core Product Principle
+
+ORION is the reusable AI-native harness and system. Modules expose pluggable
+capabilities through explicit contracts and consume existing canonical services.
+The core owns domain-independent mechanisms with clear state and policy owners;
+industry, department, customer, ERP, finance, audit, and model-provider semantics
+belong in capability modules, adapters, or scoped configuration. The harness must
+work without any particular industry module or model provider.
+
+Before promoting a module concept into a core primitive, show a concrete need
+across domains. At each boundary ask: **Does this strengthen the reusable harness,
+or belong in a specialized module?** Reasoning, authorization, execution, and
+verification remain separate. Modules declare capabilities and request access;
+neither a module nor model output can grant itself authority.
+
+Explicit interfaces and modular packages are sufficient until a demonstrated
+requirement justifies a stronger mechanism. This principle does not require
+dynamic plugin loading, a marketplace, microservices, or a broad rewrite.
+
 ## Design Rules
 
 ### 1. Stable contracts, replaceable implementations
