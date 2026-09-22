@@ -37,7 +37,7 @@ The Kernel coordinates. It must not become the storage layer, ERP implementation
 ORION is the reusable AI-native harness and system. Modules expose pluggable
 capabilities through explicit contracts and consume existing canonical services.
 The core owns domain-independent mechanisms with clear state and policy owners;
-industry, department, customer, ERP, finance, audit, and model-provider semantics
+industry, department, customer, ERP, finance, domain-specific audit, and model-provider semantics
 belong in capability modules, adapters, or scoped configuration. The harness must
 work without any particular industry module or model provider.
 
