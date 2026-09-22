@@ -130,13 +130,16 @@ class SQLiteHistoricalEvidenceStore:
         _validate_private_database(self._path)
 
     def _connect(self) -> sqlite3.Connection:
+        ensure_private_storage_directory(self._path.parent)
+        _validate_private_database(self._path)
+        mode = "ro" if self._read_only else "rw"
+        connection = sqlite3.connect(
+            f"{self._path.resolve().as_uri()}?mode={mode}",
+            timeout=5.0,
+            uri=True,
+        )
         if self._read_only:
-            return sqlite3.connect(
-                f"{self._path.resolve().as_uri()}?mode=ro",
-                timeout=5.0,
-                uri=True,
-            )
-        connection = sqlite3.connect(self._path, timeout=5.0)
+            return connection
         connection.execute("PRAGMA busy_timeout=5000")
         connection.execute("PRAGMA synchronous=FULL")
         return connection

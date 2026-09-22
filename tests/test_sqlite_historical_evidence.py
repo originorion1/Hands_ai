@@ -66,6 +66,38 @@ def test_sqlite_rejects_unsafe_existing_database_mode(tmp_path, read_only):
         SQLiteHistoricalEvidenceStore(path, read_only=read_only)
 
 
+@pytest.mark.parametrize("operation", ["append", "load_all"])
+def test_sqlite_rejects_database_made_unsafe_after_store_creation(tmp_path, operation):
+    path = tmp_path / "historical.sqlite3"
+    store = SQLiteHistoricalEvidenceStore(path)
+    path.chmod(0o640)
+
+    with pytest.raises(ValueError, match="owner-only"):
+        if operation == "append":
+            store.append(batch())
+        else:
+            store.load_all(tenant_id="customer-a", resource="Purchase Invoice")
+
+    assert path.stat().st_mode & 0o777 == 0o640
+
+
+@pytest.mark.parametrize("operation", ["append", "load_all"])
+def test_sqlite_does_not_recreate_database_removed_after_store_creation(
+    tmp_path, operation
+):
+    path = tmp_path / "historical.sqlite3"
+    store = SQLiteHistoricalEvidenceStore(path)
+    path.unlink()
+
+    with pytest.raises(ValueError, match="database file is required"):
+        if operation == "append":
+            store.append(batch())
+        else:
+            store.load_all(tenant_id="customer-a", resource="Purchase Invoice")
+
+    assert not path.exists()
+
+
 def test_sqlite_rejects_unsafe_parent_before_file_creation(tmp_path):
     parent = tmp_path / "shared"
     parent.mkdir(mode=0o755)
