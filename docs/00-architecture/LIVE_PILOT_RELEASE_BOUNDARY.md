@@ -4,15 +4,19 @@
 
 **NOT_LIVE_PILOT_READY.** This tree must not touch a real organization.
 
-The source inventory covers every production Python module. The accompanying
-`LIVE_PILOT_GAP_MATRIX.json` maps 34 architectural areas to implementation,
-source evidence, risk, missing primitives, required changes/tests and live status.
-This is a repository-wide inventory plus critical-path implementation audit,
-not an independent full-code penetration test or a certification.
+The source inventory is retained as a historical snapshot bound to its declared
+`dependency_head` (`2375ad61af37f8e13a6c59935051d614e2ead8cb`). It does not
+establish complete inventory or review coverage for this restacked tree, including
+the subsequent historical-capture hardening and #195 storage-lifecycle
+correction. The accompanying `LIVE_PILOT_GAP_MATRIX.json`
+maps 34 architectural areas at the audited snapshot to implementation,
+evidence, risk and missing work; it is not an independent
+full-code penetration test or a current-tree certification.
 
-The audited stack is PR130 above PR128 above laboratory head 40c02b3. Historical
-window PR124 is already a dependency of PR128. Prediction/outcome code is in
-separate unmerged PR119/121; workers in PR117/121; Claude handoff in PR114. None
+The historical audited stack was PR130 above PR128 above laboratory head
+40c02b3. Historical window PR124 is already a dependency of PR128.
+Prediction/outcome code is in separate unmerged PR119/121; workers in
+PR117/121; Claude handoff in PR114. None
 was merged or silently treated as deployed functionality. Semantic commercial
 validation is not proven, so prediction integration is deliberately deferred
 rather than fabricated or duplicated.
