@@ -11,6 +11,7 @@ import pytest
 from semantic_lab import Organization
 from test_pilot_recovery import CHILD, fixture_archive
 
+from orion.shadow.semantic_review import review_semantic_study
 from orion.understanding.role_checkpoint import _plain, checkpoint_sha256
 from orion.understanding.semantic_checkpoint import checkpoint_semantic
 
@@ -39,7 +40,10 @@ except ValueError:
     denied=True
 else:
     denied=False
-print(json.dumps({'claims':[(str(c.hypothesis.hypothesis_id),c.hypothesis.status)
+from orion.shadow.semantic_review import review_semantic_study
+review=review_semantic_study(study,tenant_id=v['tenant'],company=v['company'],source_id=v['source'])
+print(json.dumps({'review_audit_id':review.audit_id,'review_proposed':review.decision is not None,
+                  'review_execution_allowed':review.execution_allowed,'claims':[(str(c.hypothesis.hypothesis_id),c.hypothesis.status)
                            for c in study.claims()],
                   'revisions':[r.revision_id for r in study.history],
                   'continuation_denied':denied,'execution_allowed':False}))
@@ -67,6 +71,8 @@ def test_semantic_restart_in_a_new_process_without_authority(tmp_path, organizat
     path.write_text(json.dumps(value))
     expected = [[str(c.hypothesis.hypothesis_id), c.hypothesis.status] for c in lab.study.claims()]
     revisions = [r.revision_id for r in lab.study.history]
+    review = review_semantic_study(lab.study, tenant_id=lab.tenant, company=lab.company,
+                                  source_id=lab.source)
     del lab
     result = subprocess.run([sys.executable, '-c', SEMANTIC_CHILD], input=path.read_text(),
         text=True, capture_output=True, timeout=20, check=False,
@@ -74,4 +80,7 @@ def test_semantic_restart_in_a_new_process_without_authority(tmp_path, organizat
     assert result.returncode == 0, result.stderr
     actual = json.loads(result.stdout)
     assert actual['claims'] == expected and actual['revisions'] == revisions
+    assert actual['review_audit_id'] == review.audit_id
+    assert actual['review_proposed'] == (review.decision is not None)
+    assert actual['review_execution_allowed'] is False
     assert actual['continuation_denied'] and actual['execution_allowed'] is False

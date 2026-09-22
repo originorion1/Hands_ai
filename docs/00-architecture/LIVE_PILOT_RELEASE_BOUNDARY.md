@@ -1,27 +1,37 @@
 # Controlled pilot release boundary
 
+This document records the historical #131 release-boundary increment. The later
+versioned, evidence-bound discovery path is specified in
+`GOVERNED_PRODUCTION_DISCOVERY.md`; this historical account does not authorize
+startup or certify the current candidate tree.
+
 ## Verdict and audited state
 
 **NOT_LIVE_PILOT_READY.** This tree must not touch a real organization.
 
-The source inventory is retained as a historical snapshot bound to its declared
-`dependency_head` (`2375ad61af37f8e13a6c59935051d614e2ead8cb`). It does not
-establish complete inventory or review coverage for this restacked tree, including
-the subsequent historical-capture hardening and #195 storage-lifecycle
-correction. The accompanying `LIVE_PILOT_GAP_MATRIX.json`
-maps 34 architectural areas at the audited snapshot to implementation,
-evidence, risk and missing work; it is not an independent
-full-code penetration test or a current-tree certification.
+The corrected source inventory accounts for every tracked `src/**/*.py` and
+`tools/**/*.py` blob and its top-level definitions at exact revision
+`7b86e6366159911352f0def5c6253016b69f679d`. It is a historical snapshot,
+not a current-tree inventory or review certification. Inventory membership is not
+file-level review: files omitted by the earlier artifact are not retroactively
+treated as reviewed, and exact-head independent review remains required. The
+accompanying `LIVE_PILOT_GAP_MATRIX.json` maps 34 architectural areas to
+implementation, source evidence, risk, missing primitives, required changes/tests
+and live status. This is a repository-wide inventory plus critical-path
+implementation audit, not an independent full-code penetration test or a
+certification. Exact-revision qualification reads the declared Git object;
+descendant shallow CI exercises deterministic verifier fixtures rather than treating
+later legitimate source paths as omissions from this historical snapshot.
 
 The historical audited stack was PR130 above PR128 above laboratory head
-40c02b3. Historical window PR124 is already a dependency of PR128.
-Prediction/outcome code is in separate unmerged PR119/121; workers in
-PR117/121; Claude handoff in PR114. None
-was merged or silently treated as deployed functionality. Semantic commercial
-validation is not proven, so prediction integration is deliberately deferred
-rather than fabricated or duplicated.
+40c02b3. Historical window PR124 is already a dependency of PR128. At that
+snapshot, prediction/outcome and worker code lived in separate unmerged
+PR117/119/121, and Claude handoff in PR114. This cumulative candidate includes
+some subsequently integrated equivalents; those old PR heads and reviews are not
+inherited wholesale, and no component is thereby deployed. Semantic commercial
+validation remains unproven.
 
-Two concrete escapes remain: directly injecting a fetcher into the legacy HTTP
+Two concrete escapes existed at that snapshot: directly injecting a fetcher into the legacy HTTP
 adapter performs I/O without a pilot grant, and prototype validation can accept a
 caller-supplied evidence count without independent attestation. These are explicitly
 reproduced as release failures, not presented as successful security defenses.
@@ -139,3 +149,7 @@ recommendation execution or whole-lifecycle audit is supplied by this change.
 The code improves offline enforcement and recovery while making the unresolved
 live boundary explicit. Passing its tests does not turn these omissions into
 capabilities.
+
+Issue #193 defines a narrower read-only-discovery readiness report and installed
+launcher in `GOVERNED_PRODUCTION_DISCOVERY.md`. It does not alter this full-product
+verdict or convert any full gate to PASS.

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/orion/frozen-learning-evaluation-v2/dataset.schema.json",
+  "title": "ORION frozen-learning evaluation package v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["package_version", "dataset_id", "protocol", "authorship", "timeline", "learner_inputs", "outcome_releases", "evaluator_only_commitment"],
+  "properties": {
+    "package_version": {"const": "orion-independent-restaurant-dataset-v2"},
+    "dataset_id": {"type": "string", "pattern": "^dataset-[a-f0-9]{32}$"},
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "sha256"],
+      "properties": {
+        "version": {"const": "orion-frozen-learning-evaluation-v2"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "authorship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prepared_by", "preparer_role", "independence_basis", "engine_source_seen_before_fixing", "engine_source_seen_details", "engine_results_seen_before_fixing", "engine_results_seen_details", "preparer_is_engine_implementer", "shared_fixture_engine_authorship", "answers_fixed_before_execution", "learner_visible_material", "evaluator_retained_material", "original_preparation", "exposure_disclosure_sha256", "generation_record_sha256", "legacy_source"],
+      "properties": {
+        "prepared_by": {"$ref": "#/$defs/text"},
+        "preparer_role": {"$ref": "#/$defs/text"},
+        "independence_basis": {"$ref": "#/$defs/text"},
+        "engine_source_seen_before_fixing": {"type": "boolean"},
+        "engine_source_seen_details": {"$ref": "#/$defs/text"},
+        "engine_results_seen_before_fixing": {"type": "boolean"},
+        "engine_results_seen_details": {"$ref": "#/$defs/text"},
+        "preparer_is_engine_implementer": {"type": "boolean"},
+        "shared_fixture_engine_authorship": {"type": "boolean"},
+        "answers_fixed_before_execution": {"const": true},
+        "learner_visible_material": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
+        "evaluator_retained_material": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/text"}},
+        "original_preparation": {
+          "oneOf": [
+            {"type": "object", "additionalProperties": false, "required": ["status", "timestamp", "reason"], "properties": {"status": {"const": "UNKNOWN"}, "timestamp": {"type": "null"}, "reason": {"$ref": "#/$defs/text"}}},
+            {"type": "object", "additionalProperties": false, "required": ["status", "timestamp", "reason"], "properties": {"status": {"const": "KNOWN"}, "timestamp": {"$ref": "#/$defs/timestamp"}, "reason": {"$ref": "#/$defs/text"}}}
+          ]
+        },
+        "exposure_disclosure_sha256": {"$ref": "#/$defs/sha256"},
+        "generation_record_sha256": {"$ref": "#/$defs/sha256"},
+        "legacy_source": {
+          "oneOf": [
+            {"type": "null"},
+            {"type": "object", "additionalProperties": false, "required": ["package_version", "package_sha256", "dataset_id", "authorship_sha256"], "properties": {"package_version": {"const": "orion-independent-restaurant-dataset-v1"}, "package_sha256": {"$ref": "#/$defs/sha256"}, "dataset_id": {"type": "string", "pattern": "^dataset-[a-f0-9]{32,64}$"}, "authorship_sha256": {"$ref": "#/$defs/sha256"}}}
+          ]
+        }
+      }
+    },
+    "timeline": {"$ref": "../frozen_learning_v1/dataset.schema.json#/properties/timeline"},
+    "learner_inputs": {"$ref": "../frozen_learning_v1/dataset.schema.json#/properties/learner_inputs"},
+    "outcome_releases": {"$ref": "../frozen_learning_v1/dataset.schema.json#/properties/outcome_releases"},
+    "evaluator_only_commitment": {"$ref": "../frozen_learning_v1/dataset.schema.json#/properties/evaluator_only_commitment"}
+  },
+  "$defs": {
+    "text": {"type": "string", "minLength": 1, "maxLength": 1000},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "timestamp": {"type": "string", "format": "date-time"}
+  }
+}

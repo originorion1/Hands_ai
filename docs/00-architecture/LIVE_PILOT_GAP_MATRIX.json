@@ -13,31 +13,34 @@
       "missing_primitive": "Technical identity/company/date bindings still require independent proof",
       "implementation_required": "Evidence-backed binding validation",
       "test_required": "Unknown schemas without operator field names",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Business semantics",
-      "current_implementation": "Sample date/reference matches against a trusted trace protocol",
+      "current_implementation": "Independent finite process/measurement rules, lineage, corrections and UNKNOWN across three opaque schemas",
       "evidence": [
-        "src/orion/understanding/process_roles.py"
+        "src/orion/understanding/semantic_study.py"
       ],
       "risk": "HIGH",
-      "missing_primitive": "General commercial-role validation absent",
-      "implementation_required": "Independent lifecycle/reconciliation evidence and semantic tests",
+      "missing_primitive": "Reviewed real instrumentation, origin lineage and technical read bindings remain absent",
+      "implementation_required": "Complete and independently verify the missing deployment primitive",
       "test_required": "Second protocol, false confidence and UNKNOWN cases",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Hypotheses and epistemic lifecycle",
-      "current_implementation": "Support, counterexamples, unknown and revision represented",
+      "current_implementation": "Empty/default/inflated/duplicated support no longer validates; contradicted claims cannot be revalidated by a count",
       "evidence": [
-        "src/orion/understanding/role_study.py"
+        "src/orion/validation/claims.py"
       ],
       "risk": "HIGH",
-      "missing_primitive": "Prototype validation accepts caller evidence counts",
-      "implementation_required": "Keep prototype promotion outside deployment; verified evidence policy",
+      "missing_primitive": "Prototype counts and directly constructed decisions remain trusted, not production attestation",
+      "implementation_required": "Complete and independently verify the missing deployment primitive",
       "test_required": "Forged validation must not promote deployed knowledge",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "World model",
@@ -49,7 +52,8 @@
       "missing_primitive": "Durable current-revision index absent",
       "implementation_required": "Authenticated revision history and scoped queries",
       "test_required": "Restart current versus historical graph",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Evidence provenance",
@@ -61,7 +65,8 @@
       "missing_primitive": "Trusted archive has no production wiring or separate custody",
       "implementation_required": "Isolated admission archive",
       "test_required": "Attested producer and tamper-resistant retrieval",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Authorization and expiry",
@@ -73,7 +78,8 @@
       "missing_primitive": "Grant authority and caller share process",
       "implementation_required": "Isolated authenticated issuer/reader protocol",
       "test_required": "Forged caller, private permit, revocation during I/O",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Grant issuance and human review",
@@ -85,7 +91,8 @@
       "missing_primitive": "Operator identity, purpose and approval issuance service absent",
       "implementation_required": "Deny-by-default independently authenticated control plane",
       "test_required": "Unauthorized grant issuance and substitution",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Permit and live transport",
@@ -97,7 +104,8 @@
       "missing_primitive": "Explicit opener can bypass mediation outside path",
       "implementation_required": "Mandatory OS-separated egress broker",
       "test_required": "TLS/DNS/redirect/timeout/failure tests across sandbox",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Adapter escapes",
@@ -109,7 +117,8 @@
       "missing_primitive": "No OS-level prevention of arbitrary network or file access",
       "implementation_required": "Reviewed isolation boundary; exclude legacy imports from worker",
       "test_required": "Untrusted worker cannot connect except broker",
-      "live_pilot_status": "FAIL"
+      "live_pilot_status": "FAIL",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Historical and live reads",
@@ -121,7 +130,8 @@
       "missing_primitive": "Optional trusted construction remains outside mediation",
       "implementation_required": "Route deployed reads exclusively through isolated broker",
       "test_required": "Every legacy entry point and direct invocation",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Budgets rate limits and circuit",
@@ -133,7 +143,8 @@
       "missing_primitive": "Optional composition and no independently owned budget file/key",
       "implementation_required": "Make budget service mandatory at OS egress boundary",
       "test_required": "Restart rate/reset, concurrent writer, retry amplification",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Retries",
@@ -145,7 +156,8 @@
       "missing_primitive": "No reviewed live retry policy with upstream backoff",
       "implementation_required": "Keep retries disabled until isolated retry service is verified",
       "test_required": "Rate limiting and upstream retry headers",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Audit integrity",
@@ -157,7 +169,8 @@
       "missing_primitive": "Key/head custody and all epistemic/control-plane audit events absent",
       "implementation_required": "Independent append service plus full lifecycle audit",
       "test_required": "Rollback, log rewrite, missing authorization decision",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Logging and redaction",
@@ -169,7 +182,8 @@
       "missing_primitive": "Unified redaction and protected log collector absent",
       "implementation_required": "Typed telemetry and isolated collector",
       "test_required": "Secret-bearing upstream exceptions and malicious text",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Secrets/configuration",
@@ -181,7 +195,8 @@
       "missing_primitive": "Application can inspect resolved keys and injected callables",
       "implementation_required": "Credential-only worker and separate secret provider",
       "test_required": "Worker cannot inspect secret environment or file descriptors",
-      "live_pilot_status": "FAIL"
+      "live_pilot_status": "FAIL",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Tenant/company/source isolation",
@@ -193,7 +208,8 @@
       "missing_primitive": "Deployment storage API not tenant-bound",
       "implementation_required": "Tenant-bound archive facade outside worker",
       "test_required": "Cross-tenant/company/source replay and reads",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Checkpoint and process restart",
@@ -205,7 +221,8 @@
       "missing_primitive": "Production evidence archive and trusted checkpoint index absent",
       "implementation_required": "Durable isolated evidence/index custody",
       "test_required": "Crash and revoke before continuation",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Retention and forgetting",
@@ -217,7 +234,8 @@
       "missing_primitive": "Retention horizons, privacy erasure and dependency invalidation missing",
       "implementation_required": "Explicit retention contract without restoring authority",
       "test_required": "Expired evidence, deletion and derived-claim invalidation",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Sensitive information",
@@ -229,7 +247,8 @@
       "missing_primitive": "Financial/personnel/payment classification and authorization policies incomplete",
       "implementation_required": "Reviewed explicit sensitivity policy; deny unknown classes",
       "test_required": "PII/payment/employee data minimization",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Prediction/outcome",
@@ -241,19 +260,21 @@
       "missing_primitive": "Semantic prerequisite and reviewed prospective integration incomplete",
       "implementation_required": "Do not activate or duplicate pending prediction work",
       "test_required": "Prospective prediction to outcome/error/revision",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Recommendations",
-      "current_implementation": "ShadowDecision never enables execution",
+      "current_implementation": "Prior validated-role contradiction or independent source disagreement produces a bounded shadow review; every state retains evaluated provenance and explicit execution denial",
       "evidence": [
-        "src/orion/shadow/decision.py"
+        "src/orion/shadow/semantic_review.py"
       ],
       "risk": "MEDIUM",
-      "missing_primitive": "Full benefit/risk/assumption and contradictory-evidence contract incomplete",
-      "implementation_required": "Evidence-derived recommendation contract after semantic gate",
+      "missing_primitive": "Production lifecycle audit, review operator identity, durable routing and broader recommendation contracts remain absent",
+      "implementation_required": "Complete and independently verify the missing deployment primitive",
       "test_required": "Recommendation cannot execute or authorize",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Execution/actions",
@@ -265,7 +286,8 @@
       "missing_primitive": "Host caller can execute arbitrary Python outside pilot path",
       "implementation_required": "OS confinement; keep write/communication/employee actions excluded",
       "test_required": "No filesystem/network/process escape",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "ERP-neutral gateway",
@@ -277,7 +299,8 @@
       "missing_primitive": "Complete second-protocol semantic lifecycle unproven",
       "implementation_required": "Second independent adapter and cross-protocol experiment",
       "test_required": "Same logic across two structurally different systems",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Model boundary",
@@ -289,7 +312,8 @@
       "missing_primitive": "No verified model-to-evidence attestation gateway",
       "implementation_required": "Keep models disabled; require evidence-backed promotion",
       "test_required": "Model output and prompt injection cannot grant/fact-promote",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Workers and scheduling",
@@ -301,7 +325,8 @@
       "missing_primitive": "Supervised isolated runtime and scheduling absent",
       "implementation_required": "Bounded supervisor with explicit cancellation",
       "test_required": "Crash, restart and no duplicate external attempt",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Health and readiness",
@@ -313,7 +338,8 @@
       "missing_primitive": "Real worker health/connection readiness not implementable here",
       "implementation_required": "Verified isolated worker probes and version binding",
       "test_required": "Unknown config/force flags and startup fail closed",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Monitoring/alerts",
@@ -325,7 +351,8 @@
       "missing_primitive": "No protected metrics exporter or alert routing",
       "implementation_required": "Secret-free metrics and reviewed alerts",
       "test_required": "Latency, bytes, unknown/contradiction and failure metrics",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Incidents emergency stop",
@@ -337,7 +364,8 @@
       "missing_primitive": "No authenticated global stop across all application paths",
       "implementation_required": "Supervisor egress removal plus centralized revocation",
       "test_required": "In-flight stop and unmediated egress denial",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Rollback and migrations",
@@ -349,7 +377,8 @@
       "missing_primitive": "Release rollback and externally pinned audit migration unspecified",
       "implementation_required": "Tested backup/index and deployment migration plan",
       "test_required": "Crash during migration and rollback against pinned tip",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Deployment configuration",
@@ -361,19 +390,21 @@
       "missing_primitive": "OS isolation/TLS/secret mounts not verified; bwrap network namespace fails here",
       "implementation_required": "Reviewed host with verifiable namespace/egress and secrets boundary",
       "test_required": "Exercise actual deployment under hostile worker",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Complete release simulation",
-      "current_implementation": "Offline schema/roles/contradictions/restart and revoked continuation tested",
+      "current_implementation": "Synthetic settlement discrepancy traverses metadata and record admission, semantics, correction, review, disabled execution and audit/recovery",
       "evidence": [
-        "tests/test_pilot_recovery.py"
+        "tests/test_final_pilot_review.py"
       ],
       "risk": "HIGH",
-      "missing_primitive": "Prediction/recommendation/audit and second protocol not end-to-end complete",
-      "implementation_required": "Complete release candidate only after prerequisite gates",
+      "missing_primitive": "No real isolated worker, production archive or complete prediction/action release simulation",
+      "implementation_required": "Complete and independently verify the missing deployment primitive",
       "test_required": "Three environment release simulations",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "No hardcoding",
@@ -385,7 +416,8 @@
       "missing_primitive": "Legacy mappings cannot be part of generic pilot reasoning",
       "implementation_required": "Explicit deployed module inventory and no-hardcode scope scan",
       "test_required": "Rename opaque schemas; reject source-specific business defaults",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Prompt injection",
@@ -397,7 +429,8 @@
       "missing_primitive": "No isolated model/agent execution boundary verified",
       "implementation_required": "Keep external interpreters/agents outside deployment until confined",
       "test_required": "Malicious records, metadata, documents, tool calls",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     },
     {
       "requirement": "Dependency/security validation",
@@ -409,7 +442,23 @@
       "missing_primitive": "Supply-chain/vulnerability assessment of deployed image absent",
       "implementation_required": "Pinned reviewed runtime artifact and available security scanner",
       "test_required": "Dependency audit, image provenance and SBOM",
-      "live_pilot_status": "BLOCKED"
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
+    },
+    {
+      "requirement": "Supervised local read-only broker",
+      "current_implementation": "Authenticated pinned read/control frames, fixed separately launched synthetic worker, two local encodings, mandatory per-attempt journal within this broker, fresh arming and durable stop/revocation",
+      "evidence": [
+        "src/orion/pilot/broker.py",
+        "src/orion/pilot/broker_worker.py",
+        "tests/test_supervised_broker.py"
+      ],
+      "risk": "HIGH",
+      "missing_primitive": "OS-enforced application/broker ownership and egress separation, protected issuer/journal custody, live protocol and metadata integration",
+      "implementation_required": "Test independently owned deployment isolation on a capable host; retain all live release denials",
+      "test_required": "Application cannot access broker environment/files/alternative egress; full deployed lifecycle",
+      "live_pilot_status": "BLOCKED",
+      "issue_class": "PILOT BLOCKER"
     }
   ]
 }

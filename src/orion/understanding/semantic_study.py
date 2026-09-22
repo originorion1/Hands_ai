@@ -19,6 +19,8 @@ from .role_checkpoint import _json, _observation_digest, _scope_digest, checkpoi
 from .role_study import ObservationRequirement, RoleStudy
 from .semantic_rules import RULES, SemanticRule
 
+SEMANTIC_EVALUATOR_VERSION = "semantic-rules-v1"
+
 # Protocol mechanics, not identifiers in the unfamiliar business schema.
 ANCHOR_FIELDS = ('id', 'partition', 'on', 'subject_source', 'subject_resource',
                  'subject_id', 'evidence_class', 'channel', 'dimension', 'value',
@@ -97,7 +99,9 @@ class SemanticStudy:
     def __init__(self, base, *, instruments, evidence_lookup, rules=RULES):
         if type(base) is not RoleStudy or type(instruments) is not tuple:
             raise ValueError('structural study and reviewed instruments required')
-        if not instruments or len(instruments) > 8 or type(rules) is not tuple or not rules:
+        # An explicitly empty reviewed registry permits evaluation of missing
+        # grounding as UNKNOWN; it cannot admit independent observations.
+        if len(instruments) > 8 or type(rules) is not tuple or not rules:
             raise ValueError('bounded explicit policy required')
         for item in instruments:
             if (type(item) is not Instrument or item.source_id == base.source
