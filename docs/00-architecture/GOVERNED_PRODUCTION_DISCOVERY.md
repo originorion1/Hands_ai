@@ -72,6 +72,10 @@ repository. The operator provisions:
 6. An access ledger naming the deployment/artifact/destination/config/envelope,
    tenant/company/site schema, credential references, exclusions, prior consumed
    sessions, expiry and request/byte/time ceilings.
+   A first session can carry an empty predecessor digest list only as an explicit
+   issuer-approved ledger value. It does not establish completeness of legacy
+   activity outside this v6 session lineage. A listed digest matching the
+   proposed session is rejected as reuse.
 7. An issuer-authenticated approval over the exact ledger digest.
 8. A host attestation naming the exact artifact/profile/destination/ledger, the
    external exact-commit installed-qualification receipt digest, reviewed service

@@ -270,6 +270,51 @@ def test_missing_or_package_forged_approval_denies(tmp_path):
         production.load_production_evidence(manifest, now=now)
 
 
+def test_first_session_empty_predecessors_require_exact_issuer_approval(tmp_path):
+    manifest, _, ledger, attestation, now = inputs(tmp_path)
+    ledger["prior_consumed_sessions"] = []
+    private_json(Path(manifest["access_ledger"]), ledger)
+    with pytest.raises(ValueError, match="subject mismatch"):
+        production.load_production_evidence(manifest, now=now)
+    private_json(
+        Path(manifest["access_approval"]),
+        approved(ledger, "discovery_access_ledger", ISSUER, now),
+    )
+    attestation["access_ledger_sha256"] = digest(ledger)
+    private_json(Path(manifest["host_attestation"]), attestation)
+    private_json(
+        Path(manifest["host_approval"]),
+        approved(attestation, "discovery_host_attestation", DEPLOYMENT_APPROVAL, now),
+    )
+    assert production.load_production_evidence(manifest, now=now)[
+        "session_id_sha256"
+    ] == digest(ledger["session_id"])
+    assert not any(Path(manifest["state_directory"]).iterdir())
+
+
+def test_consumed_current_session_digest_denies_even_with_exact_approval(tmp_path):
+    manifest, _, ledger, _, now = inputs(tmp_path)
+    ledger["prior_consumed_sessions"] = sorted(
+        ["b" * 64, digest(ledger["session_id"])]
+    )
+    private_json(Path(manifest["access_ledger"]), ledger)
+    private_json(
+        Path(manifest["access_approval"]),
+        approved(ledger, "discovery_access_ledger", ISSUER, now),
+    )
+    with pytest.raises(ValueError, match="consumed session lineage required"):
+        production.load_production_evidence(manifest, now=now)
+    assert not any(Path(manifest["state_directory"]).iterdir())
+
+
+def test_other_consumed_session_remains_bound_to_approved_ledger(tmp_path):
+    manifest, _, ledger, _, now = inputs(tmp_path)
+    assert ledger["prior_consumed_sessions"] == ["b" * 64]
+    evidence = production.load_production_evidence(manifest, now=now)
+    assert evidence["access_ledger_sha256"] == digest(ledger)
+    assert ledger["prior_consumed_sessions"] == ["b" * 64]
+
+
 def test_gateway_uses_reviewed_hostname_addresses_port_and_no_dns_or_request_selector(
     tmp_path, monkeypatch
 ):
