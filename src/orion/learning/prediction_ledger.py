@@ -1,0 +1,253 @@
+"""Prospective binary prediction measurement; no predictor or action authority.
+
+Evidence references must be verified by the caller against its tenant-local
+evidence store. This ledger checks time and identity, not source authenticity.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import sqlite3
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from uuid import UUID
+
+from ..contracts import utc_now
+
+
+def _time(value: datetime) -> datetime:
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError('time must be timezone-aware')
+    return value.astimezone(UTC)
+
+
+def _identity(value: str) -> None:
+    if not isinstance(value, str) or not value.strip() or len(value) > 256:
+        raise ValueError('identity must be non-empty and bounded')
+
+
+def _references(value: tuple[UUID, ...]) -> None:
+    if not isinstance(value, tuple) or not value or not all(isinstance(x, UUID) for x in value):
+        raise ValueError('evidence must be a non-empty immutable UUID tuple')
+    if len(set(value)) != len(value):
+        raise ValueError('evidence references must be unique')
+
+
+@dataclass(frozen=True, slots=True)
+class Prediction:
+    tenant_id: str
+    prediction_id: str
+    target_definition: str
+    model_version: str
+    issued_at: datetime
+    evidence_cutoff: datetime
+    horizon_end: datetime
+    probability: float
+    evidence_ids: tuple[UUID, ...]
+
+    def __post_init__(self) -> None:
+        for value in (self.tenant_id, self.prediction_id, self.target_definition, self.model_version):
+            _identity(value)
+        if not _time(self.evidence_cutoff) <= _time(self.issued_at) < _time(self.horizon_end):
+            raise ValueError('prediction requires cutoff <= issuance < horizon')
+        if (type(self.probability) not in (int, float)
+                or not math.isfinite(self.probability) or not 0 <= self.probability <= 1):
+            raise ValueError('probability must be finite and within [0, 1]')
+        _references(self.evidence_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class Outcome:
+    tenant_id: str
+    prediction_id: str
+    observed_at: datetime
+    actual: bool
+    evidence_ids: tuple[UUID, ...]
+
+    def __post_init__(self) -> None:
+        _identity(self.tenant_id)
+        _identity(self.prediction_id)
+        _time(self.observed_at)
+        if type(self.actual) is not bool:
+            raise ValueError('actual must be bool')
+        _references(self.evidence_ids)
+
+
+def _json(record: Prediction | Outcome) -> str:
+    def encode(value):
+        if isinstance(value, datetime):
+            return _time(value).isoformat()
+        if isinstance(value, UUID):
+            return str(value)
+        raise TypeError('unsupported ledger value')
+    return json.dumps(asdict(record), default=encode, sort_keys=True, separators=(',', ':'))
+
+
+class PredictionLedger:
+    """Local append-only API with transactional exact replay checks.
+
+    Local database/clock access is trusted. This is not a tamper-proof audit
+    service and does not sandbox an injected predictor or authenticate evidence.
+    """
+
+    def __init__(self, path: str | Path, *, clock: Callable[[], datetime] = utc_now) -> None:
+        self.path = Path(path)
+        self.clock = clock
+        with self._connect() as connection:
+            connection.executescript('''
+                CREATE TABLE IF NOT EXISTS predictions (
+                    tenant TEXT NOT NULL, identity TEXT NOT NULL, payload TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL, PRIMARY KEY (tenant, identity)
+                );
+                CREATE TABLE IF NOT EXISTS prediction_outcomes (
+                    tenant TEXT NOT NULL, identity TEXT NOT NULL, payload TEXT NOT NULL,
+                    recorded_at TEXT NOT NULL, PRIMARY KEY (tenant, identity),
+                    FOREIGN KEY (tenant, identity) REFERENCES predictions(tenant, identity)
+                );
+            ''')
+            connection.commit()
+
+    def _connect(self):
+        # Closing the context is explicit: sqlite connection contexts only commit.
+        from contextlib import closing
+        connection = sqlite3.connect(self.path, timeout=5)
+        connection.execute('PRAGMA foreign_keys=ON')
+        connection.execute('PRAGMA synchronous=FULL')
+        return closing(connection)
+
+    def record(self, prediction: Prediction) -> None:
+        if not isinstance(prediction, Prediction):
+            raise TypeError('prediction must be Prediction')
+        payload = _json(prediction)
+        with self._connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            existing = connection.execute(
+                'SELECT payload FROM predictions WHERE tenant=? AND identity=?',
+                (prediction.tenant_id, prediction.prediction_id),
+            ).fetchone()
+            if existing:
+                if existing[0] != payload:
+                    raise ValueError('prediction replay conflict')
+                return
+            now = _time(self.clock())
+            if not _time(prediction.issued_at) <= now < _time(prediction.horizon_end):
+                raise ValueError('prediction must be recorded prospectively before horizon')
+            connection.execute('INSERT INTO predictions VALUES (?, ?, ?, ?)',
+                               (prediction.tenant_id, prediction.prediction_id,
+                                payload, now.isoformat()))
+            connection.commit()
+
+    def resolve(self, outcome: Outcome) -> None:
+        if not isinstance(outcome, Outcome):
+            raise TypeError('outcome must be Outcome')
+        with self._connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            row = connection.execute(
+                'SELECT payload FROM predictions WHERE tenant=? AND identity=?',
+                (outcome.tenant_id, outcome.prediction_id),
+            ).fetchone()
+            if row is None:
+                raise ValueError('unknown prediction in tenant scope')
+            prediction = json.loads(row[0])
+            now = _time(self.clock())
+            if not datetime.fromisoformat(prediction['horizon_end']) <= _time(outcome.observed_at) <= now:
+                raise ValueError('outcome must be observed after horizon and not in future')
+            payload = _json(outcome)
+            existing = connection.execute(
+                'SELECT payload FROM prediction_outcomes WHERE tenant=? AND identity=?',
+                (outcome.tenant_id, outcome.prediction_id),
+            ).fetchone()
+            if existing:
+                if existing[0] != payload:
+                    raise ValueError('outcome replay conflict')
+                return
+            connection.execute('INSERT INTO prediction_outcomes VALUES (?, ?, ?, ?)',
+                               (outcome.tenant_id, outcome.prediction_id, payload, now.isoformat()))
+            connection.commit()
+
+    def score(
+        self, tenant_id: str, *, target_definition: str | None = None,
+        model_version: str | None = None,
+    ) -> dict[str, object]:
+        """Score one cohort; ambiguous implicit pooling fails closed.
+
+        Target definitions must version horizon/label semantics. Model versions
+        must identify the evaluated arm. This is not a paired comparison test.
+        """
+        _identity(tenant_id)
+        if (target_definition is None) != (model_version is None):
+            raise ValueError('cohort requires both target_definition and model_version')
+        if target_definition is not None:
+            _identity(target_definition)
+            _identity(model_version)
+        with self._connect() as connection:
+            rows = connection.execute('''
+                SELECT p.payload, o.payload, p.recorded_at FROM predictions p
+                LEFT JOIN prediction_outcomes o ON p.tenant=o.tenant AND p.identity=o.identity
+                WHERE p.tenant=? ORDER BY p.identity
+            ''', (tenant_id,)).fetchall()
+        decoded = [(json.loads(p), json.loads(o) if o is not None else None,
+                    datetime.fromisoformat(t)) for p, o, t in rows]
+        if target_definition is not None:
+            decoded = [(p, o, t) for p, o, t in decoded
+                       if (p['target_definition'], p['model_version'])
+                       == (target_definition, model_version)]
+        elif len({(p['target_definition'], p['model_version']) for p, _, _ in decoded}) > 1:
+            raise ValueError('multiple prediction cohorts; select target_definition and model_version')
+        scored = [(p, o, t) for p, o, t in decoded if o is not None]
+        pairs = [(p['probability'], int(o['actual'])) for p, o, _ in scored]
+        return {
+            'predictions': len(decoded), 'resolved': len(pairs),
+            'pending': len(decoded) - len(pairs),
+            'brier': sum((p-y)**2 for p, y in pairs) / len(pairs) if pairs else None,
+            'true_positive': sum(p >= 0.5 and y == 1 for p, y in pairs),
+            'false_positive': sum(p >= 0.5 and y == 0 for p, y in pairs),
+            'true_negative': sum(p < 0.5 and y == 0 for p, y in pairs),
+            'false_negative': sum(p < 0.5 and y == 1 for p, y in pairs),
+            'lead_seconds': tuple((datetime.fromisoformat(p['horizon_end'])-t).total_seconds()
+                                  for p, _, t in scored),
+            'economic_value': None, 'execution_allowed': False,
+        }
+
+
+def synthetic_demo() -> dict[str, object]:
+    """Exercise durable measurement with invented labels, never a live forecast.
+
+    The fixed clock deliberately simulates a day passing. Each invocation uses
+    a temporary database, reopens it before resolving, then removes it. Evidence
+    UUIDs are fixture references, not authenticated restaurant evidence.
+    """
+    from datetime import timedelta
+    from tempfile import TemporaryDirectory
+
+    issued = datetime(2026, 1, 1, tzinfo=UTC)
+    horizon = issued + timedelta(days=1)
+    evidence = (UUID('00000000-0000-4000-8000-000000000001'),)
+    outcome_evidence = (UUID('00000000-0000-4000-8000-000000000002'),)
+    tenant = 'synthetic-restaurant'
+    cases = (('p1', 0.8, True), ('p2', 0.8, False),
+             ('p3', 0.2, False), ('p4', 0.2, True), ('p5', 0.5, None))
+    with TemporaryDirectory(prefix='orion-prediction-demo-') as directory:
+        path = Path(directory) / 'predictions.db'
+        ledger = PredictionLedger(path, clock=lambda: issued)
+        for identity, probability, _ in cases:
+            ledger.record(Prediction(
+                tenant, identity, 'synthetic-stockout-within-24h-v1', 'fixture-v1',
+                issued, issued, horizon, probability, evidence,
+            ))
+        reopened = PredictionLedger(path, clock=lambda: horizon)
+        for identity, _, actual in cases:
+            if actual is not None:
+                reopened.resolve(Outcome(tenant, identity, horizon, actual, outcome_evidence))
+        return {
+            'data_source': 'synthetic-fixture',
+            'persistence_reopened': True,
+            **reopened.score(tenant),
+        }
+
+
+if __name__ == '__main__':
+    print(json.dumps(synthetic_demo(), indent=2, sort_keys=True))
