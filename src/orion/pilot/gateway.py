@@ -33,6 +33,27 @@ GATEWAY_PATHS = {"metadata": "/metadata", "read": "/records"} | {
     operation: "/instrument/" + str(n) for n, operation in enumerate(INSTRUMENT_OPERATIONS)
 }
 ERPNext_PROTOCOLS = {"metadata": "erpnext_metadata_v1", "read": "erpnext_records_v1"}
+GATEWAY_FAILURE_CATEGORIES = frozenset({
+    "gateway_process_start_denied", "gateway_transport_denied",
+    "gateway_response_oversized", "gateway_response_framing_denied",
+    "gateway_http_status_denied", "gateway_response_headers_denied",
+    "gateway_response_policy_denied", "gateway_response_body_denied",
+})
+
+
+def gateway_failure_category_from_digest(reason):
+    """Decode only this finite diagnostic vocabulary from authenticated audit."""
+    return next((name for name in GATEWAY_FAILURE_CATEGORIES if digest(name) == reason), None)
+
+
+class GatewayReadDenied(JournalDenied):
+    """A fixed category; source errors and response content never cross custody."""
+
+    def __init__(self, category):
+        if category not in GATEWAY_FAILURE_CATEGORIES:
+            raise ValueError("fixed gateway failure category required")
+        self.category = category
+        super().__init__(category)
 
 
 def erpnext_source_request(config, descriptor):
@@ -221,7 +242,15 @@ class CredentialGateway:
         approval = self.client("redeem", redemption)
         if approval != {"authorized": True, "binding": value["binding"]}:
             raise JournalDenied("credential use unauthorized")
-        raw = self.read(path, limit=self.response_limits[value["binding"]])
+        try:
+            raw = self.read(path, limit=self.response_limits[value["binding"]])
+        except GatewayReadDenied as error:
+            reported = self.client("report_failure", {"receipt": value["receipt"],
+                                                      "binding": value["binding"],
+                                                      "category": error.category})
+            if reported != {"diagnostic_bound": True}:
+                raise JournalDenied("gateway diagnostic custody unavailable") from None
+            raise
         return {"body": raw.hex()}
 
     def read(self, path, *, limit=MAX_FRAME // 2):
@@ -289,43 +318,58 @@ class CredentialGateway:
         ]
         scheme = "token " if self.candidate else "Bearer "
         configuration = ('header = "Authorization: ' + scheme + self.credential + '"\n').encode()
-        process = subprocess.Popen(
-            argv,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            close_fds=True,
-            env={"PATH": LAB_PATH, "LANG": "C.UTF-8"},
-        )
         try:
-            process.stdin.write(configuration)
-            process.stdin.close()
-            # Independently bound even a source that lies about Content-Length.
-            wire = process.stdout.read(limit + 16385)
-            if len(wire) > limit + 16384:
-                raise JournalDenied("gateway response oversized")
-            if process.wait(timeout=2) != 0:
-                raise JournalDenied("gateway HTTPS denied")
-        finally:
-            if process.poll() is None:
-                process.kill()
-            process.wait(timeout=2)
-            process.stdout.close()
-            if not process.stdin.closed:
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                env={"PATH": LAB_PATH, "LANG": "C.UTF-8"},
+            )
+        except OSError:
+            raise GatewayReadDenied("gateway_process_start_denied") from None
+        try:
+            try:
+                process.stdin.write(configuration)
                 process.stdin.close()
+                # Independently bound even a source that lies about Content-Length.
+                wire = process.stdout.read(limit + 16385)
+                if len(wire) > limit + 16384:
+                    raise GatewayReadDenied("gateway_response_oversized")
+                if process.wait(timeout=2) != 0:
+                    raise GatewayReadDenied("gateway_transport_denied")
+            except (OSError, subprocess.TimeoutExpired):
+                raise GatewayReadDenied("gateway_transport_denied") from None
+        finally:
+            try:
+                if process.poll() is None:
+                    process.kill()
+                process.wait(timeout=2)
+                process.stdout.close()
+                if not process.stdin.closed:
+                    process.stdin.close()
+            except (OSError, subprocess.TimeoutExpired):
+                raise GatewayReadDenied("gateway_transport_denied") from None
         header, separator, body = wire.partition(b"\r\n\r\n")
         if not separator or len(header) > 16384:
-            raise JournalDenied("gateway framing denied")
-        lines = header.decode("ascii").split("\r\n")
+            raise GatewayReadDenied("gateway_response_framing_denied")
+        try:
+            lines = header.decode("ascii").split("\r\n")
+        except UnicodeDecodeError:
+            raise GatewayReadDenied("gateway_response_framing_denied") from None
         if not lines[0].startswith(("HTTP/1.1 200 ", "HTTP/1.0 200 ")):
-            raise JournalDenied("gateway status denied")
+            raise GatewayReadDenied("gateway_http_status_denied")
         headers = []
         for line in lines[1:]:
             name, colon, value = line.partition(":")
             if not colon or not name or line[:1].isspace():
-                raise JournalDenied("gateway headers denied")
+                raise GatewayReadDenied("gateway_response_headers_denied")
             headers.append((name, value.strip()))
-        size = response_length(200, headers, limit)
+        try:
+            size = response_length(200, headers, limit)
+        except ValueError:
+            raise GatewayReadDenied("gateway_response_policy_denied") from None
         if len(body) != size:
-            raise JournalDenied("gateway body denied")
+            raise GatewayReadDenied("gateway_response_body_denied")
         return body

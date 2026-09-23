@@ -27,6 +27,7 @@ from .broker_contract import (
     exact,
     is_erpnext_candidate,
 )
+from .gateway import GATEWAY_FAILURE_CATEGORIES
 from .journal import (
     AttemptJournal,
     JournalDenied,
@@ -352,6 +353,24 @@ class AuthorizationCustody(Broker):
                 # Consume BEFORE reply. Replay cannot release a second response.
                 offer["redeemed"] = True
                 return {"authorized": True}
+        if role == "source" and action == "report_failure":
+            exact(value, ("receipt", "binding", "category"))
+            with self.lock:
+                offer = self.offer
+                if (
+                    offer is None
+                    or not offer["redeemed"]
+                    or offer.get("failure_reported")
+                    or value["binding"] != self.binding
+                    or value["receipt"] != offer["receipt"]
+                    or value["category"] not in GATEWAY_FAILURE_CATEGORIES
+                ):
+                    raise JournalDenied("fixed redeemed gateway failure required")
+                offer["failure_reported"] = True
+                # Broker.handle records digest(phase) in the authenticated audit.
+                # The ongoing worker still fails and finishes its reserved attempt.
+                self.phase = value["category"]
+                return {"diagnostic_bound": True}
         if role != "broker":
             raise JournalDenied("authorization role denied")
         if action == "begin":
@@ -426,12 +445,14 @@ class RuntimeCustody:
             if role == "owner" and action == "control":
                 exact(value, ("operation", "message"))
                 return self.runtime.control(value["operation"], value["message"])
-            if role == "source" and action == "redeem":
+            if role == "source" and action in ("redeem", "report_failure"):
                 if self.active is None:
                     raise JournalDenied("no runtime acquisition")
                 self.runtime.owner_for({"operation": self.active.operation})
                 self._before_redeem(self.active, value)
-                self.active.dispatch(role, action, value)
+                result = self.active.dispatch(role, action, value)
+                if action == "report_failure":
+                    return result
                 return {"authorized": True, "binding": self.active.binding}
             if role != "broker" or action not in ("begin", "complete"):
                 raise JournalDenied("runtime caller or action denied")
