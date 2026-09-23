@@ -14,7 +14,12 @@ from orion.discovery.pilot_metadata import MetadataAuthorization, MetadataReques
 from orion.discovery.pilot_read import PilotAuthorization
 from orion.discovery.read_window import ReviewedReadWindow
 from orion.pilot.broker_contract import ERPNEXT_VERSION, digest
-from orion.pilot.gateway import CredentialGateway, response_length
+from orion.pilot.gateway import (
+    CredentialGateway,
+    GatewayReadDenied,
+    gateway_failure_category_from_digest,
+    response_length,
+)
 from orion.pilot.journal import JournalDenied, TransportLimits
 from orion.understanding.role_checkpoint import _json
 
@@ -92,6 +97,8 @@ def candidate_gateway(tmp_path):
 
     def client(action, value):
         calls.append((action, value))
+        if action == "report_failure":
+            return {"diagnostic_bound": True}
         return {"authorized": True, "binding": value["binding"]}
 
     owner = CredentialGateway(
@@ -118,6 +125,8 @@ def gateway(tmp_path, monkeypatch):
 
     def client(action, value):
         calls.append((action, value))
+        if action == "report_failure":
+            return {"diagnostic_bound": True}
         return {"authorized": True, "binding": value["binding"]}
 
     owner = CredentialGateway(
@@ -191,6 +200,106 @@ def test_gateway_changed_trust_denies_before_custody_or_source(gateway):
             "acquisition", "acquire", {"binding": digest(configs[0]), "receipt": "forged"}
         )
     assert calls == []
+
+
+def test_gateway_reports_only_fixed_category_after_redeemed_transport_failure(
+    gateway, monkeypatch
+):
+    import orion.pilot.gateway as module
+
+    owner, calls, configs, _ = gateway
+    owner.read = CredentialGateway.read.__get__(owner)
+
+    class Native:
+        stdin = io.BytesIO()
+        stdout = io.BytesIO(b"")
+
+        def wait(self, timeout):
+            return 60
+
+        def poll(self):
+            return 60
+
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *_args, **_kwargs: Native())
+    value = {"binding": digest(configs[1]), "receipt": "one-use-test-receipt"}
+    with pytest.raises(GatewayReadDenied, match="gateway_transport_denied"):
+        owner.dispatch("acquisition", "acquire", value)
+    assert calls == [
+        ("redeem", value),
+        ("report_failure", value | {"category": "gateway_transport_denied"}),
+    ]
+    assert owner.credential not in str(calls)
+
+
+def test_gateway_failure_categories_do_not_copy_transport_exception_or_response(
+    gateway, monkeypatch
+):
+    import orion.pilot.gateway as module
+
+    owner, _, _, _ = gateway
+    marker = "private-url-credential-response"
+
+    def fail_start(*_args, **_kwargs):
+        raise OSError(marker)
+
+    monkeypatch.setattr(module.subprocess, "Popen", fail_start)
+    with pytest.raises(GatewayReadDenied) as failure:
+        CredentialGateway.read(owner, "/records")
+    assert failure.value.category == "gateway_process_start_denied"
+    assert marker not in str(failure.value)
+    assert gateway_failure_category_from_digest(digest(failure.value.category)) == (
+        "gateway_process_start_denied"
+    )
+    assert gateway_failure_category_from_digest(digest(marker)) is None
+
+
+def test_gateway_cleanup_failure_has_fixed_category(gateway, monkeypatch):
+    import orion.pilot.gateway as module
+
+    owner, _, _, _ = gateway
+    marker = "private-stream-close-error"
+
+    class BrokenStream(io.BytesIO):
+        def close(self):
+            raise OSError(marker)
+
+    class Native:
+        stdin = io.BytesIO()
+        stdout = BrokenStream(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+
+        def wait(self, timeout):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *_args, **_kwargs: Native())
+    with pytest.raises(GatewayReadDenied) as failure:
+        CredentialGateway.read(owner, "/records")
+    assert failure.value.category == "gateway_transport_denied"
+    assert marker not in str(failure.value)
+
+
+def test_gateway_non_200_records_category_without_status_or_body(gateway, monkeypatch):
+    import orion.pilot.gateway as module
+
+    owner, _, _, _ = gateway
+
+    class Native:
+        stdin = io.BytesIO()
+        stdout = io.BytesIO(b"HTTP/1.1 401 Private\r\nContent-Length: 6\r\n\r\nsecret")
+
+        def wait(self, timeout):
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *_args, **_kwargs: Native())
+    with pytest.raises(GatewayReadDenied) as failure:
+        CredentialGateway.read(owner, "/records")
+    assert failure.value.category == "gateway_http_status_denied"
+    assert "401" not in str(failure.value) and "secret" not in str(failure.value)
 
 
 @pytest.mark.parametrize(

@@ -3,6 +3,7 @@
 import copy
 import sqlite3
 import sys
+import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -197,6 +198,41 @@ def test_receipt_replay_and_unauthorized_completion_denied(deployment):
         )["status"]
         == "admitted"
     )
+
+
+def test_redeemed_gateway_failure_records_fixed_category_without_private_text(deployment):
+    _, r, audits, owners, runtime, service = deployment
+    runtime.metadata_admitted = True
+    owner = owners[1]
+    runtime.control("read", control(owner, "arm"))
+    receipt = service.dispatch("broker", "begin", r.message())["receipt"]
+    report = {"receipt": receipt, "binding": digest(r.config),
+              "category": "gateway_transport_denied"}
+    with pytest.raises(ValueError):
+        service.dispatch("source", "report_failure", report | {"private": "never-record"})
+    with pytest.raises(ValueError):
+        service.dispatch("source", "report_failure", report | {"category": "secret-url"})
+    with pytest.raises(ValueError):
+        service.dispatch("source", "report_failure", report | {"receipt": "forged"})
+    assert service.dispatch("source", "redeem", {"receipt": receipt,
+                                                 "binding": digest(r.config)}) == {
+        "authorized": True, "binding": digest(r.config)
+    }
+    assert service.dispatch("source", "report_failure", report) == {"diagnostic_bound": True}
+    with pytest.raises(ValueError):
+        service.dispatch("source", "report_failure", report)
+    deadline = time.monotonic() + 7
+    while time.monotonic() < deadline:
+        events = audits[1].journal.lifecycle_records()
+        if any(event["event"] == "broker_denied" for event in events):
+            break
+        time.sleep(0.05)
+    denied = [event for event in events if event["event"] == "broker_denied"]
+    assert len(denied) == 1
+    assert denied[0]["references"]["reason"] == digest("gateway_transport_denied")
+    assert audits[1].journal.inspect()["attempts"] == 1
+    assert audits[1].journal.inspect()["pending"] is False
+    assert "secret-url" not in str(events) and r.secret not in str(events)
 
 
 @pytest.mark.parametrize("mutation", ["rewrite", "rollback", "missing"])
