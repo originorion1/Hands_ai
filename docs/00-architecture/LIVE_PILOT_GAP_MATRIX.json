@@ -1,7 +1,8 @@
 {
   "version": 1,
   "verdict": "NOT_LIVE_PILOT_READY",
-  "scope": "Current stacked laboratory tree; independently reviewed deployment is not available",
+  "dependency_head": "2375ad61af37f8e13a6c59935051d614e2ead8cb",
+  "scope": "Historical critical-path audit snapshot at dependency_head; not current-tree review coverage or deployment certification",
   "requirements": [
     {
       "requirement": "Discovery and schema",
