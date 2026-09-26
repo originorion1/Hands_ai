@@ -1,0 +1,18 @@
+{
+  "collision_clearance": false,
+  "durable_two_get_budget_status": "UNVERIFIED_REVIEW_GATE",
+  "file_sha256": {
+    "HOST_INSPECTION_20260926.json": "1344075cd0ea7b1ec5aeaf5550da9cfccfcb338243f26ac42debcccbf27ea00e",
+    "HOST_PROFILE_V2.json": "f876b58e0e7c26bd41cf6a50cfa7a789519fafad7fd70938ba826206789d7058",
+    "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json": "bb95b476f9a8d5dd991f354c58a6f18bc9473304df1a0672a66a9abe85d0a91b",
+    "REVIEW_MANIFEST_20260926.json": "aafedd94a0886074925a7e1f96842d09095ce17aeccf6cf28a6183d90e2db6a8",
+    "V2_REVIEW_ADDENDUM_20260926.md": "8be371877caaf853c63c02c4ddb905f7b80a7bb7eef4c4e2cc244f81d4bc7844",
+    "V2_SYSTEMD_PAIRING_REVIEW_20260926.md": "5634266ce0aa83cea58e5474e356335d36a74cf3b6783a0ab4f622a49666e6b6"
+  },
+  "host_state_changed": false,
+  "new_profile_variant": "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json",
+  "owner_decision_status": "PENDING_REVIEW",
+  "predecessor_manifest_sha256": "aafedd94a0886074925a7e1f96842d09095ce17aeccf6cf28a6183d90e2db6a8",
+  "schema": "orion.host_profile_v2.review_manifest.v2",
+  "status": "REVIEW_ONLY_NOT_APPLIED"
+}

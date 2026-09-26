@@ -1,0 +1,25 @@
+{
+  "apply_path_executed": false,
+  "collision_clearance": false,
+  "customer_activity_authorized": false,
+  "file_sha256": {
+    "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43",
+    "REVIEW_MANIFEST_20260926_14.json": "9f7afe40eaa77cf59eeb983d03a57e3fcf3c67b0acfddb7e6f558888ee3cfff1",
+    "apply-host-profile-v2-v14.py": "dfb3b1801215ff3c2c3474d65f15818fcb9b55104e2c953cd01cbb92519a8136",
+    "apply-host-profile-v2.py": "9d550cd8db45f8ca56e1ebed9d2b065e86c8ca70b664b38beac9cc16da1739a2",
+    "test_apply_host_profile_v2_failures-v14.py": "4aac384f370afa5e398ee243b26676ae659726100a36204a46dad6f7b6593ab4",
+    "test_apply_host_profile_v2_failures.py": "f4a8cd0078a3b075bafabedc2fa9356bd25bfc831b1d25629677078c2803aba5",
+    "test_apply_host_profile_v2_systemctl.py": "eaaa28f4e3100d804287011ad271d2cacf457f8fed0c3374eff55b2566c4df67"
+  },
+  "focused_in_memory_test_count_total": 27,
+  "host_application_authorized": false,
+  "host_check_mode_executed": false,
+  "note": "Verifier now uses the retained root-only deployment-approval controller key path, with parent and 32-byte file custody checks. Historical operator metadata reports it present; current availability is unverified and any absence/drift blocks. No grant or host authority inferred.",
+  "predecessor_manifest_sha256": "9f7afe40eaa77cf59eeb983d03a57e3fcf3c67b0acfddb7e6f558888ee3cfff1",
+  "root_grant_created": false,
+  "schema": "orion.host_profile_v2.review_manifest.v15",
+  "service_owned_historical_key_used": false,
+  "status": "GUARDED_HOST_SCRIPT_REVIEW_ONLY_NOT_APPLIED",
+  "trusted_key_live_custody_verified": false,
+  "trusted_root_controller_key_path": "/etc/orion-pilot/controllers/deployment-approval"
+}

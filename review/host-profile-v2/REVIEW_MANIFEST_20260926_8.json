@@ -1,0 +1,18 @@
+{
+  "collision_clearance": false,
+  "customer_activity_authorized": false,
+  "file_sha256": {
+    "REVIEW_MANIFEST_20260926_7.json": "15ccc0c0d9afb94756c2fe6720321da4b37b121f4e45dad292a7d09ef6316241",
+    "V2_OWNER_ROUTE_POLICY_DECISION_20260926.json": "50c4cb3b420eaa8beca5794fe64457f3b342457e4744329608ce4dfb980b64b0",
+    "V2_RUNTIME_RECEIPT_SCHEMA_REVIEW_20260926_V2.json": "14228ce1dd432212fa432360443ab95c656e60662ffd546d04bbeff1f06b2f27",
+    "V2_SYNTHETIC_OUTER_ROUTE_DELTA_REVIEW_20260926.json": "dc855d17b5f22f0d84b9895636a4e68bb100607b70f6794eb96a909d816b55d3"
+  },
+  "host_application_authorized": false,
+  "note": "Append-only binding of review-only receipt schema revision. The revision binds v7 and owner-approved synthetic route policy but grants no host or customer activity.",
+  "owner_route_policy_approved": true,
+  "predecessor_manifest_sha256": "15ccc0c0d9afb94756c2fe6720321da4b37b121f4e45dad292a7d09ef6316241",
+  "production_host_routes_observed": false,
+  "runtime_receipt_schema_owner_review_pending": true,
+  "schema": "orion.host_profile_v2.review_manifest.v8",
+  "status": "REVIEW_ONLY_RECEIPT_SCHEMA_REVISION_PENDING_OWNER_REVIEW"
+}

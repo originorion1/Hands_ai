@@ -1,0 +1,12 @@
+{
+  "collision_clearance": false,
+  "file_sha256": {
+    "HOST_APPLICATION_V2_PROCEDURE_REVIEW.md": "32089d367b133226d6b971d173fda2383a7e595cff4a4e0a62f1ac0224c79399",
+    "REVIEW_MANIFEST_20260926_4.json": "4f1fda099fc287226900b60d1a34588c4b0a28b138ef9e34ba878158a4de1454"
+  },
+  "host_application_authorized": false,
+  "note": "Append-only binding of a non-executable host-application procedure proposal; v4 binds profile, gate report, addenda, and inspection record.",
+  "predecessor_manifest_sha256": "4f1fda099fc287226900b60d1a34588c4b0a28b138ef9e34ba878158a4de1454",
+  "schema": "orion.host_profile_v2.review_manifest.v5",
+  "status": "REVIEW_ONLY_NOT_APPLIED"
+}

@@ -1,0 +1,18 @@
+{
+  "collision_clearance": false,
+  "customer_activity_authorized": false,
+  "file_sha256": {
+    "REVIEW_MANIFEST_20260926_8.json": "a147e92aeecb7399f7f51d9ddab74c30c41fd07b0b536f7071d8632f2aa4daa7",
+    "V2_RUNTIME_RECEIPT_SCHEMA_OWNER_ACCEPTANCE_20260926.json": "568be3dd48ca7d1dc706ad27f4a2afa3fa7d3f639b55ae21014baf8eff87ca85",
+    "V2_RUNTIME_RECEIPT_SCHEMA_OWNER_DECISION_DRAFT_20260926.json": "28b8c0a945ab7c31678c59f9cf217a8a3f116cec8cd80e46e8e6c837c8c7e600",
+    "V2_RUNTIME_RECEIPT_SCHEMA_REVIEW_20260926_V2.json": "14228ce1dd432212fa432360443ab95c656e60662ffd546d04bbeff1f06b2f27"
+  },
+  "host_application_authorized": false,
+  "note": "Append-only binding of direct owner schema-format acceptance. Pending draft and v5-v8 remain preserved. No host or customer authorization is conveyed.",
+  "owner_receipt_schema_format_approved": true,
+  "owner_route_policy_approved": true,
+  "predecessor_manifest_sha256": "a147e92aeecb7399f7f51d9ddab74c30c41fd07b0b536f7071d8632f2aa4daa7",
+  "production_host_observed": false,
+  "schema": "orion.host_profile_v2.review_manifest.v9",
+  "status": "RECEIPT_SCHEMA_FORMAT_OWNER_APPROVED_REVIEW_ONLY"
+}

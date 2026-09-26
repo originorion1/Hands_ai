@@ -1,0 +1,74 @@
+{
+  "collision_clearance": false,
+  "current_phase": {
+    "authenticated_metadata_attempt_count": "unknown_not_assessed",
+    "candidate_manifest": {
+      "observed_present": false,
+      "required_now": false,
+      "result": "EXPECTED_ABSENT_PREPACKET"
+    },
+    "candidate_session_directory": {
+      "observed_present": false,
+      "required_now": false,
+      "result": "EXPECTED_ABSENT_PREPACKET"
+    },
+    "name": "before_unsigned_packet_preparation",
+    "parent_custody": {
+      "expected": {
+        "gid": 989,
+        "mode": "0750",
+        "path": "/var/lib/orion-pilot/sessions",
+        "type": "directory",
+        "uid": 0
+      },
+      "local_recheck": "unprivileged stat denied at root-owned parent; not treated as a custody failure",
+      "observed": {
+        "gid": 989,
+        "mode": "0750",
+        "path": "/var/lib/orion-pilot/sessions",
+        "type": "directory",
+        "uid": 0
+      },
+      "result": "PASS_OPERATOR_REPORTED_READ_ONLY",
+      "source": "previous operator-pasted read-only root inspection; session_parent_custody=true"
+    },
+    "signing_gate_result": "NOT_EVALUATED",
+    "state_and_witness_directories": {
+      "observed_present": false,
+      "required_now": false,
+      "result": "EXPECTED_ABSENT_PREPACKET"
+    }
+  },
+  "post_unsigned_pre_signing_required_gate": {
+    "failure_policy": "fail closed before signing if any required check is missing, invalid, or inconclusive",
+    "required_checks": [
+      "sessions parent remains root:orion-pilot 0750 and is not a symlink",
+      "candidate session directory exists as a non-symlink directory owned by orion-pilot:orion-pilot mode 0700",
+      "candidate manifest exists as a non-symlink single-link regular file owned by orion-pilot:orion-pilot mode 0600",
+      "manifest binds the exact candidate session, interpreter, state directory, witness directory, and artifact record without exposing its contents",
+      "state and witness directories exist as non-symlink directories owned by orion-pilot:orion-pilot mode 0700",
+      "intended writable children and secret/certificate references have reviewed custody; no unreviewed writable path or symlink escape",
+      "existing and proposed sockets remain inactive and disabled, with no active template instances",
+      "separate durable two-total-GET attempt budget across instances and restarts is verified before any customer I/O"
+    ],
+    "result": "PENDING_NOT_APPLICABLE_PREPACKET",
+    "trigger": "after separately authorized unsigned packet preparation and before any signing"
+  },
+  "preservation": {
+    "historical_paths_unchanged": [
+      "/home/orion/.orion/deployment-prep/route-b-pr205/host-base-namespace.inode",
+      "/etc/orion-pilot/network-provisioned",
+      "/etc/netns/orion-pilot-f7c7955",
+      "/etc/systemd/system/orion-pilot-metadata.socket",
+      "/etc/systemd/system/orion-pilot-metadata@.service"
+    ],
+    "no_candidate_directory_created": true,
+    "no_profile_application_or_qualification": true
+  },
+  "profile_applied": false,
+  "profile_variant_sha256": "bb95b476f9a8d5dd991f354c58a6f18bc9473304df1a0672a66a9abe85d0a91b",
+  "recorded_at_utc": "2026-09-26T01:42:18Z",
+  "schema": "orion.host_profile_v2.phase_aware_gate_report",
+  "session_id": "orion-metadata-fc4cb43c1468d83a558b589a",
+  "status": "REVIEW_ONLY_PREPACKET"
+}

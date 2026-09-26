@@ -1,0 +1,21 @@
+{
+  "apply_path_executed": false,
+  "collision_clearance": false,
+  "customer_activity_authorized": false,
+  "file_sha256": {
+    "REVIEW_MANIFEST_20260926_9.json": "e099ca792a7dfcbbc34c4bc761bb6c90acef600392223e08df44fae3e63d721f",
+    "apply-host-profile-v2.py": "45f68dc8640fb4ec08a0ec74c0b2ac4a73c8c328adad3b1200eaa28a95a0b362",
+    "test_apply_host_profile_v2.py": "c7a55f80b847393629f6fbf701c708e165f2ead76d3f7a67ca7dc44f88571334"
+  },
+  "focused_in_memory_test_count": 8,
+  "future_operator_command": "sudo /usr/bin/python3 -B /home/orion/.orion/deployment-prep/route-b-pr205/host-profile-v2/apply-host-profile-v2.py --apply",
+  "future_root_grant_path": "/etc/orion-pilot/HOST_APPLICATION_OWNER_GRANT_V2.json",
+  "host_application_authorized": false,
+  "host_check_mode_executed": false,
+  "note": "The script and tests are review artifacts. A separate future root-owned owner grant must bind this exact script digest and v9; no current authorization is inferred.",
+  "predecessor_manifest_sha256": "e099ca792a7dfcbbc34c4bc761bb6c90acef600392223e08df44fae3e63d721f",
+  "root_grant_created": false,
+  "schema": "orion.host_profile_v2.review_manifest.v10",
+  "script_binds_manifest_v9_sha256": "e099ca792a7dfcbbc34c4bc761bb6c90acef600392223e08df44fae3e63d721f",
+  "status": "GUARDED_HOST_SCRIPT_REVIEW_ONLY_NOT_APPLIED"
+}
