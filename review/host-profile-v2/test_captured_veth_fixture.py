@@ -84,7 +84,12 @@ class CapturedVethFixtureTests(unittest.TestCase):
 
     def _verify(self, host, peer, host_idx, peer_idx, moved):
         def host_json(args):
+            if args == [HOST.IP, "-j", "link", "show"]:
+                return [{"ifname": "lo", "ifindex": 1}, host[0]]
             return host if args[-1] == HOST.H else peer
+
+        def namespace_json(*args):
+            return self.rows["after_namespace_listing"] if args == ("link", "show") else peer
 
         stage = "after" if moved else "before"
         sysfs = self.rows["sysfs_indexes"][stage]
@@ -92,7 +97,7 @@ class CapturedVethFixtureTests(unittest.TestCase):
                    for side in ("host", "peer")]
         with mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
              mock.patch.object(HOST, "json_command", side_effect=host_json), \
-             mock.patch.object(HOST, "ns_json", return_value=peer), \
+             mock.patch.object(HOST, "ns_json", side_effect=namespace_json), \
              mock.patch.object(HOST, "veth_sysfs_indexes", side_effect=indexes):
             HOST.verify_veth_pair(host_idx, peer_idx, "net:[123]", peer_in_namespace=moved)
 
@@ -108,6 +113,65 @@ class CapturedVethFixtureTests(unittest.TestCase):
                                      tuple(int(raw["host"][key]) for key in ("ifindex", "iflink")))
                     self.assertEqual(HOST.veth_sysfs_indexes(HOST.P, namespace=True),
                                      tuple(int(raw["peer"][key]) for key in ("ifindex", "iflink")))
+
+
+class DirectCapturedVethFixtureTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        capture = BASE / "captured-veth-direct"
+        cls.metadata = json.loads((capture / "capture_metadata.json").read_text())
+        cls.rows = {}
+        for name, digest in cls.metadata["file_sha256"].items():
+            raw = (capture / name).read_bytes()
+            if hashlib.sha256(raw).hexdigest() != digest:
+                raise AssertionError("DIRECT_CAPTURE_DIGEST_DRIFT")
+            cls.rows[name.removesuffix(".json")] = json.loads(raw)
+
+    def test_direct_capture_places_endpoints_and_preserves_reciprocal_sysfs(self):
+        self.assertEqual(self.metadata["schema"],
+                         "orion.veth_ip_link.disposable_raw_capture.v3.direct")
+        for key in ("host_network_modified", "uplink_present", "default_route_present",
+                    "customer_traffic"):
+            self.assertIs(self.metadata[key], False)
+        host = self.rows["direct_host"][0]
+        peer = self.rows["direct_peer"][0]
+        sysfs = self.rows["sysfs_indexes"]
+        self.assertNotEqual(sysfs["network_namespaces"]["host"],
+                            sysfs["network_namespaces"]["peer"])
+        self.assertEqual([row["ifname"] for row in self.rows["before_host_listing"]], ["lo"])
+        self.assertEqual([row["ifname"] for row in self.rows["before_namespace_listing"]], ["lo"])
+        self.assertEqual({row["ifname"] for row in self.rows["after_host_listing"]},
+                         {"lo", HOST.H})
+        self.assertEqual({row["ifname"] for row in self.rows["after_namespace_listing"]},
+                         {"lo", HOST.P})
+        self.assertEqual((host["ifname"], peer["ifname"]), (HOST.H, HOST.P))
+        self.assertEqual((host["link_index"], peer["link_index"]),
+                         (peer["ifindex"], host["ifindex"]))
+        self.assertEqual(tuple(int(sysfs["host"][key]) for key in ("ifindex", "iflink")),
+                         (host["ifindex"], peer["ifindex"]))
+        self.assertEqual(tuple(int(sysfs["peer"][key]) for key in ("ifindex", "iflink")),
+                         (peer["ifindex"], host["ifindex"]))
+
+    def test_direct_capture_verifies_with_equal_indexes_in_separate_namespaces(self):
+        host = self.rows["direct_host"]
+        peer = self.rows["direct_peer"]
+        indexes = self.rows["sysfs_indexes"]
+        self.assertEqual(host[0]["ifindex"], peer[0]["ifindex"])
+
+        def host_json(args):
+            return (self.rows["after_host_listing"] if args == [HOST.IP, "-j", "link", "show"]
+                    else host)
+
+        def ns_json(*args):
+            return self.rows["after_namespace_listing"] if args == ("link", "show") else peer
+
+        with mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
+             mock.patch.object(HOST, "json_command", side_effect=host_json), \
+             mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
+             mock.patch.object(HOST, "veth_sysfs_indexes", side_effect=[
+                 tuple(int(indexes[side][key]) for key in ("ifindex", "iflink"))
+                 for side in ("host", "peer")]):
+            HOST.verify_veth_pair(host[0]["ifindex"], peer[0]["ifindex"], "net:[123]")
 
 
 if __name__ == "__main__":

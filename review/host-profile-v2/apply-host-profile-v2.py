@@ -339,6 +339,8 @@ def verify_review():
             v17["host_recovery_hold"] is True and
             v17["link_fixture_provenance"] == "CAPTURED_DISPOSABLE_AND_RECONSTRUCTED_CASES" and
             v17["raw_capture_evidence_gate"] == "SATISFIED_DISPOSABLE" and
+            v17["direct_capture_evidence_gate"] == "SATISFIED_DISPOSABLE" and
+            v17["direct_creation_intent_recorded_before_command"] is True and
             v17["maintenance_window_serialization_enforced"] is False and
             v17["review_human_approval"] == "PENDING" and
             v17["file_sha256"]["apply-host-profile-v2.py"] == sha(Path(__file__).resolve()),
@@ -356,6 +358,19 @@ def verify_review():
             all(sha(BASE / "captured-veth" / name) == digest
                 for name, digest in capture["file_sha256"].items()),
             "V17_CAPTURE_EVIDENCE")
+    direct = parse_json((BASE / "captured-veth-direct/capture_metadata.json").read_text())
+    direct_files = {"before_host_listing.json", "before_namespace_listing.json",
+                    "direct_host.json", "direct_peer.json", "after_host_listing.json",
+                    "after_namespace_listing.json", "sysfs_indexes.json"}
+    require(direct["schema"] == "orion.veth_ip_link.disposable_raw_capture.v3.direct" and
+            direct["placement"] == "host_and_nested_disposable_network_namespaces_at_creation" and
+            set(direct["file_sha256"]) == direct_files and
+            all(direct[key] is False for key in
+                ("host_network_modified", "uplink_present", "default_route_present",
+                 "customer_traffic")) and
+            all(sha(BASE / "captured-veth-direct" / name) == digest
+                for name, digest in direct["file_sha256"].items()),
+            "V17_DIRECT_CAPTURE_EVIDENCE")
     require(sha(MANIFEST) == MANIFEST_SHA, "V9_DIGEST")
     require(sha(BASE / "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json") == PROFILE_SHA, "PROFILE_DIGEST")
     require(sha(BASE / "V2_RUNTIME_RECEIPT_SCHEMA_REVIEW_20260926_V2.json") == SCHEMA_SHA, "SCHEMA_DIGEST")
@@ -824,8 +839,11 @@ def veth_sysfs_indexes(name, *, namespace=False):
     values = []
     for field in ("ifindex", "iflink"):
         path = Path("/sys/class/net") / name / field
-        raw = (run([IP, "netns", "exec", NS, "/usr/bin/cat", str(path)])
-               if namespace else path.read_text())
+        try:
+            raw = (run([IP, "netns", "exec", NS, "/usr/bin/cat", str(path)])
+                   if namespace else path.read_text())
+        except (OSError, subprocess.TimeoutExpired):
+            raise Blocked("VETH_SYSFS_READ_FAILED") from None
         value = raw.strip()
         require(re.fullmatch(r"[1-9][0-9]*", value) is not None,
                 "VETH_SYSFS_INDEX")
@@ -843,6 +861,22 @@ def verify_veth_pair(host_idx, pilot_idx, ns_inode, *, peer_in_namespace=True):
                  (type(row["link_index"]) is int and row["link_index"] == index)))
 
     require(namespace_inode() == ns_inode, "VETH_NAMESPACE_IDENTITY")
+    if peer_in_namespace:
+        host_listing = json_command([IP, "-j", "link", "show"])
+        ns_listing = ns_json("link", "show")
+        require(type(host_listing) is list and type(ns_listing) is list and
+                all(type(row) is dict and type(row.get("ifname")) is str and
+                    type(row.get("ifindex")) is int and row["ifindex"] > 0
+                    for row in host_listing + ns_listing) and
+                len({row["ifname"] for row in host_listing}) == len(host_listing) and
+                len(ns_listing) == 2 and
+                {row["ifname"] for row in ns_listing} == {"lo", P} and
+                not any(row["ifname"] == P for row in host_listing) and
+                sum(row["ifname"] == H and row["ifindex"] == host_idx
+                    for row in host_listing) == 1 and
+                sum(row["ifname"] == P and row["ifindex"] == pilot_idx
+                    for row in ns_listing) == 1,
+                "VETH_PAIR_PLACEMENT")
     host = json_command([IP, "-j", "-details", "link", "show", "dev", H])
     peer = (ns_json("-details", "link", "show", "dev", P) if peer_in_namespace else
             json_command([IP, "-j", "-details", "link", "show", "dev", P]))
@@ -864,6 +898,7 @@ def verify_veth_pair(host_idx, pilot_idx, ns_inode, *, peer_in_namespace=True):
     require(veth_sysfs_indexes(H) == (host_idx, pilot_idx) and
             veth_sysfs_indexes(P, namespace=peer_in_namespace) == (pilot_idx, host_idx),
             "VETH_PAIR_IDENTITY")
+    require(namespace_inode() == ns_inode, "VETH_NAMESPACE_IDENTITY")
 
 
 def create_namespace(created):
@@ -877,13 +912,18 @@ def create_namespace(created):
 
 
 def create_veth(ns_inode, created):
-    run([IP, "link", "add", H, "type", "veth", "peer", "name", P])
     pending = {"kind": "veth_pending", "namespace_inode": ns_inode,
                "host_idx": None, "pilot_idx": None}
     created.append(pending)
-    host_idx, pilot_idx = link_index(H), link_index(P)
+    # A command can create the pair and still leave its outcome uncertain to
+    # this process. Record the attempted creation before invoking iproute2.
+    try:
+        run([IP, "link", "add", H, "type", "veth", "peer", "name", P, "netns", NS])
+    except (OSError, subprocess.TimeoutExpired):
+        raise Blocked("VETH_CREATE_COMMAND_UNCERTAIN") from None
+    host_idx, pilot_idx = link_index(H), link_index(P, namespace=True)
     pending["host_idx"], pending["pilot_idx"] = host_idx, pilot_idx
-    verify_veth_pair(host_idx, pilot_idx, ns_inode, peer_in_namespace=False)
+    verify_veth_pair(host_idx, pilot_idx, ns_inode)
     created[-1] = ("veth", host_idx, pilot_idx, ns_inode)
     return host_idx, pilot_idx
 
@@ -1392,7 +1432,6 @@ def apply():
         require(sha(RESOLVER) == HOSTS_SHA, "RESOLVER_DIGEST")
         install_nft(address, created)
         host_idx, pilot_idx = create_veth(inode, created)
-        run([IP, "link", "set", P, "netns", NS])
         verify_veth_pair(host_idx, pilot_idx, inode)
         run([IP, "address", "add", HOST_IP + "/30", "dev", H])
         run([IP, "link", "set", H, "up"])

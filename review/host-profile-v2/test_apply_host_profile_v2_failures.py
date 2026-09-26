@@ -68,6 +68,21 @@ class BoundaryTests(unittest.TestCase):
                 with self.assertRaisesRegex(HOST.Blocked, "V17_FILE_DIGEST"):
                     HOST.verify_review()
                 fixture.write_bytes(SCRIPT.with_name(fixture.name).read_bytes())
+                direct_sysfs = base / "captured-veth-direct/sysfs_indexes.json"
+                direct_original = direct_sysfs.read_bytes()
+                direct_sysfs.write_bytes(direct_original + b" ")
+                with self.assertRaisesRegex(HOST.Blocked, "V17_FILE_DIGEST"):
+                    HOST.verify_review()
+                manifest_path = base / "REVIEW_MANIFEST_20260926_17.json"
+                manifest_original = manifest_path.read_bytes()
+                manifest = json.loads(manifest_original)
+                manifest["file_sha256"]["captured-veth-direct/sysfs_indexes.json"] = HOST.sha(
+                    direct_sysfs)
+                manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+                with self.assertRaisesRegex(HOST.Blocked, "V17_DIRECT_CAPTURE_EVIDENCE"):
+                    HOST.verify_review()
+                manifest_path.write_bytes(manifest_original)
+                direct_sysfs.write_bytes(direct_original)
                 archive = base / "apply-host-profile-v2-v16.py"
                 archive.write_bytes(archive.read_bytes() + b" ")
                 with self.assertRaisesRegex(HOST.Blocked, "V16_REVIEW_BINDING"):
@@ -223,9 +238,16 @@ class BoundaryTests(unittest.TestCase):
 
     def test_veth_accepts_reported_named_peer_shape_with_sysfs_indexes(self):
         host, peer = copy.deepcopy(self.HOST_VETH), copy.deepcopy(self.PILOT_VETH)
+        def host_json(args):
+            return [{"ifname": "lo", "ifindex": 1}, host] if args == [HOST.IP, "-j", "link", "show"] else [host]
+
+        def ns_json(*args):
+            return ([{"ifname": "lo", "ifindex": 1}, peer] if args == ("link", "show")
+                    else [peer])
+
         with mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
-             mock.patch.object(HOST, "json_command", return_value=[host]), \
-             mock.patch.object(HOST, "ns_json", return_value=[peer]), \
+             mock.patch.object(HOST, "json_command", side_effect=host_json), \
+             mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
              mock.patch.object(HOST, "veth_sysfs_indexes",
                                side_effect=[(11, 12), (12, 11)]) as sysfs:
             HOST.verify_veth_pair(11, 12, "net:[123]")
@@ -252,9 +274,17 @@ class BoundaryTests(unittest.TestCase):
                 host, peer = copy.deepcopy(self.HOST_VETH), copy.deepcopy(self.PILOT_VETH)
                 host.update(host_change)
                 peer.update(peer_change)
+                def host_json(args, host=host):
+                    return ([{"ifname": "lo", "ifindex": 1}, host] if
+                            args == [HOST.IP, "-j", "link", "show"] else [host])
+
+                def ns_json(*args, peer=peer):
+                    return ([{"ifname": "lo", "ifindex": 1}, peer] if args == ("link", "show")
+                            else [peer])
+
                 with mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
-                     mock.patch.object(HOST, "json_command", return_value=[host]), \
-                     mock.patch.object(HOST, "ns_json", return_value=[peer]), \
+                     mock.patch.object(HOST, "json_command", side_effect=host_json), \
+                     mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
                      mock.patch.object(HOST, "veth_sysfs_indexes",
                                        side_effect=[host_sysfs, peer_sysfs]), \
                      self.assertRaises(HOST.Blocked):
@@ -262,9 +292,16 @@ class BoundaryTests(unittest.TestCase):
 
     def test_veth_rejects_ambiguous_peer_rows_and_namespace_change(self):
         host, peer = copy.deepcopy(self.HOST_VETH), copy.deepcopy(self.PILOT_VETH)
+        def host_json(args):
+            return [{"ifname": "lo", "ifindex": 1}, host] if args == [HOST.IP, "-j", "link", "show"] else [host]
+
+        def ns_json(*args):
+            return ([{"ifname": "lo", "ifindex": 1}, peer] if args == ("link", "show")
+                    else [peer, peer])
+
         with mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
-             mock.patch.object(HOST, "json_command", return_value=[host]), \
-             mock.patch.object(HOST, "ns_json", return_value=[peer, peer]), \
+             mock.patch.object(HOST, "json_command", side_effect=host_json), \
+             mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
              mock.patch.object(HOST, "veth_sysfs_indexes") as sysfs:
             with self.assertRaises(HOST.Blocked):
                 HOST.verify_veth_pair(11, 12, "net:[123]")
@@ -288,6 +325,9 @@ class BoundaryTests(unittest.TestCase):
             ])
         with mock.patch.object(HOST.Path, "read_text", return_value="unknown\n"), \
              self.assertRaises(HOST.Blocked):
+            HOST.veth_sysfs_indexes(HOST.H)
+        with mock.patch.object(HOST.Path, "read_text", side_effect=FileNotFoundError), \
+             self.assertRaisesRegex(HOST.Blocked, "VETH_SYSFS_READ_FAILED"):
             HOST.veth_sysfs_indexes(HOST.H)
 
     def test_rollback_refuses_veth_with_wrong_peer_index(self):

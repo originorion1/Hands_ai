@@ -13,33 +13,39 @@ BASE = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("orion_veth_acceptance", BASE / "apply-host-profile-v2.py")
 HOST = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HOST)
-CAPTURE = BASE / "captured-veth"
+CAPTURE = BASE / "captured-veth-direct"
 SYSFS = json.loads((CAPTURE / "sysfs_indexes.json").read_text())
-BEFORE = {"host": json.loads((CAPTURE / "before_host.json").read_text()),
-          "pilot_host": json.loads((CAPTURE / "before_peer.json").read_text()),
+BEFORE = {"host_listing": json.loads((CAPTURE / "before_host_listing.json").read_text()),
           "namespace_listing": json.loads((CAPTURE / "before_namespace_listing.json").read_text())}
-AFTER = {"host": json.loads((CAPTURE / "after_host.json").read_text()),
-         "pilot_namespace": json.loads((CAPTURE / "after_peer.json").read_text())}
-HOST_INDEX = BEFORE["host"][0]["ifindex"]
-PEER_INDEX = BEFORE["pilot_host"][0]["ifindex"]
+AFTER = {"host": json.loads((CAPTURE / "direct_host.json").read_text()),
+         "pilot_namespace": json.loads((CAPTURE / "direct_peer.json").read_text()),
+         "host_listing": json.loads((CAPTURE / "after_host_listing.json").read_text()),
+         "namespace_listing": json.loads((CAPTURE / "after_namespace_listing.json").read_text())}
+HOST_INDEX = AFTER["host"][0]["ifindex"]
+PEER_INDEX = AFTER["pilot_namespace"][0]["ifindex"]
 
 
 class FullCreationRollbackAcceptance(unittest.TestCase):
-    def test_identity_failure_retains_full_dependency_set_in_both_placements(self):
+    def test_identity_failure_retains_full_dependency_set_in_pending_and_completed_records(self):
         for pending in (True, False):
             with self.subTest(pending=pending):
                 self._exercise(pending)
 
-    def _exercise(self, pending):
+    def test_command_uncertainty_retains_full_dependency_set(self):
+        self._exercise(True, command_uncertain=True)
+
+    def _exercise(self, pending, *, command_uncertain=False):
         order = []
         mutations = []
-        state = {"moved": False, "checks": 0, "replaced": False, "consumed": False}
+        state = {"created": False, "checks": 0, "replaced": False, "consumed": False,
+                 "intent_at_add": False, "journal": None}
         before = BEFORE
         after = AFTER
         snapshot = {"routes": {}, "docker": {"nftables": []}, "historical": "safe", "units": {}}
 
         def marker(_path, _digest, created):
             order.append("grant_marker")
+            state["journal"] = created
             created.append(("grant_marker", Path("/fixture/consumed"), 1, "test-digest"))
             state["consumed"] = True
 
@@ -71,24 +77,32 @@ class FullCreationRollbackAcceptance(unittest.TestCase):
             mutations.append(args)
             if args[:3] == [HOST.IP, "link", "add"]:
                 order.append("veth")
-            if args[:4] == [HOST.IP, "link", "set", HOST.P]:
-                state["moved"] = True
+                state["intent_at_add"] = any(isinstance(item, dict) and
+                                             item["kind"] == "veth_pending"
+                                             for item in state["journal"])
+                state["created"] = True
+                if command_uncertain:
+                    raise HOST.Blocked("COMMAND_OUTCOME_UNCERTAIN")
             return ""
 
         def namespace_rows(*args):
             if args == ("link", "show"):
-                return before["namespace_listing"]
+                return after["namespace_listing"] if state["created"] else before["namespace_listing"]
             if args[0] == "-details":
                 row = copy.deepcopy(after["pilot_namespace"])
                 if state["checks"] >= 3:
-                    row[0]["link"] = "drifted-peer"
+                    row[0]["link_index"] = 999
                 return row
             raise AssertionError(args)
 
         def host_rows(args):
-            if args[-1] == HOST.P:
-                return copy.deepcopy(before["pilot_host"])
-            row = copy.deepcopy(after["host"] if state["moved"] else before["host"])
+            if args == [HOST.IP, "-j", "link", "show"]:
+                row = copy.deepcopy(after["host_listing"] if state["created"] else
+                                    before["host_listing"])
+                if state["replaced"]:
+                    next(item for item in row if item["ifname"] == HOST.H)["ifindex"] = 99
+                return row
+            row = copy.deepcopy(after["host"])
             if state["replaced"]:
                 row[0]["ifindex"] = 99
             return row
@@ -132,9 +146,8 @@ class FullCreationRollbackAcceptance(unittest.TestCase):
             stack.enter_context(mock.patch.object(HOST, "ns_json", side_effect=namespace_rows))
             stack.enter_context(mock.patch.object(HOST, "json_command", side_effect=host_rows))
             def captured_indexes(name, **_kwargs):
-                stage = "after" if state["moved"] else "before"
                 side = "host" if name == HOST.H else "peer"
-                values = SYSFS[stage][side]
+                values = SYSFS[side]
                 result = tuple(int(values[key]) for key in ("ifindex", "iflink"))
                 return (result[0], 999) if pending and side == "peer" else result
 
@@ -172,6 +185,7 @@ class FullCreationRollbackAcceptance(unittest.TestCase):
         if not pending:
             expected += ["namespace_marker", "network_marker", "socket_unit", "template_unit"]
         self.assertEqual(order, expected)
+        self.assertTrue(state["intent_at_add"])
         self.assertTrue(state["replaced"])
         self.assertEqual(host_rows([HOST.H])[0]["ifindex"], 99)
         self.assertIn(("namespace", "net:[123]", 10), state["retained"])
@@ -180,12 +194,13 @@ class FullCreationRollbackAcceptance(unittest.TestCase):
         kinds = [item["kind"] if isinstance(item, dict) else item[0] for item in state["retained"]]
         self.assertEqual(kinds.count("docker_rule"), 2)
         self.assertEqual(kinds.count("file"), 1 if pending else 5)
-        self.assertEqual(state["checks"], 1 if pending else 3)
+        self.assertEqual(state["checks"], 0 if command_uncertain else 1 if pending else 3)
         self.assertEqual(result, 2)
         self.assertFalse(any("delete" in args for args in mutations), mutations)
         report = json.loads(stderr.getvalue())
         self.assertEqual(report["status"], "ROLLBACK_INCOMPLETE")
-        self.assertEqual(report["cause"], "VETH_PAIR_IDENTITY")
+        self.assertEqual(report["cause"], "COMMAND_OUTCOME_UNCERTAIN" if command_uncertain else
+                         "VETH_PAIR_IDENTITY")
         self.assertEqual(report["recovery_action"], "PRESERVE_RESOURCES_AND_REQUEST_MANUAL_REVIEW")
         self.assertEqual(report["rollback_unresolved_categories"],
                          (["veth_pending", "docker_rule", "nft_table", "file", "dir",

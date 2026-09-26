@@ -24,9 +24,17 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
 ## Offline behavior and verification
 
 - The pair check requires exact interface indexes, veth kind, stable namespace
-  inode, reciprocal sysfs `ifindex`/`iflink` reads, and every reported peer
-  reference to agree. A name or numeric `link_index` must be present for each
-  endpoint. Missing, malformed, or conflicting fields fail closed.
+  inode, host and namespace placement inventories, reciprocal sysfs
+  `ifindex`/`iflink` reads, and every reported peer reference to agree. A name
+  or numeric `link_index` must be present for each endpoint. Missing,
+  malformed, or conflicting fields fail closed.
+- The successor records `veth_pending` before invoking one `ip link add` that
+  creates H in the current namespace and P directly in the named namespace.
+  It verifies both endpoints before promoting the journal entry and again
+  before address configuration. There is no separate link move. A command
+  error after possible creation leaves the intent recorded for the rollback
+  hold. A replaced or uncertain namespace name fails verification and retains
+  the dependency set.
 - A genuine disposable capture found name-only peers before the move and
   index-only peers after the move. Four raw `ip -j -details link` outputs, two
   raw namespace listings, and raw sysfs `ifindex`/`iflink` text from each
@@ -40,6 +48,15 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
   namespaces before veth creation; no uplink, default route, customer traffic,
   or pilot-host link was used. `veth_ip_link_representative.json` remains
   explicitly reconstructed for malformed cases.
+- A second genuine disposable capture in `captured-veth-direct/` used direct
+  cross-namespace creation. It binds raw detailed JSON for both endpoints,
+  host and namespace listings before and after creation, and raw reciprocal
+  sysfs text from each endpoint's own network and mount namespace. The
+  endpoint ifindexes are both `2`, which is valid because each namespace has
+  its own index space. The capture tool required empty route tables and
+  loopback-only namespaces before creation, mounted sysfs read-only, and
+  rejected any JSON/sysfs or placement mismatch. It did not use a pilot-host
+  link, uplink, default route, or customer traffic.
 - Once namespace or veth creation is recorded, rollback issues no deletion for
   the recorded dependency set, including namespace nftables filter, host NAT
   and Docker rules, resolver, unit and evidence files, and consumed-grant marker.
@@ -48,22 +65,23 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
   steps, not an observation that the resources still exist. The legacy
   correction-receipt field `retained_v2_resource_names` has the same meaning;
   actual survival requires manual inspection.
-- The full-order failure injection now uses captured link and sysfs evidence
-  for pending and completed placements, late identity failure, and replacement
-  after verification but before rollback. Its mocks prohibit nft, link, file,
-  and directory deletion. Caller tests also use the captured evidence for
-  creation and post-move verification; reconstructed fixtures remain for
-  malformed input cases.
-- Focused host-profile tests passed: 53 tests and 51 subtests. The full
-  repository suite passed again: 985 tests and 51 subtests in 2443.11 seconds.
+- Full-order failure injection uses direct captured JSON and sysfs evidence
+  for pending and completed journal states, late identity failure, command
+  uncertainty, and replacement before rollback. Its mocks prohibit nft,
+  link, file, and directory deletion. Caller tests exercise actual
+  `create_veth` through `apply` and its rollback, including malformed
+  listings, missing sysfs, peer drift, namespace drift, and a link replacement.
+  Reconstructed fixtures remain for additional malformed input cases.
+- Focused host-profile tests passed: 56 tests and 58 subtests. The full
+  repository suite passed: 988 tests and 58 subtests in 1890.30 seconds.
   Python syntax checks, Ruff on the changed Python files plus `src` and
   `tests`, the demo (`execution_allowed=false`), and `git diff --check`
-  passed. The generic source/capability scanner flags the guarded host
-  script under its Python network policy at both this tree and the unchanged
-  predecessor head; changed capture and test files pass that scan. This is a
-  pre-existing scanner finding, not a new finding from this follow-up.
+  passed. The changed capture and test files pass the source/capability scan.
+  The generic scanner still flags the guarded host script under its Python
+  network policy, as it did at the predecessor head; this is a pre-existing
+  scanner finding, not a new finding from direct creation.
 
-## Disposition of the two review findings in `40057b007d27d0d6cedf725068e28c4776bf4f2e`
+## Review findings carried forward from `40057b007d27d0d6cedf725068e28c4776bf4f2e`
 
 1. **Captured link JSON lacked matching sysfs evidence in caller tests.**
    `capture_disposable_veth.py` now captures raw `ifindex`/`iflink` text in
@@ -78,10 +96,10 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
    `test_captured_veth_fixture.py::CapturedVethFixtureTests` checks the paired
    raw evidence and reader;
    `test_veth_peer_callers.py::VethCallerTests::test_create_veth_uses_raw_capture_and_reciprocal_sysfs_evidence`
-   and `test_veth_peer_callers.py::VethCallerTests::test_raw_capture_post_move_and_pending_rollback_through_apply`
-   exercise creation, post-move verification, and pending rollback through
-   callers. `test_veth_acceptance.py::FullCreationRollbackAcceptance::test_identity_failure_retains_full_dependency_set_in_both_placements`
-   uses the capture in both full-order failure paths. The reconstructed
+   and `test_veth_peer_callers.py::VethCallerTests::test_apply_direct_creation_verifies_before_addressing`
+   now exercise direct creation and verification through callers.
+   `test_veth_acceptance.py::FullCreationRollbackAcceptance::test_identity_failure_retains_full_dependency_set_in_pending_and_completed_records`
+   uses the direct capture in both full-order failure paths. The reconstructed
    fixture remains labeled as such.
 2. **Rollback categories implied confirmed surviving resources.**
    `apply-host-profile-v2.py` emits `rollback_unresolved_categories` for
@@ -90,11 +108,12 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
    that neither field proves present resources. The new
    `test_veth_peer_callers.py::VethCallerTests::test_rollback_categories_are_recorded_dependencies_without_presence_claim`
    asserts the categories without any live presence read or cleanup;
-   `test_veth_acceptance.py::FullCreationRollbackAcceptance::test_identity_failure_retains_full_dependency_set_in_both_placements`
-   asserts the renamed report field in both placements while deletion remains
-   prohibited.
+   `test_veth_acceptance.py::FullCreationRollbackAcceptance::test_identity_failure_retains_full_dependency_set_in_pending_and_completed_records`
+   asserts the renamed report field in both journal states while deletion
+   remains prohibited.
 
-These findings appear addressed in the code and offline tests at `40057b0`.
+These findings appear addressed in the code and offline tests at `40057b0`
+and remain covered by the current direct-creation tests.
 This disposition is an author-side assessment, not independent human review
 or maintainer approval.
 

@@ -5,6 +5,7 @@ import copy
 import importlib.util
 import io
 import json
+import subprocess
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -24,6 +25,13 @@ RAW_BEFORE = {"host": json.loads((CAPTURE / "before_host.json").read_text()),
 RAW_AFTER = {"host": json.loads((CAPTURE / "after_host.json").read_text()),
              "pilot_namespace": json.loads((CAPTURE / "after_peer.json").read_text()),
              "namespace_listing": json.loads((CAPTURE / "after_namespace_listing.json").read_text())}
+DIRECT = HERE / "captured-veth-direct"
+DIRECT_HOST = json.loads((DIRECT / "direct_host.json").read_text())
+DIRECT_PEER = json.loads((DIRECT / "direct_peer.json").read_text())
+DIRECT_HOST_LIST = json.loads((DIRECT / "after_host_listing.json").read_text())
+DIRECT_NS_BEFORE = json.loads((DIRECT / "before_namespace_listing.json").read_text())
+DIRECT_NS_AFTER = json.loads((DIRECT / "after_namespace_listing.json").read_text())
+DIRECT_SYSFS = json.loads((DIRECT / "sysfs_indexes.json").read_text())
 
 
 class VethCallerTests(unittest.TestCase):
@@ -37,101 +45,164 @@ class VethCallerTests(unittest.TestCase):
             self.assertNotIn("link_index", peer)
             self.assertEqual((host["ifindex"], peer["ifindex"]), (11, 12))
 
-    def test_create_veth_verifies_pre_move_pair_before_promoting_record(self):
-        created = []
-        with mock.patch.object(HOST, "run", return_value="") as run, \
-             mock.patch.object(HOST, "link_index", side_effect=[11, 12]), \
-             mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
-             mock.patch.object(HOST, "json_command",
-                               side_effect=[BEFORE["host"], BEFORE["pilot_host"]]), \
-             mock.patch.object(HOST, "veth_sysfs_indexes",
-                               side_effect=[(11, 12), (12, 11)]) as sysfs:
-            self.assertEqual(HOST.create_veth("net:[123]", created), (11, 12))
-        self.assertEqual(created, [("veth", 11, 12, "net:[123]")])
-        self.assertEqual(run.call_args_list,
-                         [mock.call([HOST.IP, "link", "add", HOST.H,
-                                     "type", "veth", "peer", "name", HOST.P])])
-        self.assertEqual(sysfs.call_args_list,
-                         [mock.call(HOST.H), mock.call(HOST.P, namespace=False)])
+    def test_create_veth_records_intent_before_uncertain_command(self):
+        for failure, code in ((HOST.Blocked("COMMAND_OUTCOME_UNCERTAIN"),
+                               "COMMAND_OUTCOME_UNCERTAIN"),
+                              (subprocess.TimeoutExpired(HOST.IP, 15),
+                               "VETH_CREATE_COMMAND_UNCERTAIN"),
+                              (OSError("unavailable"), "VETH_CREATE_COMMAND_UNCERTAIN")):
+            with self.subTest(code=code, failure=type(failure).__name__):
+                created = []
+                def uncertain(args, failure=failure, created=created):
+                    self.assertEqual(args, [HOST.IP, "link", "add", HOST.H, "type", "veth",
+                                            "peer", "name", HOST.P, "netns", HOST.NS])
+                    self.assertEqual(created, [{"kind": "veth_pending",
+                                                "namespace_inode": "net:[123]",
+                                                "host_idx": None, "pilot_idx": None}])
+                    raise failure
+
+                with mock.patch.object(HOST, "run", side_effect=uncertain) as run, \
+                     mock.patch.object(HOST, "link_index") as indexes, \
+                     self.assertRaisesRegex(HOST.Blocked, code):
+                    HOST.create_veth("net:[123]", created)
+                run.assert_called_once()
+                indexes.assert_not_called()
+                self.assertEqual(HOST.rollback(created, "192.0.2.1"), ["veth_pending"])
 
     def test_create_veth_drift_leaves_pending_record_and_does_not_move(self):
         created = []
-        drifted = copy.deepcopy(BEFORE["pilot_host"])
-        drifted[0]["link"] = "other"
+        drifted = copy.deepcopy(DIRECT_PEER)
+        drifted[0]["link_index"] = 999
+
+        def host_json(args):
+            return DIRECT_HOST_LIST if args == [HOST.IP, "-j", "link", "show"] else DIRECT_HOST
+
+        def ns_json(*args):
+            return DIRECT_NS_AFTER if args == ("link", "show") else drifted
+
         with mock.patch.object(HOST, "run", return_value="") as run, \
-             mock.patch.object(HOST, "link_index", side_effect=[11, 12]), \
+             mock.patch.object(HOST, "link_index", side_effect=[2, 2]), \
              mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
-             mock.patch.object(HOST, "json_command",
-                               side_effect=[BEFORE["host"], drifted]), \
+             mock.patch.object(HOST, "json_command", side_effect=host_json), \
+             mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
              mock.patch.object(HOST, "veth_sysfs_indexes"), self.assertRaises(HOST.Blocked):
             HOST.create_veth("net:[123]", created)
         self.assertEqual(created, [{"kind": "veth_pending", "namespace_inode": "net:[123]",
-                                    "host_idx": 11, "pilot_idx": 12}])
+                                    "host_idx": 2, "pilot_idx": 2}])
         self.assertEqual(len(run.call_args_list), 1)
 
     def test_create_veth_uses_raw_capture_and_reciprocal_sysfs_evidence(self):
-        host_idx = RAW_BEFORE["host"][0]["ifindex"]
-        peer_idx = RAW_BEFORE["pilot_host"][0]["ifindex"]
-        sysfs = RAW_SYSFS["before"]
-        indexes = [tuple(int(sysfs[side][key]) for key in ("ifindex", "iflink"))
-                   for side in ("host", "peer")]
+        host_idx = DIRECT_HOST[0]["ifindex"]
+        peer_idx = DIRECT_PEER[0]["ifindex"]
         created = []
-        with mock.patch.object(HOST, "run", return_value="") as run, \
-             mock.patch.object(HOST, "link_index", side_effect=[host_idx, peer_idx]), \
+
+        def host_json(args):
+            return DIRECT_HOST_LIST if args == [HOST.IP, "-j", "link", "show"] else DIRECT_HOST
+
+        def ns_json(*args):
+            return DIRECT_NS_AFTER if args == ("link", "show") else DIRECT_PEER
+
+        def add(args):
+            if args[:4] == [HOST.IP, "netns", "exec", HOST.NS]:
+                field = Path(args[-1]).name
+                return DIRECT_SYSFS["peer"][field]
+            self.assertEqual(created[0]["kind"], "veth_pending")
+            self.assertEqual(args, [HOST.IP, "link", "add", HOST.H, "type", "veth",
+                                    "peer", "name", HOST.P, "netns", HOST.NS])
+            return ""
+
+        with mock.patch.object(HOST, "run", side_effect=add) as run, \
+             mock.patch.object(HOST, "link_index", side_effect=[host_idx, peer_idx]) as links, \
              mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
-             mock.patch.object(HOST, "json_command",
-                               side_effect=[RAW_BEFORE["host"], RAW_BEFORE["pilot_host"]]), \
-             mock.patch.object(HOST, "veth_sysfs_indexes", side_effect=indexes) as reads:
+             mock.patch.object(HOST, "json_command", side_effect=host_json), \
+             mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
+             mock.patch.object(HOST.Path, "read_text",
+                               side_effect=[DIRECT_SYSFS["host"][key]
+                                            for key in ("ifindex", "iflink")]) as reads:
             self.assertEqual(HOST.create_veth("net:[123]", created), (host_idx, peer_idx))
         self.assertEqual(created, [("veth", host_idx, peer_idx, "net:[123]")])
-        self.assertEqual(reads.call_args_list,
-                         [mock.call(HOST.H), mock.call(HOST.P, namespace=False)])
-        self.assertEqual(len(run.call_args_list), 1)
+        self.assertEqual(links.call_args_list,
+                         [mock.call(HOST.H), mock.call(HOST.P, namespace=True)])
+        self.assertEqual(reads.call_count, 2)
+        self.assertEqual(len(run.call_args_list), 3)  # add, then two namespace sysfs reads
 
-    def _apply_through_post_move(self, *, peer_drift=False, pending_failure=False,
-                                 replace_after_check=False, use_capture=False):
-        """Run mocked apply through veth creation and its recovery path."""
-        before_rows = RAW_BEFORE if use_capture else BEFORE
-        after_rows = RAW_AFTER if use_capture else AFTER
-        host_idx = before_rows["host"][0]["ifindex"]
-        peer_idx = before_rows["pilot_host"][0]["ifindex"]
+    def _apply_through_direct_creation(self, *, command_uncertain=False, peer_drift=False,
+                                       replace_before_rollback=False, fault=None):
+        """Exercise actual create_veth and apply rollback with direct raw evidence."""
+        host_idx = DIRECT_HOST[0]["ifindex"]
+        peer_idx = DIRECT_PEER[0]["ifindex"]
         before = {"routes": {}, "docker": {"nftables": []}, "historical": "x", "units": {}}
-        peer = copy.deepcopy(after_rows["pilot_namespace"])
+        peer = copy.deepcopy(DIRECT_PEER)
         if peer_drift:
-            peer[0]["link"] = "other"
+            peer[0]["link_index"] = 999
         calls = []
         stderr = io.StringIO()
-        original_host = before_rows["host"] if pending_failure else after_rows["host"]
-        state = {"host": copy.deepcopy(original_host), "sysfs_reads": 0}
+        state = {"host": copy.deepcopy(DIRECT_HOST), "created": False,
+                 "intent_at_add": False, "journal": None}
 
-        def created_veth(_inode, created):
-            if pending_failure:
-                created.append({"kind": "veth_pending", "namespace_inode": "net:[123]",
-                                "host_idx": host_idx, "pilot_idx": peer_idx})
-                if replace_after_check:
-                    state["host"][0]["ifindex"] = 99
-                raise HOST.Blocked("STOP_AFTER_PRE_MOVE")
-            created.append(("veth", host_idx, peer_idx, "net:[123]"))
-            return host_idx, peer_idx
+        def host_json(args):
+            if args == [HOST.IP, "-j", "link", "show"]:
+                listing = copy.deepcopy(DIRECT_HOST_LIST)
+                if fault == "host_peer_collision":
+                    listing.append({"ifname": HOST.P, "ifindex": 77})
+                if state["host"][0]["ifindex"] != host_idx:
+                    next(row for row in listing if row["ifname"] == HOST.H)["ifindex"] = 99
+                return listing
+            return copy.deepcopy(state["host"])
 
-        def current_link(args):
-            return before_rows["pilot_host"] if args[-1] == HOST.P else state["host"]
+        def namespace_json(*args):
+            if args == ("link", "show"):
+                if state["created"] and fault == "missing_namespace_peer":
+                    return DIRECT_NS_BEFORE
+                if state["created"] and fault == "duplicate_namespace_peer":
+                    return [*DIRECT_NS_AFTER, copy.deepcopy(DIRECT_NS_AFTER[-1])]
+                if state["created"] and fault == "malformed_namespace_listing":
+                    return {"unexpected": "object"}
+                return DIRECT_NS_AFTER if state["created"] else DIRECT_NS_BEFORE
+            return peer
 
         def checked_sysfs(name, *, namespace=False):
-            state["sysfs_reads"] += 1
-            if use_capture:
-                side = "host" if name == HOST.H else "peer"
-                values = RAW_SYSFS["after"][side]
-                return tuple(int(values[key]) for key in ("ifindex", "iflink"))
-            return (host_idx, peer_idx) if name == HOST.H else (peer_idx, host_idx)
+            if fault == "missing_sysfs" and name == HOST.P:
+                raise HOST.Blocked("VETH_SYSFS_READ_FAILED")
+            side = "host" if name == HOST.H else "peer"
+            values = DIRECT_SYSFS[side]
+            return tuple(int(values[key]) for key in ("ifindex", "iflink"))
 
         def fake_run(args, **_kwargs):
             calls.append(args)
+            if args[:3] == [HOST.IP, "link", "add"]:
+                state["intent_at_add"] = any(item.get("kind") == "veth_pending"
+                                             for item in state["journal"]
+                                             if isinstance(item, dict))
+                state["created"] = True
+                if command_uncertain:
+                    if replace_before_rollback:
+                        state["host"][0]["ifindex"] = 99
+                    raise HOST.Blocked("COMMAND_OUTCOME_UNCERTAIN")
             if args[:3] == [HOST.IP, "address", "add"]:
-                if replace_after_check:
+                if replace_before_rollback:
                     state["host"][0]["ifindex"] = 99
-                raise HOST.Blocked("STOP_AFTER_POST_MOVE")
+                raise HOST.Blocked("STOP_AFTER_DIRECT_CREATE")
             return ""
+
+        created = []
+        def namespace(journal):
+            journal.append(("namespace", "net:[123]", 10))
+            return "net:[123]"
+
+        def marker(_path, _digest, journal):
+            state["journal"] = journal
+            journal.append(("grant_marker", Path("/fixture/used"), 1, "digest"))
+
+        def record_dir(_path, _uid, _gid, _mode, journal):
+            journal.append(("dir", Path("/fixture/resolver"), 2, 0, 0, 0o750))
+
+        def record_file(_path, _data, _uid, _gid, _mode, journal):
+            journal.append(("file", Path("/fixture/resolver/hosts"), 3, "digest", 0, 0, 0o640))
+
+        def firewall(_address, journal):
+            journal.append(("nft_table", "inet", HOST.FILTER, True, 41))
+            journal.append(("nft_table", "ip", HOST.NAT, False, 42))
 
         with contextlib.ExitStack() as stack:
             for name, value in (
@@ -141,24 +212,25 @@ class VethCallerTests(unittest.TestCase):
                 ("verify_grant", ({}, "a" * 64, Path("/fixture/used"))),
                 ("host_snapshot", before),
                 ("absent", True),
-                ("create_namespace", "net:[123]"),
                 ("route_arrays", {"ipv4_main": []}),
                 ("sha", HOST.HOSTS_SHA),
-                ("namespace_inode", "net:[123]"),
-                ("nft_expected", ([], [], {}, {})),
             ):
                 stack.enter_context(mock.patch.object(HOST, name, return_value=value))
-            for name in ("one_shot_marker", "ns_ip", "namespace_forwarding_zero",
-                         "create_dir", "create_file", "install_nft"):
+            stack.enter_context(mock.patch.object(
+                HOST, "namespace_inode",
+                side_effect=lambda: "net:[999]" if fault == "namespace_drift" and
+                state["created"] else "net:[123]"))
+            for name, implementation in (
+                ("one_shot_marker", marker), ("create_namespace", namespace),
+                ("create_dir", record_dir), ("create_file", record_file),
+                ("install_nft", firewall),
+            ):
+                stack.enter_context(mock.patch.object(HOST, name, side_effect=implementation))
+            for name in ("ns_ip", "namespace_forwarding_zero"):
                 stack.enter_context(mock.patch.object(HOST, name))
-            ns_rows = ([before_rows["namespace_listing"]] if pending_failure else
-                       [before_rows["namespace_listing"], peer,
-                        after_rows["namespace_listing"], peer])
-            stack.enter_context(mock.patch.object(HOST, "ns_json", side_effect=ns_rows))
-            stack.enter_context(mock.patch.object(HOST, "create_veth",
-                                                  side_effect=created_veth))
-            stack.enter_context(mock.patch.object(HOST, "json_command",
-                                                  side_effect=current_link))
+            stack.enter_context(mock.patch.object(HOST, "ns_json", side_effect=namespace_json))
+            stack.enter_context(mock.patch.object(HOST, "json_command", side_effect=host_json))
+            stack.enter_context(mock.patch.object(HOST, "link_index", side_effect=[host_idx, peer_idx]))
             sysfs = stack.enter_context(mock.patch.object(
                 HOST, "veth_sysfs_indexes", side_effect=checked_sysfs))
             stack.enter_context(mock.patch.object(HOST, "run", side_effect=fake_run))
@@ -167,52 +239,77 @@ class VethCallerTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(HOST.fcntl, "flock"))
             stack.enter_context(mock.patch.object(HOST.signal, "signal"))
             stack.enter_context(contextlib.redirect_stderr(stderr))
-            result = HOST.apply()
+            with mock.patch.object(HOST, "rollback", wraps=HOST.rollback) as rollback:
+                result = HOST.apply()
+                created = rollback.call_args.args[0]
             sysfs_calls = sysfs.call_args_list
-        return result, calls, sysfs_calls, json.loads(stderr.getvalue()), state["host"][0]["ifindex"]
+        return (result, calls, sysfs_calls, json.loads(stderr.getvalue()),
+                state["host"][0]["ifindex"], state["intent_at_add"], created)
 
-    def test_apply_checks_pair_after_move_before_addressing(self):
-        result, calls, sysfs_calls, report, _index = self._apply_through_post_move()
-        self.assertEqual(result, 2)  # Deliberate mocked stop at the next action.
-        self.assertIn([HOST.IP, "link", "set", HOST.P, "netns", HOST.NS], calls)
-        self.assertIn([HOST.IP, "address", "add", HOST.HOST_IP + "/30", "dev", HOST.H], calls)
-        self.assertEqual(sysfs_calls,
-                         [mock.call(HOST.H), mock.call(HOST.P, namespace=True)])
-        self.assertEqual(report["status"], "ROLLBACK_INCOMPLETE")
-        self.assertIn("veth", report["rollback_unresolved_categories"])
-
-    def test_apply_post_move_peer_drift_blocks_before_addressing(self):
-        result, calls, sysfs_calls, report, _index = self._apply_through_post_move(peer_drift=True)
+    def test_apply_direct_creation_verifies_before_addressing(self):
+        result, calls, reads, report, _index, intent, created = (
+            self._apply_through_direct_creation())
         self.assertEqual(result, 2)
-        self.assertEqual(calls, [[HOST.IP, "link", "set", HOST.P, "netns", HOST.NS]])
-        self.assertEqual(sysfs_calls, [])
+        self.assertTrue(intent)
+        self.assertEqual(calls[0], [HOST.IP, "link", "add", HOST.H, "type", "veth",
+                                    "peer", "name", HOST.P, "netns", HOST.NS])
+        self.assertNotIn([HOST.IP, "link", "set", HOST.P, "netns", HOST.NS], calls)
+        self.assertIn([HOST.IP, "address", "add", HOST.HOST_IP + "/30", "dev", HOST.H], calls)
+        self.assertEqual(reads, [mock.call(HOST.H), mock.call(HOST.P, namespace=True)] * 2)
+        self.assertIn(("veth", DIRECT_HOST[0]["ifindex"], DIRECT_PEER[0]["ifindex"],
+                       "net:[123]"), created)
         self.assertEqual(report["status"], "ROLLBACK_INCOMPLETE")
 
-    def test_apply_replacement_during_rollback_retains_link_and_reports_incomplete(self):
-        for pending in (False, True):
-            with self.subTest(pending=pending):
-                result, calls, _sysfs, report, observed_idx = self._apply_through_post_move(
-                    pending_failure=pending, replace_after_check=True)
-                self.assertEqual(observed_idx, 99)
+    def test_apply_direct_peer_drift_blocks_before_addressing(self):
+        result, calls, reads, report, _index, intent, created = (
+            self._apply_through_direct_creation(peer_drift=True))
+        self.assertEqual(result, 2)
+        self.assertTrue(intent)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(reads, [])
+        self.assertIn("veth_pending", report["rollback_unresolved_categories"])
+        self.assertEqual(report["status"], "ROLLBACK_INCOMPLETE")
+        self.assertTrue(any(isinstance(item, dict) and item["kind"] == "veth_pending"
+                            for item in created))
+
+    def test_apply_direct_placement_and_sysfs_uncertainty_never_delete(self):
+        for fault in ("host_peer_collision", "missing_namespace_peer",
+                      "duplicate_namespace_peer",
+                      "malformed_namespace_listing", "namespace_drift", "missing_sysfs"):
+            with self.subTest(fault=fault):
+                result, calls, _reads, report, _index, intent, created = (
+                    self._apply_through_direct_creation(fault=fault))
+                self.assertTrue(intent)
                 self.assertEqual(result, 2)
                 self.assertEqual(report["status"], "ROLLBACK_INCOMPLETE")
-                self.assertIn("veth_pending" if pending else "veth",
-                              report["rollback_unresolved_categories"])
-                self.assertNotIn([HOST.IP, "link", "delete", HOST.H], calls)
+                self.assertIn("veth_pending", report["rollback_unresolved_categories"])
+                self.assertIn("nft_table", report["rollback_unresolved_categories"])
+                self.assertIn("namespace", report["rollback_unresolved_categories"])
+                self.assertIn(report["cause"], {"VETH_PAIR_PLACEMENT",
+                                                "VETH_NAMESPACE_IDENTITY",
+                                                "VETH_SYSFS_READ_FAILED"})
+                self.assertTrue(any(isinstance(item, dict) and item["kind"] == "veth_pending"
+                                    for item in created))
+                self.assertFalse(any("delete" in args for args in calls))
 
-    def test_raw_capture_post_move_and_pending_rollback_through_apply(self):
-        for pending in (False, True):
-            with self.subTest(pending=pending):
-                result, calls, sysfs_calls, report, observed_idx = self._apply_through_post_move(
-                    pending_failure=pending, replace_after_check=True, use_capture=True)
+    def test_apply_uncertain_command_and_replacement_retain_full_dependency_set(self):
+        for uncertain in (True, False):
+            with self.subTest(command_uncertain=uncertain):
+                result, calls, _reads, report, observed_idx, intent, created = (
+                    self._apply_through_direct_creation(
+                        command_uncertain=uncertain, replace_before_rollback=True))
                 self.assertEqual((result, observed_idx), (2, 99))
+                self.assertTrue(intent)
                 self.assertEqual(report["status"], "ROLLBACK_INCOMPLETE")
-                self.assertIn("veth_pending" if pending else "veth",
+                self.assertIn("veth_pending" if uncertain else "veth",
                               report["rollback_unresolved_categories"])
-                self.assertNotIn([HOST.IP, "link", "delete", HOST.H], calls)
-                if not pending:
-                    self.assertEqual(sysfs_calls,
-                                     [mock.call(HOST.H), mock.call(HOST.P, namespace=True)])
+                self.assertIn("namespace", report["rollback_unresolved_categories"])
+                self.assertIn("nft_table", report["rollback_unresolved_categories"])
+                self.assertIn("grant_marker", report["rollback_unresolved_categories"])
+                self.assertIn("file", report["rollback_unresolved_categories"])
+                self.assertTrue(any(item[0] == "nft_table" and item[3] is True
+                                    for item in created if isinstance(item, tuple)))
+                self.assertFalse(any("delete" in args for args in calls))
 
     def test_pending_rollback_verifies_pre_move_pair_but_retains_it(self):
         item = {"kind": "veth_pending", "namespace_inode": "net:[123]",

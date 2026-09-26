@@ -1,7 +1,11 @@
 # Staged veth peer recovery hold
 
 This successor review bundle does not authorize host application or automatic veth deletion.
-Once namespace or veth creation has been recorded, rollback makes a transaction-wide
+Creation intent is recorded before `ip link add`, because its result may be
+uncertain even if the kernel created the pair. The pair is requested with the
+host endpoint in the current network namespace and the peer directly in the
+named pilot namespace. There is no separate peer move. Once namespace or veth
+creation has been recorded, rollback makes a transaction-wide
 hold decision before any cleanup. It issues no deletion for the recorded namespace,
 veth pair, namespace nftables filter, host NAT and Docker rules, resolver, unit and
 receipt files, or consumed-grant marker. It reports `ROLLBACK_INCOMPLETE` with a
@@ -11,12 +15,16 @@ receipt field `retained_v2_resource_names` has the same limited meaning. An oper
 must inspect actual presence and protections before planning manual recovery. Identity
 or placement uncertainty never causes deletion.
 
-The disposable raw capture reports reciprocal names before the move and
-reciprocal numeric `link_index` values after it. Matching raw sysfs `ifindex` and
-`iflink` text was captured in each endpoint's network and mount namespace; the
-capture tool rejects a sysfs/JSON mismatch. The verifier requires every
-available peer reference to agree with recorded indexes and reciprocal sysfs
-reads. Those checks are separate snapshots. A link can be replaced
+The predecessor disposable capture reports reciprocal names before a move and
+reciprocal numeric `link_index` values after it. The new direct-placement
+capture records raw link JSON, namespace listings, and sysfs `ifindex` and
+`iflink` text from both endpoints in their own network and mount namespaces.
+Both endpoints can legitimately have the same numeric ifindex because the
+indexes are scoped to separate namespaces. The capture tool rejects a
+sysfs/JSON mismatch. The verifier also checks the namespace inode, the host
+and namespace inventories, each endpoint name and kind, every available peer
+reference, and reciprocal sysfs reads. Those checks are separate snapshots.
+A link can be replaced
 after the final check and before a later name-based delete. Linux `RTM_DELLINK`
 supports an interface-index selector, but it does not atomically compare the
 verified peer name, reciprocal indexes, and namespace placement in the same
