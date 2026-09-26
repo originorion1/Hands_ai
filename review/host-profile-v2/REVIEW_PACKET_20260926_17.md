@@ -55,13 +55,48 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
   creation and post-move verification; reconstructed fixtures remain for
   malformed input cases.
 - Focused host-profile tests passed: 53 tests and 51 subtests. The full
-  repository suite passed: 985 tests and 51 subtests in 2123.35 seconds.
+  repository suite passed again: 985 tests and 51 subtests in 2443.11 seconds.
   Python syntax checks, Ruff on the changed Python files plus `src` and
   `tests`, the demo (`execution_allowed=false`), and `git diff --check`
   passed. The generic source/capability scanner flags the guarded host
   script under its Python network policy at both this tree and the unchanged
   predecessor head; changed capture and test files pass that scan. This is a
   pre-existing scanner finding, not a new finding from this follow-up.
+
+## Disposition of the two review findings in `40057b007d27d0d6cedf725068e28c4776bf4f2e`
+
+1. **Captured link JSON lacked matching sysfs evidence in caller tests.**
+   `capture_disposable_veth.py` now captures raw `ifindex`/`iflink` text in
+   both placements and rejects disagreement with the link JSON. The changed
+   `captured-veth/before_host.json`, `captured-veth/before_peer.json`,
+   `captured-veth/after_host.json`, and `captured-veth/after_peer.json` link
+   outputs; new `captured-veth/before_namespace_listing.json`,
+   `captured-veth/after_namespace_listing.json`, and
+   `captured-veth/sysfs_indexes.json`; and changed
+   `captured-veth/capture_metadata.json` bind that evidence;
+   `apply-host-profile-v2.py` checks the expanded capture set and hashes.
+   `test_captured_veth_fixture.py::CapturedVethFixtureTests` checks the paired
+   raw evidence and reader;
+   `test_veth_peer_callers.py::VethCallerTests::test_create_veth_uses_raw_capture_and_reciprocal_sysfs_evidence`
+   and `test_veth_peer_callers.py::VethCallerTests::test_raw_capture_post_move_and_pending_rollback_through_apply`
+   exercise creation, post-move verification, and pending rollback through
+   callers. `test_veth_acceptance.py::FullCreationRollbackAcceptance::test_identity_failure_retains_full_dependency_set_in_both_placements`
+   uses the capture in both full-order failure paths. The reconstructed
+   fixture remains labeled as such.
+2. **Rollback categories implied confirmed surviving resources.**
+   `apply-host-profile-v2.py` emits `rollback_unresolved_categories` for
+   recorded journal dependencies and documents the legacy correction-receipt
+   field `retained_v2_resource_names`; `VETH_PEER_RECOVERY_HOLD.md` states
+   that neither field proves present resources. The new
+   `test_veth_peer_callers.py::VethCallerTests::test_rollback_categories_are_recorded_dependencies_without_presence_claim`
+   asserts the categories without any live presence read or cleanup;
+   `test_veth_acceptance.py::FullCreationRollbackAcceptance::test_identity_failure_retains_full_dependency_set_in_both_placements`
+   asserts the renamed report field in both placements while deletion remains
+   prohibited.
+
+These findings appear addressed in the code and offline tests at `40057b0`.
+This disposition is an author-side assessment, not independent human review
+or maintainer approval.
 
 ## Open gates and recovery boundary
 
