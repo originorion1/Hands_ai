@@ -46,9 +46,9 @@ class FileFixture:
 class BoundaryTests(unittest.TestCase):
     # Reported ip -j -details shape: named peers, no link_index fields.
     HOST_VETH: ClassVar[dict] = {"ifname": HOST.H, "ifindex": 11, "link": HOST.P,
-                 "linkinfo": {"info_kind": "veth"}}
+                 "link_netnsid": 0, "linkinfo": {"info_kind": "veth"}}
     PILOT_VETH: ClassVar[dict] = {"ifname": HOST.P, "ifindex": 12, "link": HOST.H,
-                  "linkinfo": {"info_kind": "veth"}}
+                  "link_netnsid": 0, "linkinfo": {"info_kind": "veth"}}
 
     def test_review_chain_verifies_disposable_copy_and_rejects_digest_drift(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -83,6 +83,19 @@ class BoundaryTests(unittest.TestCase):
                     HOST.verify_review()
                 manifest_path.write_bytes(manifest_original)
                 direct_sysfs.write_bytes(direct_original)
+                nsid_evidence = base / "captured-veth-direct-nsid/netnsid_resolution.json"
+                nsid_original = nsid_evidence.read_bytes()
+                nsid_evidence.write_bytes(nsid_original + b" ")
+                with self.assertRaisesRegex(HOST.Blocked, "V17_FILE_DIGEST"):
+                    HOST.verify_review()
+                manifest = json.loads(manifest_original)
+                manifest["file_sha256"]["captured-veth-direct-nsid/netnsid_resolution.json"] = (
+                    HOST.sha(nsid_evidence))
+                manifest_path.write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n")
+                with self.assertRaisesRegex(HOST.Blocked, "V17_NSID_CAPTURE_EVIDENCE"):
+                    HOST.verify_review()
+                manifest_path.write_bytes(manifest_original)
+                nsid_evidence.write_bytes(nsid_original)
                 archive = base / "apply-host-profile-v2-v16.py"
                 archive.write_bytes(archive.read_bytes() + b" ")
                 with self.assertRaisesRegex(HOST.Blocked, "V16_REVIEW_BINDING"):
@@ -248,6 +261,7 @@ class BoundaryTests(unittest.TestCase):
         with mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
              mock.patch.object(HOST, "json_command", side_effect=host_json), \
              mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
+             mock.patch.object(HOST.veth_nsid, "resolve_pair", return_value=(0, 0)), \
              mock.patch.object(HOST, "veth_sysfs_indexes",
                                side_effect=[(11, 12), (12, 11)]) as sysfs:
             HOST.verify_veth_pair(11, 12, "net:[123]")

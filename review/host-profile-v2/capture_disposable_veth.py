@@ -15,6 +15,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import veth_nsid
+
 IP = "/usr/sbin/ip"
 UNSHARE = "/usr/bin/unshare"
 NSENTER = "/usr/bin/nsenter"
@@ -25,7 +27,7 @@ FILES = ("before_host", "before_peer", "after_host", "after_peer",
          "before_namespace_listing", "after_namespace_listing", "sysfs_indexes")
 DIRECT_FILES = ("before_host_listing", "before_namespace_listing", "direct_host",
                 "direct_peer", "after_host_listing", "after_namespace_listing",
-                "sysfs_indexes")
+                "sysfs_indexes", "netnsid_resolution")
 
 
 def output(*args):
@@ -126,6 +128,7 @@ def main():
                        "peer": sysfs_indexes(P, child_pid=child.pid)}
             host = json.loads(captures["direct_host"])[0]
             peer = json.loads(captures["direct_peer"])[0]
+            host_nsid, peer_nsid = veth_nsid.resolve_pair(child_ns_path, child_ns)
             if (int(indexes["host"]["ifindex"].strip()) != host["ifindex"] or
                     int(indexes["host"]["iflink"].strip()) != peer["ifindex"] or
                     int(indexes["peer"]["ifindex"].strip()) != peer["ifindex"] or
@@ -133,11 +136,20 @@ def main():
                     {row["ifname"] for row in json.loads(captures["after_host_listing"])} !=
                     {"lo", H} or
                     {row["ifname"] for row in json.loads(captures["after_namespace_listing"])} !=
-                    {"lo", P}):
+                    {"lo", P} or
+                    host.get("link_netnsid") != host_nsid or
+                    peer.get("link_netnsid") != peer_nsid):
                 raise RuntimeError("DISPOSABLE_DIRECT_PAIR_MISMATCH")
             captures["sysfs_indexes"] = (json.dumps({
                 "host": indexes["host"], "peer": indexes["peer"],
                 "network_namespaces": {"host": parent_ns, "peer": child_ns},
+            }, sort_keys=True, indent=2) + "\n").encode("ascii")
+            captures["netnsid_resolution"] = (json.dumps({
+                "host_to_pinned_peer": host_nsid,
+                "peer_to_pinned_host": peer_nsid,
+                "host_namespace": parent_ns,
+                "peer_namespace": child_ns,
+                "method": "RTM_GETNSID_NETNSA_FD",
             }, sort_keys=True, indent=2) + "\n").encode("ascii")
             if (json.loads(output(IP, "-j", "route", "show", "table", "all")) or
                     json.loads(output(IP, "-j", "-6", "route", "show", "table", "all")) or
@@ -145,8 +157,8 @@ def main():
                     json.loads(output(*child_ip, "-j", "-6", "route", "show", "table", "all"))):
                 raise RuntimeError("DISPOSABLE_ROUTE_APPEARED")
             write_capture(destination, captures,
-                          schema="orion.veth_ip_link.disposable_raw_capture.v3.direct",
-                          provenance="Raw direct-placement ip -j -details link stdout and reciprocal sysfs text from nested disposable user/network namespaces",
+                          schema="orion.veth_ip_link.disposable_raw_capture.v4.direct_nsid",
+                          provenance="Raw direct-placement ip -j -details link stdout, reciprocal sysfs text, and RTM_GETNSID resolution against pinned disposable namespace FDs",
                           placement="host_and_nested_disposable_network_namespaces_at_creation")
             return
         subprocess.run((IP, "link", "add", H, "type", "veth", "peer", "name", P), check=True)

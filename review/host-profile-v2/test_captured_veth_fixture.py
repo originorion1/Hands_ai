@@ -98,6 +98,7 @@ class CapturedVethFixtureTests(unittest.TestCase):
         with mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
              mock.patch.object(HOST, "json_command", side_effect=host_json), \
              mock.patch.object(HOST, "ns_json", side_effect=namespace_json), \
+             mock.patch.object(HOST.veth_nsid, "resolve_pair", return_value=(0, 0)), \
              mock.patch.object(HOST, "veth_sysfs_indexes", side_effect=indexes):
             HOST.verify_veth_pair(host_idx, peer_idx, "net:[123]", peer_in_namespace=moved)
 
@@ -118,7 +119,7 @@ class CapturedVethFixtureTests(unittest.TestCase):
 class DirectCapturedVethFixtureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        capture = BASE / "captured-veth-direct"
+        capture = BASE / "captured-veth-direct-nsid"
         cls.metadata = json.loads((capture / "capture_metadata.json").read_text())
         cls.rows = {}
         for name, digest in cls.metadata["file_sha256"].items():
@@ -129,7 +130,7 @@ class DirectCapturedVethFixtureTests(unittest.TestCase):
 
     def test_direct_capture_places_endpoints_and_preserves_reciprocal_sysfs(self):
         self.assertEqual(self.metadata["schema"],
-                         "orion.veth_ip_link.disposable_raw_capture.v3.direct")
+                         "orion.veth_ip_link.disposable_raw_capture.v4.direct_nsid")
         for key in ("host_network_modified", "uplink_present", "default_route_present",
                     "customer_traffic"):
             self.assertIs(self.metadata[key], False)
@@ -151,11 +152,18 @@ class DirectCapturedVethFixtureTests(unittest.TestCase):
                          (host["ifindex"], peer["ifindex"]))
         self.assertEqual(tuple(int(sysfs["peer"][key]) for key in ("ifindex", "iflink")),
                          (peer["ifindex"], host["ifindex"]))
+        nsid = self.rows["netnsid_resolution"]
+        self.assertEqual(nsid["method"], "RTM_GETNSID_NETNSA_FD")
+        self.assertEqual(nsid["host_namespace"], sysfs["network_namespaces"]["host"])
+        self.assertEqual(nsid["peer_namespace"], sysfs["network_namespaces"]["peer"])
+        self.assertEqual(host["link_netnsid"], nsid["host_to_pinned_peer"])
+        self.assertEqual(peer["link_netnsid"], nsid["peer_to_pinned_host"])
 
     def test_direct_capture_verifies_with_equal_indexes_in_separate_namespaces(self):
         host = self.rows["direct_host"]
         peer = self.rows["direct_peer"]
         indexes = self.rows["sysfs_indexes"]
+        nsid = self.rows["netnsid_resolution"]
         self.assertEqual(host[0]["ifindex"], peer[0]["ifindex"])
 
         def host_json(args):
@@ -168,6 +176,8 @@ class DirectCapturedVethFixtureTests(unittest.TestCase):
         with mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
              mock.patch.object(HOST, "json_command", side_effect=host_json), \
              mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
+             mock.patch.object(HOST.veth_nsid, "resolve_pair", return_value=(
+                 nsid["host_to_pinned_peer"], nsid["peer_to_pinned_host"])), \
              mock.patch.object(HOST, "veth_sysfs_indexes", side_effect=[
                  tuple(int(indexes[side][key]) for key in ("ifindex", "iflink"))
                  for side in ("host", "peer")]):

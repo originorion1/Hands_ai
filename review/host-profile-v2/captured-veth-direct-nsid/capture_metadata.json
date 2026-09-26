@@ -1,0 +1,19 @@
+{
+  "customer_traffic": false,
+  "default_route_present": false,
+  "file_sha256": {
+    "after_host_listing.json": "b8fbc3bdcaec36776caa6531ed8e46530686e39662eed49ce5054e954f94a4e7",
+    "after_namespace_listing.json": "dd9aa9f62ed1840f62041882665c323a123fc2c9c8a64899708aa916e31a58c5",
+    "before_host_listing.json": "48295e57feaffc1159819c681cb98796a79d2e6ad45b3c23a716ea96e23c32d7",
+    "before_namespace_listing.json": "48295e57feaffc1159819c681cb98796a79d2e6ad45b3c23a716ea96e23c32d7",
+    "direct_host.json": "41c30720839c92738f72a444d854b2938e4ae8f47e89c123a9ed55236b539527",
+    "direct_peer.json": "a8700bac40414131859f941a3fd62419be51ec8861499fff7b9f13908faa13c8",
+    "netnsid_resolution.json": "c62b67d6e99c9703a7c2632f61d3183b9946740fa0c8e0dec8860fdc39f5f73c",
+    "sysfs_indexes.json": "05f1f102929abc395eff2537b20e5dda396005f4c9d539131aa0ff84242f1edc"
+  },
+  "host_network_modified": false,
+  "placement": "host_and_nested_disposable_network_namespaces_at_creation",
+  "provenance": "Raw direct-placement ip -j -details link stdout, reciprocal sysfs text, and RTM_GETNSID resolution against pinned disposable namespace FDs",
+  "schema": "orion.veth_ip_link.disposable_raw_capture.v4.direct_nsid",
+  "uplink_present": false
+}

@@ -25,7 +25,11 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
 
 - The pair check requires exact interface indexes, veth kind, stable namespace
   inode, host and namespace placement inventories, reciprocal sysfs
-  `ifindex`/`iflink` reads, and every reported peer reference to agree. A name
+  `ifindex`/`iflink` reads, and each endpoint's `IFLA_LINK_NETNSID` to match
+  `RTM_GETNSID` resolved against a pinned descriptor for the opposite namespace.
+  Those IDs are relative to the source namespace, so both directions are
+  queried separately. Missing, negative, ambiguous, or inconsistent mapping
+  blocks creation. Every reported peer reference must also agree. A name
   or numeric `link_index` must be present for each endpoint. Missing,
   malformed, or conflicting fields fail closed.
 - The successor records `veth_pending` before invoking one `ip link add` that
@@ -33,8 +37,8 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
   It verifies both endpoints before promoting the journal entry and again
   before address configuration. There is no separate link move. A command
   error after possible creation leaves the intent recorded for the rollback
-  hold. A replaced or uncertain namespace name fails verification and retains
-  the dependency set.
+  hold. A detected namespace replacement or uncertain namespace mapping fails
+  verification and retains the dependency set.
 - A genuine disposable capture found name-only peers before the move and
   index-only peers after the move. Four raw `ip -j -details link` outputs, two
   raw namespace listings, and raw sysfs `ifindex`/`iflink` text from each
@@ -57,6 +61,13 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
   loopback-only namespaces before creation, mounted sysfs read-only, and
   rejected any JSON/sysfs or placement mismatch. It did not use a pilot-host
   link, uplink, default route, or customer traffic.
+- `captured-veth-direct-nsid/` is a fresh genuine disposable direct-placement
+  capture. Its raw link JSON and sysfs text are accompanied by
+  `netnsid_resolution.json`, which records `RTM_GETNSID` results using open
+  namespace descriptors. The capture tool rejects either direction when the
+  link's `link_netnsid` differs from the pinned opposite namespace. The
+  endpoint ifindexes again collide at `2`; both resolved NSIDs are `0` in
+  their respective source namespaces. This is development evidence only.
 - Once namespace or veth creation is recorded, rollback issues no deletion for
   the recorded dependency set, including namespace nftables filter, host NAT
   and Docker rules, resolver, unit and evidence files, and consumed-grant marker.
@@ -65,18 +76,24 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
   steps, not an observation that the resources still exist. The legacy
   correction-receipt field `retained_v2_resource_names` has the same meaning;
   actual survival requires manual inspection.
-- Full-order failure injection uses direct captured JSON and sysfs evidence
+- Full-order failure injection uses direct captured JSON, sysfs, and NSID evidence
   for pending and completed journal states, late identity failure, command
   uncertainty, and replacement before rollback. Its mocks prohibit nft,
   link, file, and directory deletion. Caller tests exercise actual
   `create_veth` through `apply` and its rollback, including malformed
   listings, missing sysfs, peer drift, namespace drift, and a link replacement.
+  A constructed caller-level disconnected-pairs case keeps colliding ifindexes and
+  reciprocal sysfs values but changes both peer NSIDs; separate cases check
+  each direction, missing attributes, and missing or ambiguous mappings.
+  These cases retain every recorded dependency and issue no deletion.
   Reconstructed fixtures remain for additional malformed input cases.
-- Focused host-profile tests passed: 56 tests and 58 subtests. The full
-  repository suite passed: 988 tests and 58 subtests in 1890.30 seconds.
-  Python syntax checks, Ruff on the changed Python files plus `src` and
-  `tests`, the demo (`execution_allowed=false`), and `git diff --check`
-  passed. The changed capture and test files pass the source/capability scan.
+- Current-head verification: focused host-profile tests passed: 60 tests and
+  69 subtests. The full repository suite passed: 992 tests and 69 subtests in
+  1762.98 seconds. Python syntax checks, Ruff on the changed Python files plus
+  `src` and `tests`, the demo (`execution_allowed=false`), and `git diff --check`
+  passed. Source/capability scanning of changed files found only the intended
+  AF_NETLINK route socket in `veth_nsid.py`; no customer or Internet socket or
+  authorization change was added.
   The generic scanner still flags the guarded host script under its Python
   network policy, as it did at the predecessor head; this is a pre-existing
   scanner finding, not a new finding from direct creation.
@@ -129,6 +146,11 @@ or maintainer approval.
   equivalent serialization of all network administrators from identity read
   through deletion acknowledgment. This branch does not enforce one and does
   not claim atomic race safety; retain resources for manual recovery.
+- Peer and namespace replacement can also race with creation-time reads.
+  Namespace-descriptor resolution narrows the identity check, but does not
+  make the sequence atomic. An enforced maintenance window or equivalent
+  network-administrator serialization is required before relying on a
+  successful creation check in a future host application.
 
 Independent review should check the final branch tree and manifest digests,
 inspect the raw capture and verifier semantics, then obtain human approval of

@@ -1,0 +1,7 @@
+{
+  "host_namespace": "net:[4026532428]",
+  "host_to_pinned_peer": 0,
+  "method": "RTM_GETNSID_NETNSA_FD",
+  "peer_namespace": "net:[4026532489]",
+  "peer_to_pinned_host": 0
+}

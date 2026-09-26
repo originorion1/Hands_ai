@@ -19,11 +19,17 @@ The predecessor disposable capture reports reciprocal names before a move and
 reciprocal numeric `link_index` values after it. The new direct-placement
 capture records raw link JSON, namespace listings, and sysfs `ifindex` and
 `iflink` text from both endpoints in their own network and mount namespaces.
+The follow-up disposable capture also records bidirectional `RTM_GETNSID`
+results against open descriptors for the opposite namespaces. The verifier
+requires each link's `IFLA_LINK_NETNSID` to match that pinned mapping and
+fails closed when an attribute or mapping is missing or ambiguous.
 Both endpoints can legitimately have the same numeric ifindex because the
 indexes are scoped to separate namespaces. The capture tool rejects a
 sysfs/JSON mismatch. The verifier also checks the namespace inode, the host
 and namespace inventories, each endpoint name and kind, every available peer
 reference, and reciprocal sysfs reads. Those checks are separate snapshots.
+A successful creation check likewise needs external serialization against
+replacement between the direct creation command and the last identity read.
 A link can be replaced
 after the final check and before a later name-based delete. Linux `RTM_DELLINK`
 supports an interface-index selector, but it does not atomically compare the

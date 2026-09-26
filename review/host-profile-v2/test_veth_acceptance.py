@@ -13,8 +13,9 @@ BASE = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("orion_veth_acceptance", BASE / "apply-host-profile-v2.py")
 HOST = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HOST)
-CAPTURE = BASE / "captured-veth-direct"
+CAPTURE = BASE / "captured-veth-direct-nsid"
 SYSFS = json.loads((CAPTURE / "sysfs_indexes.json").read_text())
+NSID = json.loads((CAPTURE / "netnsid_resolution.json").read_text())
 BEFORE = {"host_listing": json.loads((CAPTURE / "before_host_listing.json").read_text()),
           "namespace_listing": json.loads((CAPTURE / "before_namespace_listing.json").read_text())}
 AFTER = {"host": json.loads((CAPTURE / "direct_host.json").read_text()),
@@ -153,6 +154,9 @@ class FullCreationRollbackAcceptance(unittest.TestCase):
 
             stack.enter_context(mock.patch.object(HOST, "veth_sysfs_indexes",
                                                   side_effect=captured_indexes))
+            stack.enter_context(mock.patch.object(
+                HOST.veth_nsid, "resolve_pair",
+                return_value=(NSID["host_to_pinned_peer"], NSID["peer_to_pinned_host"])))
             stack.enter_context(mock.patch.object(HOST, "verify_veth_pair", side_effect=verify))
             stack.enter_context(mock.patch.object(HOST, "rollback", side_effect=rollback))
             stack.enter_context(mock.patch.object(HOST, "run", side_effect=run))

@@ -13,6 +13,7 @@ import datetime as dt
 import fcntl
 import hashlib
 import hmac
+import importlib.util
 import ipaddress
 import json
 import os
@@ -26,6 +27,9 @@ from collections import Counter
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
+_NSID_SPEC = importlib.util.spec_from_file_location("orion_veth_nsid", BASE / "veth_nsid.py")
+veth_nsid = importlib.util.module_from_spec(_NSID_SPEC)
+_NSID_SPEC.loader.exec_module(veth_nsid)
 ROOT = BASE.parent
 MANIFEST = BASE / "REVIEW_MANIFEST_20260926_9.json"
 MANIFEST_SHA = "e099ca792a7dfcbbc34c4bc761bb6c90acef600392223e08df44fae3e63d721f"
@@ -341,6 +345,7 @@ def verify_review():
             v17["raw_capture_evidence_gate"] == "SATISFIED_DISPOSABLE" and
             v17["direct_capture_evidence_gate"] == "SATISFIED_DISPOSABLE" and
             v17["direct_creation_intent_recorded_before_command"] is True and
+            v17["bidirectional_peer_netnsid_required"] is True and
             v17["maintenance_window_serialization_enforced"] is False and
             v17["review_human_approval"] == "PENDING" and
             v17["file_sha256"]["apply-host-profile-v2.py"] == sha(Path(__file__).resolve()),
@@ -371,6 +376,17 @@ def verify_review():
             all(sha(BASE / "captured-veth-direct" / name) == digest
                 for name, digest in direct["file_sha256"].items()),
             "V17_DIRECT_CAPTURE_EVIDENCE")
+    nsid_capture = parse_json((BASE / "captured-veth-direct-nsid/capture_metadata.json").read_text())
+    nsid_files = direct_files | {"netnsid_resolution.json"}
+    require(nsid_capture["schema"] == "orion.veth_ip_link.disposable_raw_capture.v4.direct_nsid" and
+            nsid_capture["placement"] == "host_and_nested_disposable_network_namespaces_at_creation" and
+            set(nsid_capture["file_sha256"]) == nsid_files and
+            all(nsid_capture[key] is False for key in
+                ("host_network_modified", "uplink_present", "default_route_present",
+                 "customer_traffic")) and
+            all(sha(BASE / "captured-veth-direct-nsid" / name) == digest
+                for name, digest in nsid_capture["file_sha256"].items()),
+            "V17_NSID_CAPTURE_EVIDENCE")
     require(sha(MANIFEST) == MANIFEST_SHA, "V9_DIGEST")
     require(sha(BASE / "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json") == PROFILE_SHA, "PROFILE_DIGEST")
     require(sha(BASE / "V2_RUNTIME_RECEIPT_SCHEMA_REVIEW_20260926_V2.json") == SCHEMA_SHA, "SCHEMA_DIGEST")
@@ -898,6 +914,16 @@ def verify_veth_pair(host_idx, pilot_idx, ns_inode, *, peer_in_namespace=True):
     require(veth_sysfs_indexes(H) == (host_idx, pilot_idx) and
             veth_sysfs_indexes(P, namespace=peer_in_namespace) == (pilot_idx, host_idx),
             "VETH_PAIR_IDENTITY")
+    if peer_in_namespace:
+        try:
+            host_nsid, peer_nsid = veth_nsid.resolve_pair(NS_PATH, ns_inode)
+        except veth_nsid.NsidError:
+            raise Blocked("VETH_NSID_UNVERIFIED") from None
+        require(type(a.get("link_netnsid")) is int and a["link_netnsid"] >= 0 and
+                type(b.get("link_netnsid")) is int and b["link_netnsid"] >= 0 and
+                a["link_netnsid"] == host_nsid and
+                b["link_netnsid"] == peer_nsid,
+                "VETH_NSID_UNVERIFIED")
     require(namespace_inode() == ns_inode, "VETH_NAMESPACE_IDENTITY")
 
 

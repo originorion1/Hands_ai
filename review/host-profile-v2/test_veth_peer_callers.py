@@ -25,13 +25,15 @@ RAW_BEFORE = {"host": json.loads((CAPTURE / "before_host.json").read_text()),
 RAW_AFTER = {"host": json.loads((CAPTURE / "after_host.json").read_text()),
              "pilot_namespace": json.loads((CAPTURE / "after_peer.json").read_text()),
              "namespace_listing": json.loads((CAPTURE / "after_namespace_listing.json").read_text())}
-DIRECT = HERE / "captured-veth-direct"
+DIRECT = HERE / "captured-veth-direct-nsid"
 DIRECT_HOST = json.loads((DIRECT / "direct_host.json").read_text())
 DIRECT_PEER = json.loads((DIRECT / "direct_peer.json").read_text())
 DIRECT_HOST_LIST = json.loads((DIRECT / "after_host_listing.json").read_text())
 DIRECT_NS_BEFORE = json.loads((DIRECT / "before_namespace_listing.json").read_text())
 DIRECT_NS_AFTER = json.loads((DIRECT / "after_namespace_listing.json").read_text())
 DIRECT_SYSFS = json.loads((DIRECT / "sysfs_indexes.json").read_text())
+DIRECT_NSID = json.loads((DIRECT / "netnsid_resolution.json").read_text())
+NSID_PAIR = (DIRECT_NSID["host_to_pinned_peer"], DIRECT_NSID["peer_to_pinned_host"])
 
 
 class VethCallerTests(unittest.TestCase):
@@ -85,7 +87,9 @@ class VethCallerTests(unittest.TestCase):
              mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
              mock.patch.object(HOST, "json_command", side_effect=host_json), \
              mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
-             mock.patch.object(HOST, "veth_sysfs_indexes"), self.assertRaises(HOST.Blocked):
+             mock.patch.object(HOST, "veth_sysfs_indexes"), \
+             mock.patch.object(HOST.veth_nsid, "resolve_pair", return_value=NSID_PAIR), \
+             self.assertRaises(HOST.Blocked):
             HOST.create_veth("net:[123]", created)
         self.assertEqual(created, [{"kind": "veth_pending", "namespace_inode": "net:[123]",
                                     "host_idx": 2, "pilot_idx": 2}])
@@ -116,6 +120,7 @@ class VethCallerTests(unittest.TestCase):
              mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
              mock.patch.object(HOST, "json_command", side_effect=host_json), \
              mock.patch.object(HOST, "ns_json", side_effect=ns_json), \
+             mock.patch.object(HOST.veth_nsid, "resolve_pair", return_value=NSID_PAIR) as nsid, \
              mock.patch.object(HOST.Path, "read_text",
                                side_effect=[DIRECT_SYSFS["host"][key]
                                             for key in ("ifindex", "iflink")]) as reads:
@@ -124,6 +129,7 @@ class VethCallerTests(unittest.TestCase):
         self.assertEqual(links.call_args_list,
                          [mock.call(HOST.H), mock.call(HOST.P, namespace=True)])
         self.assertEqual(reads.call_count, 2)
+        nsid.assert_called_once_with(HOST.NS_PATH, "net:[123]")
         self.assertEqual(len(run.call_args_list), 3)  # add, then two namespace sysfs reads
 
     def _apply_through_direct_creation(self, *, command_uncertain=False, peer_drift=False,
@@ -135,10 +141,18 @@ class VethCallerTests(unittest.TestCase):
         peer = copy.deepcopy(DIRECT_PEER)
         if peer_drift:
             peer[0]["link_index"] = 999
+        if fault in ("disconnected_pairs", "wrong_peer_nsid"):
+            peer[0]["link_netnsid"] = NSID_PAIR[1] + 2
+        if fault == "missing_peer_nsid":
+            peer[0].pop("link_netnsid")
         calls = []
         stderr = io.StringIO()
         state = {"host": copy.deepcopy(DIRECT_HOST), "created": False,
                  "intent_at_add": False, "journal": None}
+        if fault in ("disconnected_pairs", "wrong_host_nsid"):
+            state["host"][0]["link_netnsid"] = NSID_PAIR[0] + 1
+        if fault == "missing_host_nsid":
+            state["host"][0].pop("link_netnsid")
 
         def host_json(args):
             if args == [HOST.IP, "-j", "link", "show"]:
@@ -233,6 +247,12 @@ class VethCallerTests(unittest.TestCase):
             stack.enter_context(mock.patch.object(HOST, "link_index", side_effect=[host_idx, peer_idx]))
             sysfs = stack.enter_context(mock.patch.object(
                 HOST, "veth_sysfs_indexes", side_effect=checked_sysfs))
+            stack.enter_context(mock.patch.object(
+                HOST.veth_nsid, "resolve_pair", return_value=NSID_PAIR,
+                side_effect=(HOST.veth_nsid.NsidError("NSID_MAPPING_AMBIGUOUS")
+                             if fault == "ambiguous_nsid_mapping" else
+                             HOST.veth_nsid.NsidError("NSID_MAPPING_MISSING")
+                             if fault == "missing_nsid_mapping" else None)))
             stack.enter_context(mock.patch.object(HOST, "run", side_effect=fake_run))
             stack.enter_context(mock.patch.object(HOST.os, "open", return_value=7))
             stack.enter_context(mock.patch.object(HOST.os, "close"))
@@ -271,6 +291,26 @@ class VethCallerTests(unittest.TestCase):
         self.assertEqual(report["status"], "ROLLBACK_INCOMPLETE")
         self.assertTrue(any(isinstance(item, dict) and item["kind"] == "veth_pending"
                             for item in created))
+
+    def test_disconnected_pairs_with_colliding_indexes_are_retained(self):
+        self.assertEqual(DIRECT_HOST[0]["ifindex"], DIRECT_PEER[0]["ifindex"])
+        for fault in ("disconnected_pairs", "wrong_host_nsid", "wrong_peer_nsid",
+                      "missing_host_nsid", "missing_peer_nsid",
+                      "missing_nsid_mapping", "ambiguous_nsid_mapping"):
+            with self.subTest(fault=fault):
+                result, calls, _reads, report, _index, intent, created = (
+                    self._apply_through_direct_creation(fault=fault))
+                self.assertEqual(result, 2)
+                self.assertTrue(intent)
+                self.assertEqual(report["cause"], "VETH_NSID_UNVERIFIED")
+                self.assertEqual(report["status"], "ROLLBACK_INCOMPLETE")
+                self.assertIn("veth_pending", report["rollback_unresolved_categories"])
+                self.assertIn("namespace", report["rollback_unresolved_categories"])
+                self.assertIn("nft_table", report["rollback_unresolved_categories"])
+                self.assertTrue(any(isinstance(item, dict) and item["kind"] == "veth_pending"
+                                    for item in created))
+                self.assertEqual(len(calls), 1)
+                self.assertFalse(any("delete" in args for args in calls))
 
     def test_apply_direct_placement_and_sysfs_uncertainty_never_delete(self):
         for fault in ("host_peer_collision", "missing_namespace_peer",
