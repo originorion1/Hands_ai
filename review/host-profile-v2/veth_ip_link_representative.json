@@ -1,0 +1,101 @@
+{
+  "provenance": "Representative full ip -j -details link arrays reconstructed from the reported named-peer/no-link_index shape; raw captured output was unavailable. No host command produced this fixture.",
+  "before_move": {
+    "host": [
+      {
+        "ifindex": 11,
+        "link": "orionp1",
+        "ifname": "orionp0",
+        "flags": ["BROADCAST", "MULTICAST"],
+        "mtu": 1500,
+        "qdisc": "noop",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 1000,
+        "link_type": "ether",
+        "address": "02:00:00:00:00:01",
+        "broadcast": "ff:ff:ff:ff:ff:ff",
+        "linkinfo": {"info_kind": "veth"}
+      }
+    ],
+    "pilot_host": [
+      {
+        "ifindex": 12,
+        "link": "orionp0",
+        "ifname": "orionp1",
+        "flags": ["BROADCAST", "MULTICAST"],
+        "mtu": 1500,
+        "qdisc": "noop",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 1000,
+        "link_type": "ether",
+        "address": "02:00:00:00:00:02",
+        "broadcast": "ff:ff:ff:ff:ff:ff",
+        "linkinfo": {"info_kind": "veth"}
+      }
+    ],
+    "namespace_listing": [
+      {"ifindex": 1, "ifname": "lo", "flags": ["LOOPBACK"], "mtu": 65536,
+       "qdisc": "noop", "operstate": "DOWN", "linkmode": "DEFAULT",
+       "group": "default", "txqlen": 1000, "link_type": "loopback"}
+    ]
+  },
+  "after_move": {
+    "host": [
+      {
+        "ifindex": 11,
+        "link": "orionp1",
+        "ifname": "orionp0",
+        "flags": ["BROADCAST", "MULTICAST"],
+        "mtu": 1500,
+        "qdisc": "noop",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 1000,
+        "link_type": "ether",
+        "address": "02:00:00:00:00:01",
+        "broadcast": "ff:ff:ff:ff:ff:ff",
+        "link_netnsid": 0,
+        "linkinfo": {"info_kind": "veth"}
+      }
+    ],
+    "pilot_namespace": [
+      {
+        "ifindex": 12,
+        "link": "orionp0",
+        "ifname": "orionp1",
+        "flags": ["BROADCAST", "MULTICAST"],
+        "mtu": 1500,
+        "qdisc": "noop",
+        "operstate": "DOWN",
+        "linkmode": "DEFAULT",
+        "group": "default",
+        "txqlen": 1000,
+        "link_type": "ether",
+        "address": "02:00:00:00:00:02",
+        "broadcast": "ff:ff:ff:ff:ff:ff",
+        "link_netnsid": 0,
+        "linkinfo": {"info_kind": "veth"}
+      }
+    ],
+    "namespace_listing": [
+      {"ifindex": 1, "ifname": "lo", "flags": ["LOOPBACK"], "mtu": 65536,
+       "qdisc": "noop", "operstate": "DOWN", "linkmode": "DEFAULT",
+       "group": "default", "txqlen": 1000, "link_type": "loopback"},
+      {"ifindex": 12, "link": "orionp0", "ifname": "orionp1",
+       "flags": ["BROADCAST", "MULTICAST"], "mtu": 1500,
+       "qdisc": "noop", "operstate": "DOWN", "linkmode": "DEFAULT",
+       "group": "default", "txqlen": 1000, "link_type": "ether",
+       "address": "02:00:00:00:00:02", "broadcast": "ff:ff:ff:ff:ff:ff",
+       "link_netnsid": 0, "linkinfo": {"info_kind": "veth"}}
+    ]
+  },
+  "sysfs": {
+    "host": {"ifindex": "11\n", "iflink": "12\n"},
+    "pilot": {"ifindex": "12\n", "iflink": "11\n"}
+  }
+}

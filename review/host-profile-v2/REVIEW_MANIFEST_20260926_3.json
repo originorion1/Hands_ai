@@ -1,0 +1,10 @@
+{
+  "collision_clearance": false,
+  "gate_report_sha256": "0c47272d6338a9521874022c440e28b9c576ca6b2edf1427f7da0a00257a1706",
+  "host_state_changed": false,
+  "owner_decision_status": "PENDING_REVIEW",
+  "predecessor_manifest_sha256": "a7c2c2fac0560397d71e332b1810d5278e38b7fa9ae19b3a180b2ceeb6e7c68f",
+  "profile_variant_sha256": "bb95b476f9a8d5dd991f354c58a6f18bc9473304df1a0672a66a9abe85d0a91b",
+  "schema": "orion.host_profile_v2.review_manifest.v3",
+  "status": "REVIEW_ONLY_PREPACKET"
+}

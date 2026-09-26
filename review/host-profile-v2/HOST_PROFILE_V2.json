@@ -1,0 +1,204 @@
+{
+  "approved_policy_source": {
+    "path": "host-isolated-network.sh",
+    "sha256": "e4b9104a9c3f43a91c0e925a028e30f4afc8471710e363f9c8130041637daf8d"
+  },
+  "customer_io_allowed": false,
+  "execution_allowed": false,
+  "expected_routes": {
+    "ipv4_all": [
+      {
+        "dev": "orionp1",
+        "dst": "default",
+        "flags": [],
+        "gateway": "10.254.205.1",
+        "protocol": "boot",
+        "scope": "global",
+        "table": "main",
+        "type": "unicast"
+      },
+      {
+        "dev": "orionp1",
+        "dst": "10.254.205.0/30",
+        "flags": [],
+        "prefsrc": "10.254.205.2",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "main",
+        "type": "unicast"
+      },
+      {
+        "dev": "orionp1",
+        "dst": "10.254.205.2",
+        "flags": [],
+        "prefsrc": "10.254.205.2",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "orionp1",
+        "dst": "10.254.205.3",
+        "flags": [],
+        "prefsrc": "10.254.205.2",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "local",
+        "type": "broadcast"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.0.0.0/8",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.0.0.1",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.255.255.255",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "local",
+        "type": "broadcast"
+      }
+    ],
+    "ipv4_main": [
+      {
+        "dev": "orionp1",
+        "dst": "default",
+        "flags": [],
+        "gateway": "10.254.205.1",
+        "protocol": "boot",
+        "scope": "global",
+        "type": "unicast"
+      },
+      {
+        "dev": "orionp1",
+        "dst": "10.254.205.0/30",
+        "flags": [],
+        "prefsrc": "10.254.205.2",
+        "protocol": "kernel",
+        "scope": "link",
+        "type": "unicast"
+      }
+    ],
+    "ipv6_all": [
+      {
+        "dev": "orionp1",
+        "dst": "fe80::/64",
+        "flags": [],
+        "metric": 256,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "table": "main",
+        "type": "unicast"
+      },
+      {
+        "dev": "lo",
+        "dst": "::1",
+        "flags": [],
+        "metric": 0,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "orionp1",
+        "dst": "ff00::/8",
+        "flags": [],
+        "metric": 256,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "table": "local",
+        "type": "multicast"
+      }
+    ],
+    "ipv6_main": [
+      {
+        "dev": "orionp1",
+        "dst": "fe80::/64",
+        "flags": [],
+        "metric": 256,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "type": "unicast"
+      }
+    ]
+  },
+  "forwarding_expected": {
+    "ipv4": "0",
+    "ipv6": "0"
+  },
+  "interfaces": {
+    "host": "orionp0",
+    "namespace": "orionp1"
+  },
+  "lineage": {
+    "consumed_predecessor_sha256": "418521725e9a603414879d25f3c37e8b7d642a6c2d5ee4f26286cac25b85f808",
+    "original_session_classification": "owner_attested_unused_authenticated_attempt_count_unknown",
+    "other_authenticated_unconsumed_session_count": 3
+  },
+  "private_link": {
+    "host_address": "10.254.205.1",
+    "namespace_address": "10.254.205.2",
+    "network": "10.254.205.0/30"
+  },
+  "proposed_namespace_name": "orion-pilot-fc4cb43c-v2",
+  "route_comparison": {
+    "arrays": [
+      "ipv4_main",
+      "ipv4_all",
+      "ipv6_main",
+      "ipv6_all"
+    ],
+    "excluded_fields": [],
+    "ifindex_policy": "no ifindex appeared in observed route JSON; any future ifindex field requires review",
+    "mode": "exact_JSON_object_multiset_for_each_array",
+    "omitted_fields": "must_remain_absent"
+  },
+  "route_evidence": {
+    "complete_pass_json_line_sha256": "c1836d81ed25730f8efd8582e599224256e7fd3e8f4a4bc206317118830e22c0",
+    "fixture_peer_l3_absent": true,
+    "fixture_peer_route_absent_before_and_after": true,
+    "interpretation": "disposable fixture observation; production host remains unqualified",
+    "probe_script_sha256": "cb4b4c20ab50267d8a17f353e75b0d6a91ba86ffdaffe829aca24ecc8025194d"
+  },
+  "runtime_receipt_requirements": [
+    "observe and record freshly created namespace inode",
+    "bind observed inode to proposed namespace and stopped service",
+    "verify exact routes, forwarding, firewall, egress and absence of collisions before qualification"
+  ],
+  "schema": "orion.host_profile.v2.review_draft",
+  "scope": {
+    "kind": "metadata_only",
+    "total_get_limit": 2
+  },
+  "service_binding": {
+    "required_state": "stopped_and_disabled",
+    "session_id": "orion-metadata-fc4cb43c1468d83a558b589a",
+    "unit_template": "orion-pilot-metadata@.service"
+  },
+  "session_id": "orion-metadata-fc4cb43c1468d83a558b589a",
+  "status": "REVIEW_ONLY_NOT_APPLIED"
+}

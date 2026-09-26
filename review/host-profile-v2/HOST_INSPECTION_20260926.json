@@ -1,0 +1,92 @@
+{
+  "historical_remnants_to_preserve": [
+    "/home/orion/.orion/deployment-prep/route-b-pr205/host-base-namespace.inode",
+    "/etc/orion-pilot/network-provisioned",
+    "/etc/netns/orion-pilot-f7c7955"
+  ],
+  "inspection_result": {
+    "collision_clearance": false,
+    "host": {
+      "matching_nft_objects": 0,
+      "pilot_ipv6_route_hits": 0,
+      "pilot_named_links": [],
+      "private_30_address_hits": 0,
+      "private_30_or_pilot_route_hits": 0
+    },
+    "inspection_only": true,
+    "namespaces": {
+      "orion-pilot-f7c7955": {
+        "present": false
+      },
+      "orion-pilot-fc4cb43c-v2": {
+        "present": false
+      }
+    },
+    "other_orion_pilot_namespace_count": 0,
+    "paths": {
+      "/etc/netns/orion-pilot-f7c7955": {
+        "present": true,
+        "type": "directory"
+      },
+      "/etc/netns/orion-pilot-fc4cb43c-v2": {
+        "present": false
+      },
+      "/etc/orion-pilot/network-provisioned": {
+        "present": true,
+        "sha256": "f1da5f0db59de5e9d4bbe7ba53ec6a8f0fbb9fca2500a653b5e186761eccc452",
+        "type": "file"
+      },
+      "/etc/orion-pilot/network-provisioned-v2": {
+        "present": false
+      },
+      "/etc/systemd/system/orion-pilot-metadata.socket": {
+        "present": true,
+        "sha256": "76d1caf6f34902813812e40b2ae6af1abce84b7f528f3000f7a01280193b1fce",
+        "type": "file"
+      },
+      "/etc/systemd/system/orion-pilot-metadata@.service": {
+        "present": true,
+        "sha256": "5ff6ae2cdf512b295dd0ee5bfcc1be6e7ff343b17cd1988d073a0ba82fe5a789",
+        "type": "file"
+      },
+      "/home/orion/.orion/deployment-prep/route-b-pr205/host-base-namespace-v2.inode": {
+        "present": false
+      },
+      "/home/orion/.orion/deployment-prep/route-b-pr205/host-base-namespace.inode": {
+        "present": true,
+        "sha256": "f1da5f0db59de5e9d4bbe7ba53ec6a8f0fbb9fca2500a653b5e186761eccc452",
+        "type": "file"
+      },
+      "/run/netns/orion-pilot-f7c7955": {
+        "present": false
+      },
+      "/run/netns/orion-pilot-fc4cb43c-v2": {
+        "present": false
+      }
+    },
+    "systemd": {
+      "loaded_instance_count": 0,
+      "loaded_instances": [],
+      "other_unit_files": [],
+      "socket": {
+        "Accept": "yes",
+        "ActiveState": "inactive",
+        "Id": "orion-pilot-metadata.socket",
+        "LoadState": "loaded",
+        "SubState": "dead",
+        "UnitFileState": "disabled"
+      },
+      "template_unit_file_state": "static"
+    }
+  },
+  "local_read_only_corroboration": {
+    "old_namespace_marker_sha256_matches": true,
+    "root_only_network_marker_sha256": "operator_reported_not_independently_read",
+    "service_template_sha256_matches": true,
+    "socket_unit_sha256_matches": true
+  },
+  "recorded_at_utc": "2026-09-26T01:11:15Z",
+  "schema": "orion.host_profile_v2.operator_inspection.review_record",
+  "source": "operator-pasted output from the read-only root collision command; not an independently authenticated host receipt",
+  "status": "REVIEW_ONLY_NOT_APPLIED"
+}

@@ -1,0 +1,45 @@
+{
+  "authenticated_metadata_attempt_count_for_original_session": "unknown_not_reclassified",
+  "bindings": {
+    "approved_delta_pointer": "link_and_address_delta_after_loopback_up.added",
+    "approved_json_object_counts": {
+      "ipv4_all": 3,
+      "ipv4_main": 1,
+      "ipv6_all": 2,
+      "ipv6_main": 1
+    },
+    "five_distinct_route_categories": [
+      "IPv4 connected /30 main-table route",
+      "IPv4 local address route",
+      "IPv4 /30 broadcast route",
+      "IPv6 link-local main-table route",
+      "IPv6 multicast local-table route"
+    ],
+    "review_manifest_v6_sha256": "1edcd1dbdf0168c7f81d14b77fa91eb89c139c6eff3006bd5e9c8df7853b3057",
+    "review_profile_sha256": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43",
+    "synthetic_delta_file": "V2_SYNTHETIC_OUTER_ROUTE_DELTA_REVIEW_20260926.json",
+    "synthetic_delta_sha256": "dc855d17b5f22f0d84b9895636a4e68bb100607b70f6794eb96a909d816b55d3"
+  },
+  "decision_limits": {
+    "all_added_veth_routes_must_match_approved_json_objects_field_for_field": true,
+    "all_existing_production_routes_must_remain_unchanged": true,
+    "any_extra_removed_or_mismatched_route_blocks": true,
+    "collision_clearance": false,
+    "customer_activity_authorized": false,
+    "dns_tls_authorized": false,
+    "enrollment_authorized": false,
+    "fixture_loopback_rows_excluded": true,
+    "host_application_authorized": false,
+    "launch_authorized": false,
+    "packet_preparation_authorized": false,
+    "service_start_authorized": false,
+    "signing_authorized": false,
+    "synthetic_evidence_is_not_production_observation": true
+  },
+  "declaration_kind": "DIRECT_OWNER_DECLARATION",
+  "declaration_source": "Current owner instruction explicitly directs recording the exact decision quoted in the preceding owner message.",
+  "owner_declaration_exact": "Approve the five veth-related route entries in V2_SYNTHETIC_OUTER_ROUTE_DELTA_REVIEW_20260926.json as the exact expected production host-route delta, subject to exact object-field matches and all existing routes remaining unchanged. Exclude fixture-created loopback routes. Any mismatch blocks application. This approval does not authorize host application or customer activity.",
+  "recorded_at_utc": "2026-09-26T10:15:45Z",
+  "schema": "orion.host_profile_v2.owner_route_policy_decision.v1",
+  "status": "ROUTE_POLICY_APPROVED_REVIEW_ONLY"
+}

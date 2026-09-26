@@ -1,0 +1,15 @@
+{
+  "collision_clearance": false,
+  "file_sha256": {
+    "HOST_INSPECTION_20260926.json": "1344075cd0ea7b1ec5aeaf5550da9cfccfcb338243f26ac42debcccbf27ea00e",
+    "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43",
+    "HOST_PROFILE_V2_GATE_REPORT_20260926.json": "0c47272d6338a9521874022c440e28b9c576ca6b2edf1427f7da0a00257a1706",
+    "V2_REVIEW_ADDENDUM_20260926.md": "8be371877caaf853c63c02c4ddb905f7b80a7bb7eef4c4e2cc244f81d4bc7844",
+    "V2_SYSTEMD_PAIRING_REVIEW_20260926.md": "5634266ce0aa83cea58e5474e356335d36a74cf3b6783a0ab4f622a49666e6b6"
+  },
+  "host_application_authorized": false,
+  "predecessor_manifest_sha256": "b1aa10d9ed8408d33660e6b41ea3e34473542703a1bee36c0359b7a29cdcded4",
+  "profile_review_approval_only": true,
+  "schema": "orion.host_profile_v2.review_manifest.v4",
+  "status": "REVIEW_ONLY_NOT_APPLIED"
+}

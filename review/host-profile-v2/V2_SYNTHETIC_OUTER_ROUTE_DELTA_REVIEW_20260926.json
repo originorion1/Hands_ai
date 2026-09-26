@@ -1,0 +1,426 @@
+{
+  "complete_delta_from_empty_before": {
+    "added": {
+      "ipv4_all": [
+        {
+          "dev": "orionp0",
+          "dst": "10.254.205.0/30",
+          "flags": [],
+          "prefsrc": "10.254.205.1",
+          "protocol": "kernel",
+          "scope": "link",
+          "table": "main",
+          "type": "unicast"
+        },
+        {
+          "dev": "orionp0",
+          "dst": "10.254.205.1",
+          "flags": [],
+          "prefsrc": "10.254.205.1",
+          "protocol": "kernel",
+          "scope": "host",
+          "table": "local",
+          "type": "local"
+        },
+        {
+          "dev": "orionp0",
+          "dst": "10.254.205.3",
+          "flags": [],
+          "prefsrc": "10.254.205.1",
+          "protocol": "kernel",
+          "scope": "link",
+          "table": "local",
+          "type": "broadcast"
+        },
+        {
+          "dev": "lo",
+          "dst": "127.0.0.0/8",
+          "flags": [],
+          "prefsrc": "127.0.0.1",
+          "protocol": "kernel",
+          "scope": "host",
+          "table": "local",
+          "type": "local"
+        },
+        {
+          "dev": "lo",
+          "dst": "127.0.0.1",
+          "flags": [],
+          "prefsrc": "127.0.0.1",
+          "protocol": "kernel",
+          "scope": "host",
+          "table": "local",
+          "type": "local"
+        },
+        {
+          "dev": "lo",
+          "dst": "127.255.255.255",
+          "flags": [],
+          "prefsrc": "127.0.0.1",
+          "protocol": "kernel",
+          "scope": "link",
+          "table": "local",
+          "type": "broadcast"
+        }
+      ],
+      "ipv4_main": [
+        {
+          "dev": "orionp0",
+          "dst": "10.254.205.0/30",
+          "flags": [],
+          "prefsrc": "10.254.205.1",
+          "protocol": "kernel",
+          "scope": "link",
+          "type": "unicast"
+        }
+      ],
+      "ipv6_all": [
+        {
+          "dev": "orionp0",
+          "dst": "fe80::/64",
+          "flags": [],
+          "metric": 256,
+          "pref": "medium",
+          "protocol": "kernel",
+          "scope": "global",
+          "table": "main",
+          "type": "unicast"
+        },
+        {
+          "dev": "lo",
+          "dst": "::1",
+          "flags": [],
+          "metric": 0,
+          "pref": "medium",
+          "protocol": "kernel",
+          "scope": "global",
+          "table": "local",
+          "type": "local"
+        },
+        {
+          "dev": "orionp0",
+          "dst": "ff00::/8",
+          "flags": [],
+          "metric": 256,
+          "pref": "medium",
+          "protocol": "kernel",
+          "scope": "global",
+          "table": "local",
+          "type": "multicast"
+        }
+      ],
+      "ipv6_main": [
+        {
+          "dev": "orionp0",
+          "dst": "fe80::/64",
+          "flags": [],
+          "metric": 256,
+          "pref": "medium",
+          "protocol": "kernel",
+          "scope": "global",
+          "type": "unicast"
+        }
+      ]
+    },
+    "removed": {
+      "ipv4_all": [],
+      "ipv4_main": [],
+      "ipv6_all": [],
+      "ipv6_main": []
+    }
+  },
+  "evidence_class": "SYNTHETIC_PROCESS_ONLY_DUAL_NAMESPACE_CONSOLE_OUTPUT",
+  "interpretation": {
+    "field_policy": "All JSON fields are preserved exactly; omitted fields remain absent. These synthetic rows are candidates for owner review, not an approved production allowlist.",
+    "fixture_loopback_entries": "Three IPv4 local-table rows and one IPv6 local-table row arose when disposable lo was brought up; they are in the complete empty-to-final delta but are not evidence of new production-host loopback routes.",
+    "production_mismatch": "Any production route addition/removal or field difference from a subsequently owner-approved allowlist must block; do not normalize away metric, source, scope, protocol, table, gateway, type, flags, preference, or ifindex.",
+    "veth_related_categories": [
+      "IPv4 connected /30 main-table route",
+      "IPv4 local address route",
+      "IPv4 /30 broadcast route",
+      "IPv6 link-local main-table route",
+      "IPv6 multicast local-table route"
+    ]
+  },
+  "link_and_address_delta_after_loopback_up": {
+    "added": {
+      "ipv4_all": [
+        {
+          "dev": "orionp0",
+          "dst": "10.254.205.0/30",
+          "flags": [],
+          "prefsrc": "10.254.205.1",
+          "protocol": "kernel",
+          "scope": "link",
+          "table": "main",
+          "type": "unicast"
+        },
+        {
+          "dev": "orionp0",
+          "dst": "10.254.205.1",
+          "flags": [],
+          "prefsrc": "10.254.205.1",
+          "protocol": "kernel",
+          "scope": "host",
+          "table": "local",
+          "type": "local"
+        },
+        {
+          "dev": "orionp0",
+          "dst": "10.254.205.3",
+          "flags": [],
+          "prefsrc": "10.254.205.1",
+          "protocol": "kernel",
+          "scope": "link",
+          "table": "local",
+          "type": "broadcast"
+        }
+      ],
+      "ipv4_main": [
+        {
+          "dev": "orionp0",
+          "dst": "10.254.205.0/30",
+          "flags": [],
+          "prefsrc": "10.254.205.1",
+          "protocol": "kernel",
+          "scope": "link",
+          "type": "unicast"
+        }
+      ],
+      "ipv6_all": [
+        {
+          "dev": "orionp0",
+          "dst": "fe80::/64",
+          "flags": [],
+          "metric": 256,
+          "pref": "medium",
+          "protocol": "kernel",
+          "scope": "global",
+          "table": "main",
+          "type": "unicast"
+        },
+        {
+          "dev": "orionp0",
+          "dst": "ff00::/8",
+          "flags": [],
+          "metric": 256,
+          "pref": "medium",
+          "protocol": "kernel",
+          "scope": "global",
+          "table": "local",
+          "type": "multicast"
+        }
+      ],
+      "ipv6_main": [
+        {
+          "dev": "orionp0",
+          "dst": "fe80::/64",
+          "flags": [],
+          "metric": 256,
+          "pref": "medium",
+          "protocol": "kernel",
+          "scope": "global",
+          "type": "unicast"
+        }
+      ]
+    },
+    "removed": {
+      "ipv4_all": [],
+      "ipv4_main": [],
+      "ipv6_all": [],
+      "ipv6_main": []
+    }
+  },
+  "outer_routes_after": {
+    "ipv4_all": [
+      {
+        "dev": "orionp0",
+        "dst": "10.254.205.0/30",
+        "flags": [],
+        "prefsrc": "10.254.205.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "main",
+        "type": "unicast"
+      },
+      {
+        "dev": "orionp0",
+        "dst": "10.254.205.1",
+        "flags": [],
+        "prefsrc": "10.254.205.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "orionp0",
+        "dst": "10.254.205.3",
+        "flags": [],
+        "prefsrc": "10.254.205.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "local",
+        "type": "broadcast"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.0.0.0/8",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.0.0.1",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.255.255.255",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "local",
+        "type": "broadcast"
+      }
+    ],
+    "ipv4_main": [
+      {
+        "dev": "orionp0",
+        "dst": "10.254.205.0/30",
+        "flags": [],
+        "prefsrc": "10.254.205.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "type": "unicast"
+      }
+    ],
+    "ipv6_all": [
+      {
+        "dev": "orionp0",
+        "dst": "fe80::/64",
+        "flags": [],
+        "metric": 256,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "table": "main",
+        "type": "unicast"
+      },
+      {
+        "dev": "lo",
+        "dst": "::1",
+        "flags": [],
+        "metric": 0,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "orionp0",
+        "dst": "ff00::/8",
+        "flags": [],
+        "metric": 256,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "table": "local",
+        "type": "multicast"
+      }
+    ],
+    "ipv6_main": [
+      {
+        "dev": "orionp0",
+        "dst": "fe80::/64",
+        "flags": [],
+        "metric": 256,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "type": "unicast"
+      }
+    ]
+  },
+  "outer_routes_after_link_move_before_addresses": {
+    "ipv4_all": [
+      {
+        "dev": "lo",
+        "dst": "127.0.0.0/8",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.0.0.1",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "lo",
+        "dst": "127.255.255.255",
+        "flags": [],
+        "prefsrc": "127.0.0.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "local",
+        "type": "broadcast"
+      }
+    ],
+    "ipv4_main": [],
+    "ipv6_all": [
+      {
+        "dev": "lo",
+        "dst": "::1",
+        "flags": [],
+        "metric": 0,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "table": "local",
+        "type": "local"
+      }
+    ],
+    "ipv6_main": []
+  },
+  "outer_routes_before": {
+    "ipv4_all": [],
+    "ipv4_main": [],
+    "ipv6_all": [],
+    "ipv6_main": []
+  },
+  "owner_decision_requested": "Decide whether the exact five veth-related IPv4/IPv6 route categories and their observed fields should be permitted as a production route delta, with existing host routes unchanged; decide separately how pre-existing production loopback rows are treated. Approval of this synthetic proposal is not production observation or host-application authorization.",
+  "production_host_observed": false,
+  "production_route_policy_changed": false,
+  "schema": "orion.host_profile_v2.synthetic_outer_host_route_delta.review.v1",
+  "source_context": {
+    "description": "Transcribed complete outer-host route arrays from the successful disposable dual-namespace console result; no raw probe artifact was persisted.",
+    "disposable_outer_forwarding": {
+      "ipv4": "0",
+      "ipv6": "0"
+    },
+    "retained_address_route_commands": "host 10.254.205.1/30 on orionp0, link up; peer 10.254.205.2/30 and default via 10.254.205.1 inside disposable inner namespace",
+    "v6_receipt_proposal_sha256": "52b8d783422226f1a3e55e327de241629e804d247bcff141d2fdd9452710a0e5",
+    "v6_review_manifest_sha256": "1edcd1dbdf0168c7f81d14b77fa91eb89c139c6eff3006bd5e9c8df7853b3057"
+  },
+  "status": "REVIEW_ONLY_PENDING_OWNER_DECISION"
+}
