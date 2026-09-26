@@ -337,14 +337,23 @@ def verify_review():
             v17["collision_clearance"] is False and
             v17["root_grant_created"] is False and
             v17["host_recovery_hold"] is True and
-            v17["link_fixture_provenance"] == "RECONSTRUCTED_NOT_CAPTURED" and
-            v17["raw_capture_evidence_gate"] == "UNRESOLVED" and
+            v17["link_fixture_provenance"] == "CAPTURED_DISPOSABLE_AND_RECONSTRUCTED_CASES" and
+            v17["raw_capture_evidence_gate"] == "SATISFIED_DISPOSABLE" and
             v17["maintenance_window_serialization_enforced"] is False and
             v17["review_human_approval"] == "PENDING" and
             v17["file_sha256"]["apply-host-profile-v2.py"] == sha(Path(__file__).resolve()),
             "V17_REVIEW_BINDING")
     for name, digest in v17["file_sha256"].items():
         require(sha(BASE / name) == digest, "V17_FILE_DIGEST")
+    capture = parse_json((BASE / "captured-veth/capture_metadata.json").read_text())
+    capture_files = {"before_host.json", "before_peer.json", "after_host.json", "after_peer.json"}
+    require(capture["schema"] == "orion.veth_ip_link.disposable_raw_capture.v1" and
+            set(capture["file_sha256"]) == capture_files and
+            all(capture[key] is False for key in
+                ("host_network_modified", "uplink_present", "default_route_present", "customer_traffic")) and
+            all(sha(BASE / "captured-veth" / name) == digest
+                for name, digest in capture["file_sha256"].items()),
+            "V17_CAPTURE_EVIDENCE")
     require(sha(MANIFEST) == MANIFEST_SHA, "V9_DIGEST")
     require(sha(BASE / "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json") == PROFILE_SHA, "PROFILE_DIGEST")
     require(sha(BASE / "V2_RUNTIME_RECEIPT_SCHEMA_REVIEW_20260926_V2.json") == SCHEMA_SHA, "SCHEMA_DIGEST")
@@ -823,6 +832,14 @@ def veth_sysfs_indexes(name, *, namespace=False):
 
 
 def verify_veth_pair(host_idx, pilot_idx, ns_inode, *, peer_in_namespace=True):
+    def peer_reference(row, name, index):
+        # iproute2 reports a peer name before a move on this kernel, and only
+        # link_index after a move. Require every field it does report to agree.
+        return (("link" in row or "link_index" in row) and
+                ("link" not in row or (type(row["link"]) is str and row["link"] == name)) and
+                ("link_index" not in row or
+                 (type(row["link_index"]) is int and row["link_index"] == index)))
+
     require(namespace_inode() == ns_inode, "VETH_NAMESPACE_IDENTITY")
     host = json_command([IP, "-j", "-details", "link", "show", "dev", H])
     peer = (ns_json("-details", "link", "show", "dev", P) if peer_in_namespace else
@@ -840,11 +857,7 @@ def verify_veth_pair(host_idx, pilot_idx, ns_inode, *, peer_in_namespace=True):
             type(b.get("linkinfo")) is dict and
             a["linkinfo"].get("info_kind") == "veth" and
             b["linkinfo"].get("info_kind") == "veth" and
-            a.get("link") == P and b.get("link") == H and
-            ("link_index" not in a or
-             (type(a["link_index"]) is int and a["link_index"] == pilot_idx)) and
-            ("link_index" not in b or
-             (type(b["link_index"]) is int and b["link_index"] == host_idx)),
+            peer_reference(a, P, pilot_idx) and peer_reference(b, H, host_idx),
             "VETH_PAIR_IDENTITY")
     require(veth_sysfs_indexes(H) == (host_idx, pilot_idx) and
             veth_sysfs_indexes(P, namespace=peer_in_namespace) == (pilot_idx, host_idx),

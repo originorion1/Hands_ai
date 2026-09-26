@@ -3,11 +3,11 @@
   "host_recovery_hold": true,
   "maintenance_window_serialization_required_for_future_deletion": true,
   "manifest_v16_sha256": "72275bb910fded1b48f03496b12326ee9d5d543d2a769d57d80666f9459de9b8",
-  "manifest_v17_sha256": "e96def9d55c7b875dedc53b0a44fe8bb441d2b731c0ac976252b4ae4393d9e38",
+  "manifest_v17_sha256": "9a5a05527d520052ebb2f5b93a263f7f35856e689319b6accdf1d79899ba8ca6",
   "profile_sha256": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43",
-  "raw_capture_evidence_gate": "UNRESOLVED",
+  "raw_capture_evidence_gate": "SATISFIED_DISPOSABLE",
   "schema": "orion.host_profile_v2.future_grant_digest_bindings.v17.review_only",
-  "script_sha256": "21c074eb650ff2db55347e6e6c91d361711ffc86cda890e24054d136c3dc416d",
+  "script_sha256": "708307b8b80e717faa5e5cc89cae017637f6ffbd18179badf4cf8359c043e634",
   "spent_grant_reusable": false,
   "status": "BINDINGS_ONLY_NO_GRANT"
 }

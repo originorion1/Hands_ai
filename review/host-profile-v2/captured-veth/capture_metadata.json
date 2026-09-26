@@ -1,0 +1,18 @@
+{
+  "customer_traffic": false,
+  "default_route_present": false,
+  "file_sha256": {
+    "after_host.json": "3e0ff7e3f8b357daa1d9e83cb6dbfbcee48eeace28f0f97750bbbb208ebfb64a",
+    "after_peer.json": "7897b951db7a5a8d70186681ca3fa3fc155cba0b1589aafcb815c4de8c9d091c",
+    "before_host.json": "afa1c55452bfcb6cbf6488b8df9bfef5df73bfc590b28293c50d44a8599d4960",
+    "before_peer.json": "3ba66989ce952442f9696ac2e710be2ab3682e605c8d375ca99fd787b2bab2be"
+  },
+  "host_network_modified": false,
+  "placement": {
+    "after": "peer_in_nested_disposable_network_namespace",
+    "before": "same_disposable_network_namespace"
+  },
+  "provenance": "Raw ip -j -details link stdout from nested disposable user/network namespaces",
+  "schema": "orion.veth_ip_link.disposable_raw_capture.v1",
+  "uplink_present": false
+}

@@ -1,6 +1,6 @@
 # Staged veth peer recovery hold
 
-This staged patch does not authorize host application or automatic veth deletion.
+This successor review bundle does not authorize host application or automatic veth deletion.
 Once namespace or veth creation has been recorded, rollback makes a transaction-wide
 hold decision before any cleanup. It retains the namespace, veth pair, namespace
 nftables filter, host NAT and Docker rules, resolver, unit and receipt files, and
@@ -8,7 +8,10 @@ the consumed-grant marker. It reports `ROLLBACK_INCOMPLETE` with resource
 categories and a sanitized cause code. Identity or placement uncertainty never
 causes deletion. This deliberately leaves a partial state for manual recovery.
 
-The name, index, and sysfs checks are separate snapshots. A link can be replaced
+The disposable raw capture reports reciprocal names before the move and
+reciprocal numeric `link_index` values after it. The verifier requires every
+available peer reference to agree with recorded indexes and reciprocal sysfs
+reads. Those checks are separate snapshots. A link can be replaced
 after the final check and before a later name-based delete. Linux `RTM_DELLINK`
 supports an interface-index selector, but it does not atomically compare the
 verified peer name, reciprocal indexes, and namespace placement in the same
