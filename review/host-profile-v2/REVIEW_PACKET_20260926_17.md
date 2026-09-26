@@ -9,8 +9,8 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
   predecessor bundle. The archived `apply-host-profile-v2-v16.py` and
   `test_apply_host_profile_v2_failures-v16.py` preserve the v16 file bindings.
 - `REVIEW_MANIFEST_20260926_17.json` chains to the unchanged v16 SHA-256 and
-  binds the successor script, active tests, exact disposable raw captures,
-  capture tool, reconstructed malformed-case fixture, recovery policy, this
+  binds the successor script, active tests, exact disposable raw link and
+  sysfs captures, capture tool, reconstructed malformed-case fixture, recovery policy, this
   packet, and predecessor archives. Archived predecessor tests are excluded from current
   pytest collection by a manifest-bound `conftest.py`; their bytes are unchanged.
   Current v16 manifest SHA-256: `72275bb910fded1b48f03496b12326ee9d5d543d2a769d57d80666f9459de9b8`.
@@ -28,28 +28,40 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
   reference to agree. A name or numeric `link_index` must be present for each
   endpoint. Missing, malformed, or conflicting fields fail closed.
 - A genuine disposable capture found name-only peers before the move and
-  index-only peers after the move. Four raw `ip -j -details link` outputs are
-  kept byte-for-byte in `captured-veth/`, with SHA-256 metadata. The capture
-  ran under `unshare --user --map-root-user --net`, with a nested network
-  namespace for the moved peer. The capture script required loopback-only,
-  empty IPv4/IPv6 route tables in both namespaces before creating the veth;
-  no uplink, default route, customer traffic, or pilot-host link was used.
-  `veth_ip_link_representative.json` remains explicitly reconstructed.
-- Once namespace or veth creation is recorded, rollback retains the entire
-  recorded dependency set, including namespace nftables filter, host NAT and
-  Docker rules, resolver, unit and evidence files, and consumed-grant marker.
-  It reports `ROLLBACK_INCOMPLETE` with sanitized cause and resource categories.
-- The full-order failure injection covers pending and completed placements,
-  late identity failure, and replacement after verification but before rollback.
-  Its mocks prohibit nft, link, file, and directory deletion.
-- Focused host-profile suite: 49 passed, 47 subtests passed. Active successor
-  script and active focused test files pass Ruff. Core `src`/`tests`
-  Ruff passes. The archived v16 script/failure test retain 26 pre-existing
-  Ruff findings; they are unchanged predecessor evidence. Syntax checks pass.
-  The core source-scan subset passed 146 tests, and the core demo reports
-  `execution_allowed=false`.
-- Repository-wide suite: `981 passed, 47 subtests passed` in 33m49s. This
-  includes all active host-profile tests and the core repository tests.
+  index-only peers after the move. Four raw `ip -j -details link` outputs, two
+  raw namespace listings, and raw sysfs `ifindex`/`iflink` text from each
+  endpoint before and after the move are in `captured-veth/`, with SHA-256
+  metadata. The capture ran under `unshare --user --map-root-user --mount --net`,
+  with a nested network and mount namespace for the moved peer and read-only
+  sysfs mounts. The capture tool rejected a prior isolated run whose inherited
+  sysfs mount did not match link JSON; that output was not added to the bundle.
+  The accepted run matched reciprocal sysfs and JSON indexes in both placements.
+  The script required loopback-only, empty IPv4/IPv6 route tables in both
+  namespaces before veth creation; no uplink, default route, customer traffic,
+  or pilot-host link was used. `veth_ip_link_representative.json` remains
+  explicitly reconstructed for malformed cases.
+- Once namespace or veth creation is recorded, rollback issues no deletion for
+  the recorded dependency set, including namespace nftables filter, host NAT
+  and Docker rules, resolver, unit and evidence files, and consumed-grant marker.
+  It reports `ROLLBACK_INCOMPLETE` with a sanitized cause and
+  `rollback_unresolved_categories`. These are journal kinds and failed proof
+  steps, not an observation that the resources still exist. The legacy
+  correction-receipt field `retained_v2_resource_names` has the same meaning;
+  actual survival requires manual inspection.
+- The full-order failure injection now uses captured link and sysfs evidence
+  for pending and completed placements, late identity failure, and replacement
+  after verification but before rollback. Its mocks prohibit nft, link, file,
+  and directory deletion. Caller tests also use the captured evidence for
+  creation and post-move verification; reconstructed fixtures remain for
+  malformed input cases.
+- Focused host-profile tests passed: 53 tests and 51 subtests. The full
+  repository suite passed: 985 tests and 51 subtests in 2123.35 seconds.
+  Python syntax checks, Ruff on the changed Python files plus `src` and
+  `tests`, the demo (`execution_allowed=false`), and `git diff --check`
+  passed. The generic source/capability scanner flags the guarded host
+  script under its Python network policy at both this tree and the unchanged
+  predecessor head; changed capture and test files pass that scan. This is a
+  pre-existing scanner finding, not a new finding from this follow-up.
 
 ## Open gates and recovery boundary
 

@@ -27,7 +27,7 @@ class CapturedVethFixtureTests(unittest.TestCase):
             cls.rows[name.removesuffix(".json")] = json.loads(raw)
 
     def test_raw_capture_has_two_disposable_placements_and_exact_peer_evidence(self):
-        self.assertEqual(self.metadata["schema"], "orion.veth_ip_link.disposable_raw_capture.v1")
+        self.assertEqual(self.metadata["schema"], "orion.veth_ip_link.disposable_raw_capture.v2")
         for key in ("host_network_modified", "uplink_present", "default_route_present",
                     "customer_traffic"):
             self.assertIs(self.metadata[key], False)
@@ -45,6 +45,21 @@ class CapturedVethFixtureTests(unittest.TestCase):
                          (before_peer["ifindex"], before_host["ifindex"]))
         self.assertNotIn("link", after_host)
         self.assertNotIn("link", after_peer)
+        namespaces = self.rows["sysfs_indexes"]["network_namespaces"]
+        self.assertEqual(namespaces["before_host"], namespaces["before_peer"])
+        self.assertEqual(namespaces["before_host"], namespaces["after_host"])
+        self.assertNotEqual(namespaces["after_host"], namespaces["after_peer"])
+        self.assertEqual([row["ifname"] for row in self.rows["before_namespace_listing"]], ["lo"])
+        self.assertEqual({row["ifname"] for row in self.rows["after_namespace_listing"]},
+                         {"lo", HOST.P})
+        for stage in ("before", "after"):
+            host = self.rows[f"{stage}_host"][0]
+            peer = self.rows[f"{stage}_peer"][0]
+            sysfs = self.rows["sysfs_indexes"][stage]
+            self.assertEqual(tuple(int(sysfs["host"][key]) for key in ("ifindex", "iflink")),
+                             (host["ifindex"], peer["ifindex"]))
+            self.assertEqual(tuple(int(sysfs["peer"][key]) for key in ("ifindex", "iflink")),
+                             (peer["ifindex"], host["ifindex"]))
 
     def test_verifier_accepts_both_raw_placements_and_rejects_missing_or_drifted_peer(self):
         host_idx = self.rows["before_host"][0]["ifindex"]
@@ -71,12 +86,28 @@ class CapturedVethFixtureTests(unittest.TestCase):
         def host_json(args):
             return host if args[-1] == HOST.H else peer
 
+        stage = "after" if moved else "before"
+        sysfs = self.rows["sysfs_indexes"][stage]
+        indexes = [tuple(int(sysfs[side][key]) for key in ("ifindex", "iflink"))
+                   for side in ("host", "peer")]
         with mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
              mock.patch.object(HOST, "json_command", side_effect=host_json), \
              mock.patch.object(HOST, "ns_json", return_value=peer), \
-             mock.patch.object(HOST, "veth_sysfs_indexes",
-                               side_effect=[(host_idx, peer_idx), (peer_idx, host_idx)]):
+             mock.patch.object(HOST, "veth_sysfs_indexes", side_effect=indexes):
             HOST.verify_veth_pair(host_idx, peer_idx, "net:[123]", peer_in_namespace=moved)
+
+    def test_sysfs_reader_parses_captured_raw_text(self):
+        for stage in ("before", "after"):
+            with self.subTest(stage=stage):
+                raw = self.rows["sysfs_indexes"][stage]
+                with mock.patch.object(HOST.Path, "read_text",
+                                       side_effect=[raw["host"][key] for key in ("ifindex", "iflink")]), \
+                     mock.patch.object(HOST, "run",
+                                       side_effect=[raw["peer"][key] for key in ("ifindex", "iflink")]):
+                    self.assertEqual(HOST.veth_sysfs_indexes(HOST.H),
+                                     tuple(int(raw["host"][key]) for key in ("ifindex", "iflink")))
+                    self.assertEqual(HOST.veth_sysfs_indexes(HOST.P, namespace=True),
+                                     tuple(int(raw["peer"][key]) for key in ("ifindex", "iflink")))
 
 
 if __name__ == "__main__":

@@ -2,17 +2,20 @@
   "customer_traffic": false,
   "default_route_present": false,
   "file_sha256": {
-    "after_host.json": "3e0ff7e3f8b357daa1d9e83cb6dbfbcee48eeace28f0f97750bbbb208ebfb64a",
-    "after_peer.json": "7897b951db7a5a8d70186681ca3fa3fc155cba0b1589aafcb815c4de8c9d091c",
-    "before_host.json": "afa1c55452bfcb6cbf6488b8df9bfef5df73bfc590b28293c50d44a8599d4960",
-    "before_peer.json": "3ba66989ce952442f9696ac2e710be2ab3682e605c8d375ca99fd787b2bab2be"
+    "after_host.json": "b733a6c69aff8eeafc992b930380ba8bf960b227d1248ab8a00360c54d9312bd",
+    "after_namespace_listing.json": "0d4ba5b23c963d3e33329f830e668f652efd35f47213b4dfc949dc46a9e5c03c",
+    "after_peer.json": "195e6fa65d95aa888c9f37c44ed2865fd803de57cc0269e2d3f3053b41afbbf1",
+    "before_host.json": "3a6e6f3dfad30a44c2680ae517fc313ac34573c6e0fd9c7c90c8ea5b3dd14fc7",
+    "before_namespace_listing.json": "48295e57feaffc1159819c681cb98796a79d2e6ad45b3c23a716ea96e23c32d7",
+    "before_peer.json": "7a06965155c803a53e51f2e196cbacfa2cd46ef623bf504d7055bdd534d51643",
+    "sysfs_indexes.json": "74834f75cdc41ff140baf1f0a56ab04536da6e749495c16401e6f312d9bfa6a5"
   },
   "host_network_modified": false,
   "placement": {
     "after": "peer_in_nested_disposable_network_namespace",
     "before": "same_disposable_network_namespace"
   },
-  "provenance": "Raw ip -j -details link stdout from nested disposable user/network namespaces",
-  "schema": "orion.veth_ip_link.disposable_raw_capture.v1",
+  "provenance": "Raw ip -j -details link stdout and sysfs index text from nested disposable user/network namespaces",
+  "schema": "orion.veth_ip_link.disposable_raw_capture.v2",
   "uplink_present": false
 }

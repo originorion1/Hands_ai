@@ -2,14 +2,19 @@
 
 This successor review bundle does not authorize host application or automatic veth deletion.
 Once namespace or veth creation has been recorded, rollback makes a transaction-wide
-hold decision before any cleanup. It retains the namespace, veth pair, namespace
-nftables filter, host NAT and Docker rules, resolver, unit and receipt files, and
-the consumed-grant marker. It reports `ROLLBACK_INCOMPLETE` with resource
-categories and a sanitized cause code. Identity or placement uncertainty never
-causes deletion. This deliberately leaves a partial state for manual recovery.
+hold decision before any cleanup. It issues no deletion for the recorded namespace,
+veth pair, namespace nftables filter, host NAT and Docker rules, resolver, unit and
+receipt files, or consumed-grant marker. It reports `ROLLBACK_INCOMPLETE` with a
+sanitized cause code. `rollback_unresolved_categories` names recorded journal kinds
+and failed proof steps, **not observed surviving resources**. The legacy correction
+receipt field `retained_v2_resource_names` has the same limited meaning. An operator
+must inspect actual presence and protections before planning manual recovery. Identity
+or placement uncertainty never causes deletion.
 
 The disposable raw capture reports reciprocal names before the move and
-reciprocal numeric `link_index` values after it. The verifier requires every
+reciprocal numeric `link_index` values after it. Matching raw sysfs `ifindex` and
+`iflink` text was captured in each endpoint's network and mount namespace; the
+capture tool rejects a sysfs/JSON mismatch. The verifier requires every
 available peer reference to agree with recorded indexes and reciprocal sysfs
 reads. Those checks are separate snapshots. A link can be replaced
 after the final check and before a later name-based delete. Linux `RTM_DELLINK`

@@ -1,0 +1,28 @@
+{
+  "after": {
+    "host": {
+      "ifindex": "3\n",
+      "iflink": "2\n"
+    },
+    "peer": {
+      "ifindex": "2\n",
+      "iflink": "3\n"
+    }
+  },
+  "before": {
+    "host": {
+      "ifindex": "3\n",
+      "iflink": "2\n"
+    },
+    "peer": {
+      "ifindex": "2\n",
+      "iflink": "3\n"
+    }
+  },
+  "network_namespaces": {
+    "after_host": "net:[4026532364]",
+    "after_peer": "net:[4026532487]",
+    "before_host": "net:[4026532364]",
+    "before_peer": "net:[4026532364]"
+  }
+}

@@ -346,8 +346,10 @@ def verify_review():
     for name, digest in v17["file_sha256"].items():
         require(sha(BASE / name) == digest, "V17_FILE_DIGEST")
     capture = parse_json((BASE / "captured-veth/capture_metadata.json").read_text())
-    capture_files = {"before_host.json", "before_peer.json", "after_host.json", "after_peer.json"}
-    require(capture["schema"] == "orion.veth_ip_link.disposable_raw_capture.v1" and
+    capture_files = {"before_host.json", "before_peer.json", "after_host.json", "after_peer.json",
+                     "before_namespace_listing.json", "after_namespace_listing.json",
+                     "sysfs_indexes.json"}
+    require(capture["schema"] == "orion.veth_ip_link.disposable_raw_capture.v2" and
             set(capture["file_sha256"]) == capture_files and
             all(capture[key] is False for key in
                 ("host_network_modified", "uplink_present", "default_route_present", "customer_traffic")) and
@@ -1443,6 +1445,8 @@ def apply():
                 "prior_filename": published[0].name, "prior_sha256": published[1],
                 "prior_transaction_id": receipt["transaction_id"],
                 "prior_outcome": receipt["outcome"], "reason_code": "POST_PUBLICATION_VERIFICATION_FAILED"}
+            # This legacy receipt-schema field lists unresolved journal kinds;
+            # it does not attest that the named resources still exist.
             correction["rollback"] = {"status": "incomplete" if failures else "complete",
                                       "created_resource_identities_checked": not failures,
                                       "retained_v2_resource_names": failures}
@@ -1455,7 +1459,7 @@ def apply():
             cause = "BLOCKED_UNCLASSIFIED"
         print(json.dumps({"status": "ROLLBACK_INCOMPLETE" if failures else "ROLLED_BACK",
                           "cause": cause,
-                          "retained_resource_categories": failures,
+                          "rollback_unresolved_categories": failures,
                           "recovery_action": "PRESERVE_RESOURCES_AND_REQUEST_MANUAL_REVIEW" if failures else None,
                           "grant_consumed": not absent(used_marker)}, sort_keys=True), file=sys.stderr)
         return 2

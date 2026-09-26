@@ -13,7 +13,15 @@ BASE = Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location("orion_veth_acceptance", BASE / "apply-host-profile-v2.py")
 HOST = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(HOST)
-FIXTURE = json.loads((BASE / "veth_ip_link_representative.json").read_text())
+CAPTURE = BASE / "captured-veth"
+SYSFS = json.loads((CAPTURE / "sysfs_indexes.json").read_text())
+BEFORE = {"host": json.loads((CAPTURE / "before_host.json").read_text()),
+          "pilot_host": json.loads((CAPTURE / "before_peer.json").read_text()),
+          "namespace_listing": json.loads((CAPTURE / "before_namespace_listing.json").read_text())}
+AFTER = {"host": json.loads((CAPTURE / "after_host.json").read_text()),
+         "pilot_namespace": json.loads((CAPTURE / "after_peer.json").read_text())}
+HOST_INDEX = BEFORE["host"][0]["ifindex"]
+PEER_INDEX = BEFORE["pilot_host"][0]["ifindex"]
 
 
 class FullCreationRollbackAcceptance(unittest.TestCase):
@@ -26,8 +34,8 @@ class FullCreationRollbackAcceptance(unittest.TestCase):
         order = []
         mutations = []
         state = {"moved": False, "checks": 0, "replaced": False, "consumed": False}
-        before = FIXTURE["before_move"]
-        after = FIXTURE["after_move"]
+        before = BEFORE
+        after = AFTER
         snapshot = {"routes": {}, "docker": {"nftables": []}, "historical": "safe", "units": {}}
 
         def marker(_path, _digest, created):
@@ -79,10 +87,7 @@ class FullCreationRollbackAcceptance(unittest.TestCase):
 
         def host_rows(args):
             if args[-1] == HOST.P:
-                row = copy.deepcopy(before["pilot_host"])
-                if pending:
-                    row[0]["link"] = "drifted-peer"
-                return row
+                return copy.deepcopy(before["pilot_host"])
             row = copy.deepcopy(after["host"] if state["moved"] else before["host"])
             if state["replaced"]:
                 row[0]["ifindex"] = 99
@@ -122,12 +127,19 @@ class FullCreationRollbackAcceptance(unittest.TestCase):
                     stack.enter_context(mock.patch.object(HOST, name, side_effect=value))
                 else:
                     stack.enter_context(mock.patch.object(HOST, name, return_value=value))
-            stack.enter_context(mock.patch.object(HOST, "link_index", side_effect=[11, 12]))
+            stack.enter_context(mock.patch.object(HOST, "link_index",
+                                                  side_effect=[HOST_INDEX, PEER_INDEX]))
             stack.enter_context(mock.patch.object(HOST, "ns_json", side_effect=namespace_rows))
             stack.enter_context(mock.patch.object(HOST, "json_command", side_effect=host_rows))
+            def captured_indexes(name, **_kwargs):
+                stage = "after" if state["moved"] else "before"
+                side = "host" if name == HOST.H else "peer"
+                values = SYSFS[stage][side]
+                result = tuple(int(values[key]) for key in ("ifindex", "iflink"))
+                return (result[0], 999) if pending and side == "peer" else result
+
             stack.enter_context(mock.patch.object(HOST, "veth_sysfs_indexes",
-                                                  side_effect=lambda name, **_kw: (11, 12)
-                                                  if name == HOST.H else (12, 11)))
+                                                  side_effect=captured_indexes))
             stack.enter_context(mock.patch.object(HOST, "verify_veth_pair", side_effect=verify))
             stack.enter_context(mock.patch.object(HOST, "rollback", side_effect=rollback))
             stack.enter_context(mock.patch.object(HOST, "run", side_effect=run))
@@ -175,7 +187,7 @@ class FullCreationRollbackAcceptance(unittest.TestCase):
         self.assertEqual(report["status"], "ROLLBACK_INCOMPLETE")
         self.assertEqual(report["cause"], "VETH_PAIR_IDENTITY")
         self.assertEqual(report["recovery_action"], "PRESERVE_RESOURCES_AND_REQUEST_MANUAL_REVIEW")
-        self.assertEqual(report["retained_resource_categories"],
+        self.assertEqual(report["rollback_unresolved_categories"],
                          (["veth_pending", "docker_rule", "nft_table", "file", "dir",
                            "namespace", "grant_marker", "cleanup_unverified"] if pending else
                           ["file", "veth", "docker_rule", "nft_table", "dir",
