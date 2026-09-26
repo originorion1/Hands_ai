@@ -5,7 +5,7 @@
   "direct_creation_intent_recorded_before_command": true,
   "file_sha256": {
     "REVIEW_MANIFEST_20260926_16.json": "72275bb910fded1b48f03496b12326ee9d5d543d2a769d57d80666f9459de9b8",
-    "REVIEW_PACKET_20260926_17.md": "97729ad1fc182068468a78b2a0f5b4ab849e16fa290a1102782946de36ec26f8",
+    "REVIEW_PACKET_20260926_17.md": "f092c07aab8bc5d848c7f87315b245c1a32280e845106515dd06bcfe4b50a95c",
     "VETH_PEER_RECOVERY_HOLD.md": "bf2ce63808a45d64cd7fd4c8c9040cd3125cee69562f4ea68c057530d427402e",
     "apply-host-profile-v2-v16.py": "fddc3ed78510c1d359a5767af539eae802c6a64220a836fa21ff17ce94aed362",
     "apply-host-profile-v2.py": "e1857e2e8682cd6170ba1daedc1e328923de2c84b381bfb2c330225377d3dbb2",

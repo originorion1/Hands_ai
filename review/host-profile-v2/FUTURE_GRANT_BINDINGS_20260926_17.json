@@ -5,7 +5,7 @@
   "host_recovery_hold": true,
   "maintenance_window_serialization_required_for_future_deletion": true,
   "manifest_v16_sha256": "72275bb910fded1b48f03496b12326ee9d5d543d2a769d57d80666f9459de9b8",
-  "manifest_v17_sha256": "e8c89cddd14d3ee9bcf9ac325dde692f1f763670699b487b27f60b1d3f1f09a0",
+  "manifest_v17_sha256": "e36e34c8da9de9016000d23795392a2f69019ea520ed5bdf14dc293f6a40d934",
   "profile_sha256": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43",
   "raw_capture_evidence_gate": "SATISFIED_DISPOSABLE",
   "schema": "orion.host_profile_v2.future_grant_digest_bindings.v17.review_only",

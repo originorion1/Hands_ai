@@ -87,9 +87,11 @@ Feature branch: `codex/host-profile-v2-peer-fix-v17`, based on canonical
   each direction, missing attributes, and missing or ambiguous mappings.
   These cases retain every recorded dependency and issue no deletion.
   Reconstructed fixtures remain for additional malformed input cases.
-- Current-head verification: focused host-profile tests passed: 60 tests and
-  69 subtests. The full repository suite passed: 992 tests and 69 subtests in
-  1762.98 seconds. Python syntax checks, Ruff on the changed Python files plus
+- Verification of the unchanged code and tests: the full repository suite
+  passed: 992 tests and 69 subtests in 1762.98 seconds. After the packet,
+  recovery-policy wording, and digest-only bindings were finalized, the
+  focused host-profile suite passed on the exact committed tree: 60 tests and
+  69 subtests. Python syntax checks, Ruff on the changed Python files plus
   `src` and `tests`, the demo (`execution_allowed=false`), and `git diff --check`
   passed. Source/capability scanning of changed files found only the intended
   AF_NETLINK route socket in `veth_nsid.py`; no customer or Internet socket or
