@@ -49,6 +49,7 @@ from .erpnext_live_session import (
     is_sensitive_metadata_name,
 )
 from .erpnext_metadata_adapter import ERPNextMetadataAdapter
+from .json_boundary import unique_json_object
 
 MAX_TOTAL_ATTEMPTED_GETS = 100
 CONSOLIDATED_PRIOR_ATTEMPTED_GETS = 5
@@ -1328,12 +1329,10 @@ def _validated_candidate(
 
 
 def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    result: dict[str, Any] = {}
-    for name, value in pairs:
-        if name in result:
-            raise MetadataPreflightError("metadata JSON object keys must be unique")
-        result[name] = value
-    return result
+    try:
+        return unique_json_object(pairs)
+    except ValueError:
+        raise MetadataPreflightError("metadata JSON object keys must be unique") from None
 
 
 def metadata_preflight_config_from_environment(

@@ -193,8 +193,8 @@ def project_observations(graph: GraphStore, observations: tuple[Observation, ...
     for observation in observations:
         evidence = observation.evidence
         payload = evidence.payload
-        record = payload.get("record") if isinstance(payload.get("record"), dict) else payload
-        key = record.get("name") if isinstance(record, dict) else None
+        record = payload.get("record") if isinstance(payload.get("record"), Mapping) else payload
+        key = record.get("name") if isinstance(record, Mapping) else None
         if not isinstance(key, str) or not key:
             raw_key = payload.get("key")
             key = raw_key if isinstance(raw_key, str) and raw_key else None
@@ -206,7 +206,7 @@ def project_observations(graph: GraphStore, observations: tuple[Observation, ...
             node_type = NodeType(str(node_type_raw))
         except ValueError:
             node_type = NodeType.ENTITY
-        node = GraphNode(node_type=node_type, tenant_id=evidence.tenant_id, key=key, attributes=record if isinstance(record, dict) else {}, status=GraphStatus.OBSERVED, provenance_ids=(evidence.evidence_id,), node_id=node_id)
+        node = GraphNode(node_type=node_type, tenant_id=evidence.tenant_id, key=key, attributes=record if isinstance(record, Mapping) else {}, status=GraphStatus.OBSERVED, provenance_ids=(evidence.evidence_id,), node_id=node_id)
         if node_id not in graph._nodes:
             graph.add_node(node)
             added += 1

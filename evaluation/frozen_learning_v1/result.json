@@ -1,0 +1,43 @@
+{
+  "ECONOMIC_VALUE": "NOT_PROVEN",
+  "HOW_THE_BASELINE_PERFORMED": null,
+  "INDEPENDENT_EVALUATION": "BLOCKED",
+  "LEARNING_LOOP_INTEGRITY": "BLOCKED",
+  "LIVE_PILOT_READY": false,
+  "PREDICTIVE_IMPROVEMENT": "INSUFFICIENT_EVIDENCE",
+  "REAL_ORGANIZATION_GENERALIZATION": "NOT_PROVEN",
+  "SEMANTIC_UNDERSTANDING": "NOT_PROVEN",
+  "WHAT_ACTUALLY_HAPPENED": null,
+  "WHAT_AUTHORIZATION_THAT_WOULD_REQUIRE": [
+    "Separate synthetic metadata, historical-record, semantic-instrument and four staged outcome grants through existing admission interfaces."
+  ],
+  "WHAT_EVIDENCE_WOULD_HELP_NEXT": [
+    "One package conforming to dataset.schema.json, fixed before execution and bound to protocol SHA-256 92c5dcd63238dcd4429b3ea563b6413592e8277595f3be652db0fa13e5a746c1.",
+    "Independent reviewer evidence establishing preparer identity, prior engine/result exposure, retained evaluator-only material and freeze time."
+  ],
+  "WHAT_ORION_DISCOVERED": null,
+  "WHAT_ORION_REVISED_AND_WHY": null,
+  "WHAT_ORION_WAS_NOT_PERMITTED_TO_DO": [
+    "Access customer systems or production networks.",
+    "Read unreleased future records or evaluator-only commitments.",
+    "Write to a business system, execute actions, change the frozen learner or promote a release gate."
+  ],
+  "WHAT_REMAINED_UNKNOWN": [
+    "No independently authored synthetic restaurant package and verified authorship record is available."
+  ],
+  "WHAT_USEFUL_RELATIONSHIP_WAS_SUPPORTED": null,
+  "WHAT_WAS_PREDICTED_AND_WHEN": null,
+  "WHETHER_THE_REVISION_HELPED_LATER": null,
+  "WHY_THE_QUESTION_WAS_SELECTED": null,
+  "allow_live_customer_access": false,
+  "candidate_host_qualification": "UNRESOLVED",
+  "dataset_identity": null,
+  "execution_allowed": false,
+  "frozen_learner": {
+    "source_commit": "7ab613ebe6ea4fdd0ab16a2e2d60baf23d135d62",
+    "source_tree": "73776d74d32d9de72b528740aa977ba6d673daa8"
+  },
+  "protocol_sha256": "92c5dcd63238dcd4429b3ea563b6413592e8277595f3be652db0fa13e5a746c1",
+  "status": "BLOCKED",
+  "version": "orion-frozen-learning-evaluation-v1"
+}

@@ -78,7 +78,8 @@ def run_mock_erpnext_shadow_demo(*, tenant_id: str = "demo-tenant") -> DemoRepor
     observations = adapter.discover()
 
     evidence_store = InMemoryEvidenceStore()
-    OrionKernel(evidence_store=evidence_store).discover(adapter, tenant_id=tenant_id)
+    OrionKernel(evidence_store=evidence_store).discover(
+        _StaticDiscoverySource(observations), tenant_id=tenant_id)
 
     graph = GraphStore()
     pipeline = DiscoveryPipeline(source=_StaticDiscoverySource(observations), graph=graph)
@@ -122,7 +123,9 @@ class _StaticDiscoverySource:
 
 
 def _validate(hypothesis: Hypothesis) -> tuple[Hypothesis, ValidationDecision]:
-    decision = validate_hypothesis(hypothesis, assurance=Assurance.LOW)
+    # The mock demonstrates one directly observed structural object, not business meaning.
+    decision = validate_hypothesis(hypothesis, assurance=Assurance.LOW,
+                                   independent_evidence_count=1)
     if decision.status != "validated":
         raise RuntimeError(f"mock hypothesis was not validated: {decision.reason}")
     return replace(hypothesis, status="validated"), decision

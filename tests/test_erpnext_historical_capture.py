@@ -101,6 +101,18 @@ def test_full_offline_composition_and_sqlite_reopen(tmp_path):
     assert first[0].observations[0].evidence.evidence_id == reopened[0].observations[0].evidence.evidence_id
 
 
+def test_custom_capture_path_requires_private_parent_before_http(tmp_path):
+    shared = tmp_path / "shared"
+    shared.mkdir(mode=0o755)
+    shared.chmod(0o755)
+    calls = []
+
+    with pytest.raises(ValueError, match="parent directory must be owner-only"):
+        capture(config(), shared / "capture.sqlite3", calls)
+
+    assert calls == []
+
+
 def test_exact_profile_and_one_get(tmp_path):
     calls = []
     capture(config(), tmp_path / "capture.sqlite3", calls)

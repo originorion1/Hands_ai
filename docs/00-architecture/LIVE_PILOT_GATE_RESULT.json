@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "live_ready": false,
+  "read_only": true,
+  "execution_allowed": false,
+  "customer_connections": 0,
+  "gates": [
+    {
+      "category": "SECURITY",
+      "status": "FAIL",
+      "critical": true,
+      "reason": "same_process_injection_bypass"
+    },
+    {
+      "category": "EPISTEMIC_SAFETY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "prototype_promotion_not_attested"
+    },
+    {
+      "category": "AUTHORIZATION",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "protected_issuer_artifact_and_operator_identity_unattested"
+    },
+    {
+      "category": "DISCOVERY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "record_identity_and_partition_bindings_unresolved"
+    },
+    {
+      "category": "SEMANTIC_UNDERSTANDING",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "commercial_roles_not_validated"
+    },
+    {
+      "category": "WORLD_MODEL",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "world_model_durable_revision_index_missing"
+    },
+    {
+      "category": "PROVENANCE",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "protected_admission_archive_collector_root_unattested"
+    },
+    {
+      "category": "RESTART",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "protected_checkpoint_recovery_rollback_witness_unattested"
+    },
+    {
+      "category": "TRANSPORT",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "confined_gateway_production_erp_lifecycle_unverified"
+    },
+    {
+      "category": "SECRETS",
+      "status": "FAIL",
+      "critical": true,
+      "reason": "legacy_same_process_credential_surface"
+    },
+    {
+      "category": "TENANT_ISOLATION",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "legacy_unscoped_store_surface"
+    },
+    {
+      "category": "AUDIT",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "protected_custody_production_lifecycle_unattested"
+    },
+    {
+      "category": "OBSERVABILITY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "alert_delivery_and_operational_slos_unverified"
+    },
+    {
+      "category": "FAILURE_SAFETY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "complete_isolated_runtime_failure_matrix_unattested"
+    },
+    {
+      "category": "DATA_MINIMIZATION",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "sensitive_classification_retention_erasure_policy_unvalidated"
+    },
+    {
+      "category": "COST_CONTROL",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "production_os_egress_policy_deployment_unattested"
+    },
+    {
+      "category": "ERP_GATEWAY",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "second_protocol_full_lifecycle_unproven"
+    },
+    {
+      "category": "TEST_COVERAGE",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "complete_release_candidate_simulation_missing"
+    },
+    {
+      "category": "DEPLOYMENT_CONFIGURATION",
+      "status": "BLOCKED",
+      "critical": true,
+      "reason": "production_artifact_operator_keys_host_policy_unattested"
+    }
+  ]
+}

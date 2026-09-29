@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/orion/frozen-learning-evaluation-v2/review.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["review_version", "protocol", "package", "freeze_receipt_sha256", "freeze_observed_at", "prepared_by", "preparer_role", "reviewed_by", "reviewer_role", "reviewed_at", "review_scope", "decision", "independence_basis", "identity_authentication"],
+  "properties": {
+    "review_version": {"const": "orion-independent-review-evidence-v2"},
+    "protocol": {"type": "object", "additionalProperties": false, "required": ["version", "sha256"], "properties": {"version": {"const": "orion-frozen-learning-evaluation-v2"}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "package": {"type": "object", "additionalProperties": false, "required": ["version", "dataset_id", "material_sha256"], "properties": {"version": {"const": "orion-independent-restaurant-dataset-v2"}, "dataset_id": {"type": "string", "pattern": "^dataset-[a-f0-9]{32}$"}, "material_sha256": {"$ref": "#/$defs/sha256"}}},
+    "freeze_receipt_sha256": {"$ref": "#/$defs/sha256"},
+    "freeze_observed_at": {"type": "string", "format": "date-time"},
+    "prepared_by": {"$ref": "#/$defs/text"},
+    "preparer_role": {"$ref": "#/$defs/text"},
+    "reviewed_by": {"$ref": "#/$defs/text"},
+    "reviewer_role": {"$ref": "#/$defs/text"},
+    "reviewed_at": {"type": "string", "format": "date-time"},
+    "review_scope": {"$ref": "#/$defs/text"},
+    "decision": {"const": "VERIFIED"},
+    "independence_basis": {"$ref": "#/$defs/text"},
+    "identity_authentication": {"const": "NOT_PROVEN_BY_DIGEST_ALONE"}
+  },
+  "$defs": {"text": {"type": "string", "minLength": 1, "maxLength": 1000}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}
+}
