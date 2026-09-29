@@ -74,14 +74,14 @@ def _query_from_pinned_namespace(source_fd, peer_fd):
     try:
         pid = os.fork()
         if pid == 0:
+            os.close(read_fd)
             try:
-                os.close(read_fd)
                 os.setns(source_fd, os.CLONE_NEWNET)
                 result = str(_query_nsid(peer_fd)).encode("ascii")
                 os.write(write_fd, result)
-            except BaseException:  # noqa: BLE001 - every child failure must terminate the fork
+                os._exit(0)
+            except (OSError, NsidError, AttributeError):
                 os._exit(1)
-            os._exit(0)
         os.close(write_fd)
         write_fd = -1
         result = os.read(read_fd, 64)

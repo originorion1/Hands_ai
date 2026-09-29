@@ -351,37 +351,46 @@ class VethCallerTests(unittest.TestCase):
                                     for item in created if isinstance(item, tuple)))
                 self.assertFalse(any("delete" in args for args in calls))
 
-    def test_pending_rollback_retains_recorded_dependency_without_identity_claim(self):
+    def test_pending_rollback_verifies_pre_move_pair_but_retains_it(self):
         item = {"kind": "veth_pending", "namespace_inode": "net:[123]",
                 "host_idx": 11, "pilot_idx": 12}
-        with mock.patch.object(HOST, "verify_veth_pair",
-                               side_effect=AssertionError("rollback must not inspect")) as verify, \
-             mock.patch.object(HOST, "nft_expected",
-                               side_effect=AssertionError("rollback must not inspect")) as nft, \
-             mock.patch.object(HOST, "run",
-                               side_effect=AssertionError("rollback must not delete")) as run:
+        with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+             mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
+             mock.patch.object(HOST, "json_command",
+                               side_effect=[BEFORE["host"], BEFORE["pilot_host"]]), \
+             mock.patch.object(HOST, "veth_sysfs_indexes",
+                               side_effect=[(11, 12), (12, 11)]), \
+             mock.patch.object(HOST, "run", return_value="") as run:
             self.assertEqual(HOST.rollback([item], "192.0.2.1"), ["veth_pending"])
-        verify.assert_not_called()
-        nft.assert_not_called()
         run.assert_not_called()
 
-    def test_pending_rollback_retains_entire_recorded_dependency_set(self):
+    def test_pending_rollback_missing_sysfs_read_never_deletes(self):
+        item = {"kind": "veth_pending", "namespace_inode": "net:[123]",
+                "host_idx": 11, "pilot_idx": 12}
+        with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+             mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
+             mock.patch.object(HOST, "json_command",
+                               side_effect=[BEFORE["host"], BEFORE["pilot_host"]]), \
+             mock.patch.object(HOST.Path, "read_text", side_effect=FileNotFoundError), \
+             mock.patch.object(HOST, "run") as run:
+            self.assertEqual(HOST.rollback([item], "192.0.2.1"), ["veth_pending"])
+        run.assert_not_called()
+
+    def test_pending_namespace_is_retained_with_veth_for_manual_recovery(self):
         created = [
             {"kind": "namespace_pending", "path_inode": 41},
-            {"kind": "nft_table_pending", "namespace": True},
             {"kind": "veth_pending", "namespace_inode": "net:[123]",
              "host_idx": 11, "pilot_idx": 12},
         ]
-        with mock.patch.object(HOST, "verify_veth_pair",
-                               side_effect=AssertionError("rollback must not inspect")) as verify, \
-             mock.patch.object(HOST, "nft_expected",
-                               side_effect=AssertionError("rollback must not inspect")) as nft, \
-             mock.patch.object(HOST, "run",
-                               side_effect=AssertionError("rollback must not delete")) as run:
+        with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+             mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
+             mock.patch.object(HOST, "json_command",
+                               side_effect=[BEFORE["host"], BEFORE["pilot_host"]]), \
+             mock.patch.object(HOST, "veth_sysfs_indexes",
+                               side_effect=[(11, 12), (12, 11)]), \
+             mock.patch.object(HOST, "run") as run:
             self.assertEqual(HOST.rollback(created, "192.0.2.1"),
-                             ["veth_pending", "nft_table_pending", "namespace_pending"])
-        verify.assert_not_called()
-        nft.assert_not_called()
+                             ["veth_pending", "namespace_pending"])
         run.assert_not_called()
 
     def test_rollback_categories_are_recorded_dependencies_without_presence_claim(self):
@@ -397,19 +406,88 @@ class VethCallerTests(unittest.TestCase):
         sysfs.assert_not_called()
         run.assert_not_called()
 
-    def test_completed_rollback_retains_dependency_without_identity_claim(self):
+    def test_completed_rollback_bad_listing_namespace_or_peer_never_deletes(self):
         item = ("veth", 11, 12, "net:[123]")
-        with mock.patch.object(HOST, "verify_veth_pair",
-                               side_effect=AssertionError("rollback must not inspect")) as verify, \
-             mock.patch.object(HOST, "nft_expected",
-                               side_effect=AssertionError("rollback must not inspect")) as nft, \
-             mock.patch.object(HOST, "run",
-                               side_effect=AssertionError("rollback must not delete")) as run:
-            self.assertEqual(HOST.rollback([item], "192.0.2.1"), ["veth"])
-        verify.assert_not_called()
-        nft.assert_not_called()
-        run.assert_not_called()
+        drifted = copy.deepcopy(AFTER["pilot_namespace"])
+        drifted[0]["link"] = "other"
+        cases = (
+            ("listing_not_array", {"ifname": HOST.P}, "net:[123]", AFTER["pilot_namespace"]),
+            ("listing_malformed_row", [None], "net:[123]", AFTER["pilot_namespace"]),
+            ("listing_ambiguous", [*AFTER["namespace_listing"], drifted[0]],
+             "net:[123]", AFTER["pilot_namespace"]),
+            ("namespace_changed", AFTER["namespace_listing"], "net:[999]",
+             AFTER["pilot_namespace"]),
+            ("peer_drift", AFTER["namespace_listing"], "net:[123]", drifted),
+        )
+        for label, listing, inode, peer in cases:
+            with self.subTest(label=label):
+                with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+                     mock.patch.object(HOST, "namespace_inode", return_value=inode), \
+                     mock.patch.object(HOST, "json_command", return_value=AFTER["host"]), \
+                     mock.patch.object(HOST, "ns_json", side_effect=[listing, peer]), \
+                     mock.patch.object(HOST, "veth_sysfs_indexes",
+                                       side_effect=[(11, 12), (12, 11)]), \
+                     mock.patch.object(HOST, "run") as run:
+                    self.assertEqual(HOST.rollback([item], "192.0.2.1"), ["veth"])
+                run.assert_not_called()
 
+    def test_completed_rollback_missing_namespace_sysfs_read_never_deletes(self):
+        item = ("veth", 11, 12, "net:[123]")
+        with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+             mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
+             mock.patch.object(HOST, "json_command", return_value=AFTER["host"]), \
+             mock.patch.object(HOST, "ns_json",
+                               side_effect=[AFTER["namespace_listing"],
+                                            AFTER["pilot_namespace"]]), \
+             mock.patch.object(HOST.Path, "read_text", side_effect=["11\n", "12\n"]), \
+             mock.patch.object(HOST, "run", side_effect=FileNotFoundError) as run:
+            self.assertEqual(HOST.rollback([item], "192.0.2.1"), ["veth"])
+        self.assertTrue(all(call.args[0][:3] != [HOST.IP, "link", "delete"]
+                            for call in run.call_args_list))
+
+    def test_replacement_after_verification_never_issues_delete(self):
+        """An external replacement at the check boundary leaves the link retained."""
+        for pending in (False, True):
+            with self.subTest(pending=pending):
+                item = ({"kind": "veth_pending", "namespace_inode": "net:[123]",
+                         "host_idx": 11, "pilot_idx": 12} if pending else
+                        ("veth", 11, 12, "net:[123]"))
+                original = BEFORE if pending else AFTER
+                state = {"host": copy.deepcopy(original["host"]), "deleted": []}
+
+                def current_link(args, state=state):
+                    if args[-1] == HOST.P:
+                        return BEFORE["pilot_host"]
+                    return state["host"]
+
+                def fake_run(args, state=state, **_kwargs):
+                    if args == [HOST.IP, "link", "delete", HOST.H]:
+                        state["deleted"].append(state["host"][0]["ifindex"])
+                    return ""
+
+                def checked_sysfs(name, *, namespace=False, original=original, state=state):
+                    if name == HOST.P:
+                        # The other actor replaces H after the final identity read.
+                        replacement = copy.deepcopy(original["host"])
+                        replacement[0]["ifindex"] = 99
+                        state["host"] = replacement
+                        return 12, 11
+                    return 11, 12
+
+                ns_rows = ([AFTER["namespace_listing"], AFTER["pilot_namespace"]]
+                           if not pending else [])
+                with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+                     mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
+                     mock.patch.object(HOST, "json_command", side_effect=current_link), \
+                     mock.patch.object(HOST, "ns_json", side_effect=ns_rows), \
+                     mock.patch.object(HOST, "veth_sysfs_indexes",
+                                       side_effect=checked_sysfs), \
+                     mock.patch.object(HOST, "run", side_effect=fake_run) as run:
+                    self.assertEqual(HOST.rollback([item], "192.0.2.1"),
+                                     ["veth_pending" if pending else "veth"])
+                self.assertEqual(state["deleted"], [],
+                                 "rollback must not delete a replacement of the verified link")
+                run.assert_not_called()
 
 
 if __name__ == "__main__":

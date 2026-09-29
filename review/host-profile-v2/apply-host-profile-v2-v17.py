@@ -40,7 +40,6 @@ V14_MANIFEST = BASE / "REVIEW_MANIFEST_20260926_14.json"
 V15_MANIFEST = BASE / "REVIEW_MANIFEST_20260926_15.json"
 V16_MANIFEST = BASE / "REVIEW_MANIFEST_20260926_16.json"
 V17_MANIFEST = BASE / "REVIEW_MANIFEST_20260926_17.json"
-V18_MANIFEST = BASE / "REVIEW_MANIFEST_20260926_18.json"
 PROFILE_SHA = "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43"
 SCHEMA_SHA = "14228ce1dd432212fa432360443ab95c656e60662ffd546d04bbeff1f06b2f27"
 DECISION_SHA = "50c4cb3b420eaa8beca5794fe64457f3b342457e4744329608ce4dfb980b64b0"
@@ -349,19 +348,10 @@ def verify_review():
             v17["bidirectional_peer_netnsid_required"] is True and
             v17["maintenance_window_serialization_enforced"] is False and
             v17["review_human_approval"] == "PENDING" and
-            v17["file_sha256"]["apply-host-profile-v2.py"] ==
-            sha(BASE / "apply-host-profile-v2-v17.py"),
+            v17["file_sha256"]["apply-host-profile-v2.py"] == sha(Path(__file__).resolve()),
             "V17_REVIEW_BINDING")
     for name, digest in v17["file_sha256"].items():
-        archived = {
-            "apply-host-profile-v2.py": "apply-host-profile-v2-v17.py",
-            "veth_nsid.py": "veth_nsid-v17.py",
-            "test_veth_nsid.py": "test_veth_nsid-v17.py",
-            "test_veth_peer_callers.py": "test_veth_peer_callers-v17.py",
-            "test_apply_host_profile_v2_failures.py":
-                "test_apply_host_profile_v2_failures-v17.py",
-        }.get(name, name)
-        require(sha(BASE / archived) == digest, "V17_FILE_DIGEST")
+        require(sha(BASE / name) == digest, "V17_FILE_DIGEST")
     capture = parse_json((BASE / "captured-veth/capture_metadata.json").read_text())
     capture_files = {"before_host.json", "before_peer.json", "after_host.json", "after_peer.json",
                      "before_namespace_listing.json", "after_namespace_listing.json",
@@ -397,35 +387,6 @@ def verify_review():
             all(sha(BASE / "captured-veth-direct-nsid" / name) == digest
                 for name, digest in nsid_capture["file_sha256"].items()),
             "V17_NSID_CAPTURE_EVIDENCE")
-    v18 = parse_json(V18_MANIFEST.read_text())
-    require(v18["schema"] == "orion.host_profile_v2.review_manifest.v18" and
-            v18["predecessor_manifest_sha256"] == sha(V17_MANIFEST) and
-            v18["host_application_authorized"] is False and
-            v18["collision_clearance"] is False and
-            v18["root_grant_created"] is False and
-            v18["host_recovery_hold"] is True and
-            v18["review_human_approval"] == "PENDING" and
-            v18["file_sha256"]["apply-host-profile-v2.py"] == sha(Path(__file__).resolve()),
-            "V18_REVIEW_BINDING")
-    for name, digest in v18["file_sha256"].items():
-        require(sha(BASE / name) == digest, "V18_FILE_DIGEST")
-    future_bindings = parse_json(
-        (BASE / "FUTURE_GRANT_BINDINGS_20260927_18.json").read_text())
-    require(future_bindings["schema"] ==
-            "orion.host_profile_v2.future_grant_digest_bindings.v18.review_only" and
-            future_bindings["status"] == "BINDINGS_ONLY_NO_GRANT" and
-            future_bindings["grant_created"] is False and
-            future_bindings["spent_grant_reusable"] is False and
-            future_bindings["host_application_authorized"] is False and
-            future_bindings["collision_clearance"] is False and
-            future_bindings["host_recovery_hold"] is True and
-            future_bindings["required_manifest_schema"] == v18["schema"] and
-            future_bindings["predecessor_manifest_v17_sha256"] == sha(V17_MANIFEST) and
-            future_bindings["profile_sha256"] == PROFILE_SHA and
-            future_bindings["script_sha256"] == sha(Path(__file__).resolve()) and
-            future_bindings["required_grant_field"] == "manifest_v18_sha256" and
-            future_bindings["maintenance_window_serialization_required_for_future_deletion"] is True,
-            "V18_FUTURE_GRANT_BINDING")
     require(sha(MANIFEST) == MANIFEST_SHA, "V9_DIGEST")
     require(sha(BASE / "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json") == PROFILE_SHA, "PROFILE_DIGEST")
     require(sha(BASE / "V2_RUNTIME_RECEIPT_SCHEMA_REVIEW_20260926_V2.json") == SCHEMA_SHA, "SCHEMA_DIGEST")
@@ -763,7 +724,7 @@ def verify_grant():
     grant = parse_json(raw_grant.decode("utf-8"))
     required = {"schema", "status", "scope", "session_id", "manifest_v9_sha256",
                 "manifest_v11_sha256", "manifest_v12_sha256", "manifest_v15_sha256",
-                "manifest_v16_sha256", "manifest_v17_sha256", "manifest_v18_sha256",
+                "manifest_v16_sha256", "manifest_v17_sha256",
                 "profile_sha256", "script_sha256", "grant_id",
                 "expires_at_utc", "owner_declaration", "approval"}
     require(set(grant) == required, "GRANT_SHAPE")
@@ -778,7 +739,6 @@ def verify_grant():
             and grant["manifest_v15_sha256"] == sha(V15_MANIFEST)
             and grant["manifest_v16_sha256"] == sha(V16_MANIFEST)
             and grant["manifest_v17_sha256"] == sha(V17_MANIFEST)
-            and grant["manifest_v18_sha256"] == sha(V18_MANIFEST)
             and grant["profile_sha256"] == PROFILE_SHA
             and grant["script_sha256"] == sha(Path(__file__).resolve()), "GRANT_BINDING")
     require(type(grant["grant_id"]) is str and re.fullmatch(r"[0-9a-f]{32}", grant["grant_id"]) is not None,
@@ -1280,10 +1240,8 @@ def rollback(created, address, *, preserve_receipts=False):
     # Namespace and veth identity can be replaced between a read and a
     # name-based delete. Once either creation was attempted, every recorded
     # resource is retained as one dependency set, including firewall rules,
-    # resolver, units, receipts, and consumed-grant evidence. This branch
-    # deliberately performs no identity inspection and makes no claim that
-    # the recorded resources are still present. Later recovery needs external
-    # serialization and fresh review.
+    # resolver, units, receipts, and the consumed-grant evidence. A later
+    # recovery needs externally enforced serialization and fresh review.
     kinds = [item["kind"] if isinstance(item, dict) else item[0] for item in created]
     if any(kind in {"namespace_pending", "namespace", "veth_pending", "veth"}
            for kind in kinds):
@@ -1291,6 +1249,7 @@ def rollback(created, address, *, preserve_receipts=False):
     expected_nat, expected_filter, _, _ = nft_expected(address)
     failures = []
     removed_units = False
+    namespace_dependency_failed = False
     for item in reversed(created):
         try:
             kind = item["kind"] if isinstance(item, dict) else item[0]
@@ -1338,6 +1297,24 @@ def rollback(created, address, *, preserve_receipts=False):
                         all("table" in row or "metainfo" in row for row in current["nftables"]),
                         "ROLLBACK_PENDING_NFT_TABLE_IDENTITY")
                 nft_run("delete", "table", family, name, namespace=in_ns)
+            elif kind == "veth_pending":
+                host_idx, pilot_idx = item["host_idx"], item["pilot_idx"]
+                require(host_idx is not None and pilot_idx is not None, "ROLLBACK_PENDING_VETH_INDEX")
+                verify_veth_pair(host_idx, pilot_idx, item["namespace_inode"],
+                                 peer_in_namespace=False)
+                # A verified snapshot does not bind a later name-based delete.
+                # This artifact has no enforced maintenance-window serialization.
+                raise Blocked("ROLLBACK_VETH_MANUAL_RECOVERY")
+            elif kind == "namespace_pending":
+                require(not namespace_dependency_failed, "ROLLBACK_NAMESPACE_DEPENDENCY")
+                require(item["path_inode"] is not None and
+                        NS_PATH.lstat().st_ino == item["path_inode"],
+                        "ROLLBACK_PENDING_NAMESPACE_PATH")
+                inode = namespace_inode()
+                require(inode and not run([IP, "netns", "pids", NS]).strip() and
+                        not any(row.get("ifname") == P for row in ns_json("link", "show")),
+                        "ROLLBACK_PENDING_NAMESPACE_IDENTITY")
+                run([IP, "netns", "delete", NS])
             elif kind == "file":
                 _, path, inode, digest, uid, gid, mode = item
                 if preserve_receipts and RECEIPTS in path.parents:
@@ -1374,10 +1351,34 @@ def rollback(created, address, *, preserve_receipts=False):
                 require(not (Counter(canonical(row) for row in observed) -
                              Counter(canonical(row) for row in allowed)), "ROLLBACK_NFT_TABLE_DRIFT")
                 nft_run("delete", "table", family, name, namespace=in_ns)
+            elif kind == "veth":
+                _, host_idx, pilot_idx, ns_inode = item
+                peers = ns_json("link", "show")
+                require(type(peers) is list and
+                        all(type(row) is dict for row in peers), "ROLLBACK_VETH_PLACEMENT")
+                named_peers = [row for row in peers if row.get("ifname") == P]
+                require(len(named_peers) <= 1, "ROLLBACK_VETH_PLACEMENT")
+                verify_veth_pair(host_idx, pilot_idx, ns_inode,
+                                 peer_in_namespace=bool(named_peers))
+                # A future deletion requires an explicitly enforced maintenance
+                # window or equivalent serialization across check and deletion.
+                raise Blocked("ROLLBACK_VETH_MANUAL_RECOVERY")
+            elif kind == "namespace":
+                _, ns_inode, path_inode = item
+                require(not namespace_dependency_failed, "ROLLBACK_NAMESPACE_DEPENDENCY")
+                require(NS_PATH.lstat().st_ino == path_inode and namespace_inode() == ns_inode and
+                        not run([IP, "netns", "pids", NS]).strip(),
+                        "ROLLBACK_NAMESPACE_IDENTITY")
+                require(not any(row.get("ifname") == P for row in ns_json("link", "show")),
+                        "ROLLBACK_NAMESPACE_LINK")
+                run([IP, "netns", "delete", NS])
             else:
                 raise Blocked("ROLLBACK_UNKNOWN_KIND")
         except Exception:  # noqa: BLE001 - retain and report any failed cleanup operation
             failures.append(kind)
+            if kind in ("veth", "veth_pending") or (kind == "nft_table" and item[3] is True) or (
+                    kind == "nft_table_pending" and item["namespace"] is True):
+                namespace_dependency_failed = True
     if removed_units:
         try:
             run([SYSTEMCTL, "daemon-reload"])

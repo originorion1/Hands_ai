@@ -59,7 +59,7 @@ class BoundaryTests(unittest.TestCase):
                 stack.enter_context(mock.patch.object(HOST, "BASE", base))
                 stack.enter_context(mock.patch.object(HOST, "ROOT", root))
                 for name in ("MANIFEST", "V12_MANIFEST", "V13_MANIFEST", "V14_MANIFEST",
-                             "V15_MANIFEST", "V16_MANIFEST", "V17_MANIFEST", "V18_MANIFEST"):
+                             "V15_MANIFEST", "V16_MANIFEST", "V17_MANIFEST"):
                     original = getattr(HOST, name)
                     stack.enter_context(mock.patch.object(HOST, name, base / original.name))
                 self.assertIsInstance(HOST.verify_review(), tuple)
@@ -344,54 +344,66 @@ class BoundaryTests(unittest.TestCase):
              self.assertRaisesRegex(HOST.Blocked, "VETH_SYSFS_READ_FAILED"):
             HOST.veth_sysfs_indexes(HOST.H)
 
-    def test_rollback_retains_veth_without_peer_inspection(self):
-        with mock.patch.object(HOST, "verify_veth_pair",
-                               side_effect=AssertionError("rollback must not inspect")) as verify, \
-             mock.patch.object(HOST, "run",
-                               side_effect=AssertionError("rollback must not delete")) as run:
-            self.assertEqual(HOST.rollback([("veth", 11, 12, "net:[123]")], "192.0.2.1"),
-                             ["veth"])
-        verify.assert_not_called()
-        run.assert_not_called()
-
-    def test_rollback_does_not_read_sysfs_or_delete_recorded_veth(self):
-        with mock.patch.object(HOST, "veth_sysfs_indexes",
-                               side_effect=AssertionError("rollback must not inspect")) as sysfs, \
-             mock.patch.object(HOST, "run",
-                               side_effect=AssertionError("rollback must not delete")) as run:
+    def test_rollback_refuses_veth_with_wrong_peer_index(self):
+        host = copy.deepcopy(self.HOST_VETH)
+        wrong_peer = copy.deepcopy(self.PILOT_VETH)
+        wrong_peer["link_index"] = 99
+        with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+             mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
+             mock.patch.object(HOST, "json_command", return_value=[host]), \
+             mock.patch.object(HOST, "ns_json", side_effect=[[wrong_peer], [wrong_peer]]), \
+             mock.patch.object(HOST, "veth_sysfs_indexes") as sysfs, \
+             mock.patch.object(HOST, "run") as run:
             self.assertEqual(HOST.rollback([("veth", 11, 12, "net:[123]")], "192.0.2.1"),
                              ["veth"])
         sysfs.assert_not_called()
         run.assert_not_called()
 
-    def test_rollback_retains_pending_and_completed_veth_without_inspection(self):
-        items = (
-            {"kind": "veth_pending", "namespace_inode": "net:[123]",
-             "host_idx": 11, "pilot_idx": 12},
-            ("veth", 11, 12, "net:[123]"),
-        )
-        for item in items:
-            with self.subTest(kind=item["kind"] if isinstance(item, dict) else item[0]), \
-                 mock.patch.object(HOST, "verify_veth_pair",
-                                   side_effect=AssertionError("rollback must not inspect")) as verify, \
-                 mock.patch.object(HOST, "run",
-                                   side_effect=AssertionError("rollback must not delete")) as run:
-                category = item["kind"] if isinstance(item, dict) else item[0]
-                self.assertEqual(HOST.rollback([item], "192.0.2.1"), [category])
-            verify.assert_not_called()
-            run.assert_not_called()
+    def test_rollback_refuses_wrong_sysfs_peer_without_deletion(self):
+        with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+             mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
+             mock.patch.object(HOST, "json_command", return_value=[self.HOST_VETH]), \
+             mock.patch.object(HOST, "ns_json", side_effect=[[self.PILOT_VETH],
+                                                            [self.PILOT_VETH]]), \
+             mock.patch.object(HOST, "veth_sysfs_indexes", side_effect=[(11, 12), (12, 99)]), \
+             mock.patch.object(HOST, "run") as run:
+            self.assertEqual(HOST.rollback([("veth", 11, 12, "net:[123]")], "192.0.2.1"),
+                             ["veth"])
+        run.assert_not_called()
 
-    def test_rollback_does_not_inspect_namespace_listing_when_retaining_veth(self):
-        with mock.patch.object(HOST, "ns_json",
-                               side_effect=AssertionError("rollback must not inspect")) as links, \
-             mock.patch.object(HOST, "json_command",
-                               side_effect=AssertionError("rollback must not inspect")) as host_links, \
-             mock.patch.object(HOST, "run",
-                               side_effect=AssertionError("rollback must not delete")) as run:
+    def test_rollback_retains_verified_pair_in_either_placement(self):
+        for in_namespace in (True, False):
+            with self.subTest(in_namespace=in_namespace):
+                listing = [self.PILOT_VETH] if in_namespace else []
+                with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+                     mock.patch.object(HOST, "namespace_inode", return_value="net:[123]"), \
+                     mock.patch.object(HOST, "json_command", return_value=[self.HOST_VETH]), \
+                     mock.patch.object(HOST, "ns_json", return_value=listing), \
+                     mock.patch.object(HOST, "veth_sysfs_indexes",
+                                       side_effect=[(11, 12), (12, 11)]) as sysfs, \
+                     mock.patch.object(HOST, "run", return_value="") as run:
+                    if not in_namespace:
+                        # The pre-move peer is queried through json_command.
+                        with mock.patch.object(HOST, "json_command",
+                                               side_effect=[[self.HOST_VETH], [self.PILOT_VETH]]):
+                            failures = HOST.rollback([("veth", 11, 12, "net:[123]")],
+                                                     "192.0.2.1")
+                    else:
+                        failures = HOST.rollback([("veth", 11, 12, "net:[123]")],
+                                                 "192.0.2.1")
+                    self.assertEqual(failures, ["veth"])
+                    sysfs.assert_not_called()
+                    run.assert_not_called()
+
+    def test_rollback_refuses_ambiguous_namespace_peer_listing(self):
+        with mock.patch.object(HOST, "nft_expected", return_value=([], [], {}, {})), \
+             mock.patch.object(HOST, "ns_json",
+                               return_value=[self.PILOT_VETH, self.PILOT_VETH]), \
+             mock.patch.object(HOST, "json_command") as links, \
+             mock.patch.object(HOST, "run") as run:
             self.assertEqual(HOST.rollback([("veth", 11, 12, "net:[123]")], "192.0.2.1"),
                              ["veth"])
         links.assert_not_called()
-        host_links.assert_not_called()
         run.assert_not_called()
 
     def test_owner_approval_is_authenticated_and_exact_subject_bound(self):
@@ -406,7 +418,6 @@ class BoundaryTests(unittest.TestCase):
             "manifest_v15_sha256": HOST.sha(HOST.V15_MANIFEST),
             "manifest_v16_sha256": HOST.sha(HOST.V16_MANIFEST),
             "manifest_v17_sha256": HOST.sha(HOST.V17_MANIFEST),
-            "manifest_v18_sha256": HOST.sha(HOST.V18_MANIFEST),
             "profile_sha256": HOST.PROFILE_SHA,
             "script_sha256": HOST.sha(SCRIPT), "grant_id": "b" * 32,
             "expires_at_utc": expiry.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -448,10 +459,6 @@ class BoundaryTests(unittest.TestCase):
                 with self.assertRaisesRegex(HOST.Blocked, "GRANT_BINDING"):
                     HOST.verify_grant()
                 record["manifest_v17_sha256"] = subject["manifest_v17_sha256"]
-                record["manifest_v18_sha256"] = "0" * 64
-                with self.assertRaisesRegex(HOST.Blocked, "GRANT_BINDING"):
-                    HOST.verify_grant()
-                record["manifest_v18_sha256"] = subject["manifest_v18_sha256"]
                 with mock.patch.object(HOST, "owner_key_bytes", side_effect=FileNotFoundError), \
                      self.assertRaises(FileNotFoundError):
                     HOST.verify_grant()

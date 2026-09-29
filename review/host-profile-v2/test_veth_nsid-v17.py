@@ -64,24 +64,6 @@ class NsidReplyTests(unittest.TestCase):
              self.assertRaises(NSID.NsidError):
             NSID._query_nsid(42)
 
-    def test_unexpected_child_exception_exits_without_running_parent_continuation(self):
-        class ChildExit(BaseException):
-            pass
-
-        for failure in (struct.error("bad netlink payload"), RuntimeError("unexpected")):
-            with self.subTest(failure=type(failure).__name__), \
-                 mock.patch.object(NSID.os, "pipe", return_value=(10, 11)), \
-                 mock.patch.object(NSID.os, "fork", return_value=0), \
-                 mock.patch.object(NSID.os, "close"), \
-                 mock.patch.object(NSID.os, "setns"), \
-                 mock.patch.object(NSID, "_query_nsid", side_effect=failure), \
-                 mock.patch.object(NSID.os, "write") as write, \
-                 mock.patch.object(NSID.os, "_exit", side_effect=ChildExit) as exit_child:
-                with self.assertRaises(ChildExit):
-                    NSID._query_from_pinned_namespace(20, 21)
-            exit_child.assert_called_once_with(1)
-            write.assert_not_called()
-
 
 if __name__ == "__main__":
     unittest.main()
