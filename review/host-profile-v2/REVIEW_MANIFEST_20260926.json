@@ -1,0 +1,12 @@
+{
+  "collision_clearance": false,
+  "file_sha256": {
+    "HOST_INSPECTION_20260926.json": "1344075cd0ea7b1ec5aeaf5550da9cfccfcb338243f26ac42debcccbf27ea00e",
+    "HOST_PROFILE_V2.json": "f876b58e0e7c26bd41cf6a50cfa7a789519fafad7fd70938ba826206789d7058",
+    "V2_REVIEW_ADDENDUM_20260926.md": "8be371877caaf853c63c02c4ddb905f7b80a7bb7eef4c4e2cc244f81d4bc7844"
+  },
+  "host_state_changed": false,
+  "runtime_namespace_inode_predeclared": false,
+  "schema": "orion.host_profile_v2.review_manifest",
+  "status": "REVIEW_ONLY_NOT_APPLIED"
+}

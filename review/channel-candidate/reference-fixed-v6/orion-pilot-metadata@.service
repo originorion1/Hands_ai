@@ -1,0 +1,27 @@
+[Unit]
+Description=ORION bounded metadata pilot (manual exact-session activation only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+StandardInput=socket
+StandardOutput=inherit
+StandardError=journal
+User=orion-pilot
+Group=orion-pilot
+WorkingDirectory=/
+Environment=PATH=/usr/sbin:/usr/bin:/sbin:/bin
+UMask=0077
+NetworkNamespacePath=/run/netns/orion-pilot-f7c7955
+BindReadOnlyPaths=/etc/netns/orion-pilot-f7c7955/hosts:/etc/hosts
+ExecStart=/opt/orion-pilot/releases/cac68bf5b74b0fec27ea6be5e9374a8a31ac5476/bin/python -I -m orion.pilot.deployment --serve /var/lib/orion-pilot/sessions/orion-metadata-133d6533f23532585dd9f385/manifest.json
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ReadWritePaths=/var/lib/orion-pilot/sessions/orion-metadata-133d6533f23532585dd9f385
+ProtectHome=yes
+KillMode=control-group
+Restart=no
+TimeoutStopSec=10

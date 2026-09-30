@@ -1,0 +1,17 @@
+{
+  "apply_path_executed": false,
+  "collision_clearance": false,
+  "customer_activity_authorized": false,
+  "file_sha256": {
+    "REVIEW_MANIFEST_20260926_10.json": "4397253c6b2d862c6627cd67a0b17cdbfe0682e1627dfc57274b0e963cf92d7c",
+    "apply-host-profile-v2.py": "45f68dc8640fb4ec08a0ec74c0b2ac4a73c8c328adad3b1200eaa28a95a0b362",
+    "test_apply_host_profile_v2_rollback.py": "899b97e378ba7c8124ff424d8fe2b106394471295174bc88b5bd150568f9c756"
+  },
+  "focused_in_memory_test_count_total": 9,
+  "host_application_authorized": false,
+  "host_check_mode_executed": false,
+  "note": "Additional in-memory rollback identity test. Script and v10 remain unchanged.",
+  "predecessor_manifest_sha256": "4397253c6b2d862c6627cd67a0b17cdbfe0682e1627dfc57274b0e963cf92d7c",
+  "schema": "orion.host_profile_v2.review_manifest.v11",
+  "status": "GUARDED_HOST_SCRIPT_REVIEW_ONLY_NOT_APPLIED"
+}

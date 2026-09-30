@@ -1,0 +1,20 @@
+{
+  "approved_delta_pointer": "V2_SYNTHETIC_OUTER_ROUTE_DELTA_REVIEW_20260926.json#/link_and_address_delta_after_loopback_up/added",
+  "collision_clearance": false,
+  "customer_activity_authorized": false,
+  "file_sha256": {
+    "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43",
+    "REVIEW_MANIFEST_20260926_6.json": "1edcd1dbdf0168c7f81d14b77fa91eb89c139c6eff3006bd5e9c8df7853b3057",
+    "V2_OWNER_ROUTE_POLICY_DECISION_20260926.json": "50c4cb3b420eaa8beca5794fe64457f3b342457e4744329608ce4dfb980b64b0",
+    "V2_SYNTHETIC_OUTER_ROUTE_DELTA_REVIEW_20260926.json": "dc855d17b5f22f0d84b9895636a4e68bb100607b70f6794eb96a909d816b55d3"
+  },
+  "fixture_loopback_routes_excluded": true,
+  "host_application_authorized": false,
+  "note": "Route-policy decision only. Full-object production mismatch or change to pre-existing routes blocks. No host, DNS/TLS, packet, unit, signing, enrollment, or launch authority is conveyed.",
+  "owner_exact_text_reaffirmed_in_latest_message": true,
+  "owner_route_policy_decision_recorded": true,
+  "predecessor_manifest_sha256": "1edcd1dbdf0168c7f81d14b77fa91eb89c139c6eff3006bd5e9c8df7853b3057",
+  "production_host_routes_observed": false,
+  "schema": "orion.host_profile_v2.review_manifest.v7",
+  "status": "ROUTE_POLICY_APPROVED_REVIEW_ONLY_NOT_APPLIED"
+}

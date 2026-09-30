@@ -1,0 +1,1085 @@
+{
+  "approved_host_delta_evidence_class": "SYNTHETIC_FIXTURE_OWNER_APPROVED_EXPECTATION_NOT_PRODUCTION_OBSERVATION",
+  "approved_host_delta_exact_objects": {
+    "ipv4_all": [
+      {
+        "dev": "orionp0",
+        "dst": "10.254.205.0/30",
+        "flags": [],
+        "prefsrc": "10.254.205.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "main",
+        "type": "unicast"
+      },
+      {
+        "dev": "orionp0",
+        "dst": "10.254.205.1",
+        "flags": [],
+        "prefsrc": "10.254.205.1",
+        "protocol": "kernel",
+        "scope": "host",
+        "table": "local",
+        "type": "local"
+      },
+      {
+        "dev": "orionp0",
+        "dst": "10.254.205.3",
+        "flags": [],
+        "prefsrc": "10.254.205.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "table": "local",
+        "type": "broadcast"
+      }
+    ],
+    "ipv4_main": [
+      {
+        "dev": "orionp0",
+        "dst": "10.254.205.0/30",
+        "flags": [],
+        "prefsrc": "10.254.205.1",
+        "protocol": "kernel",
+        "scope": "link",
+        "type": "unicast"
+      }
+    ],
+    "ipv6_all": [
+      {
+        "dev": "orionp0",
+        "dst": "fe80::/64",
+        "flags": [],
+        "metric": 256,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "table": "main",
+        "type": "unicast"
+      },
+      {
+        "dev": "orionp0",
+        "dst": "ff00::/8",
+        "flags": [],
+        "metric": 256,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "table": "local",
+        "type": "multicast"
+      }
+    ],
+    "ipv6_main": [
+      {
+        "dev": "orionp0",
+        "dst": "fe80::/64",
+        "flags": [],
+        "metric": 256,
+        "pref": "medium",
+        "protocol": "kernel",
+        "scope": "global",
+        "type": "unicast"
+      }
+    ]
+  },
+  "approved_host_delta_source_pointer": "V2_SYNTHETIC_OUTER_ROUTE_DELTA_REVIEW_20260926.json#/link_and_address_delta_after_loopback_up/added",
+  "canonical_comparison_and_hashing": {
+    "approved_host_delta_sha256_by_array": {
+      "ipv4_all": "360413d849b78c80245214f16bf8e45bfed79b05b64116fadd48c27ff454f401",
+      "ipv4_main": "d4a572b23ba6d0d84fdd1699c11236b066324076e450772d297d66fcb16a1ec3",
+      "ipv6_all": "fe41429292f1afdad3b4905fc1176798cc558f7dca9bb07d308e076c5a8770a8",
+      "ipv6_main": "50ce904aba43bb49bf1a9d39356c455d27c663471cfd5a2279d803422661ac08"
+    },
+    "canonical_object": "Recursively sort object keys by Unicode code-point order; retain every key and array element; emit UTF-8 JSON with ensure_ascii=false, separators comma/colon, no whitespace or newline; reject non-domain values. Keys in the pinned route schema are ASCII.",
+    "four_array_order": [
+      "ipv4_main",
+      "ipv4_all",
+      "ipv6_main",
+      "ipv6_all"
+    ],
+    "host_baseline_privacy": "Keep full host before/after route arrays in process memory only; receipt stores their multiset hashes/counts, exact sanitized approved additions, and match booleans. Never store customer/global host destinations.",
+    "host_rule": "For each host array, Counter(after canonical rows)-Counter(before canonical rows) must equal the corresponding approved_host_delta_exact_objects multiset; Counter(before)-Counter(after) must be empty. Existing rows are unchanged; fixture lo rows are not in approved additions. Any extra, missing, altered or unknown-field row blocks.",
+    "json_domain": "UTF-8 JSON; objects with unique string keys, strings, booleans, null, signed 64-bit integers, arrays and objects only; reject floats, NaN, infinities, duplicate keys and invalid Unicode",
+    "namespace_rule": "Fresh production namespace ipv4_main/ipv4_all/ipv6_main/ipv6_all multisets must equal profile expected_routes full-object multisets; preserve omissions and reject extras.",
+    "production_vs_fixture": "Owner-approved synthetic rows are expected policy objects; only a fresh production capture is an observed result. Store separate digests and evidence_class values; never relabel fixture output as production.",
+    "route_multiset": "For each route array, canonicalize each full route object to bytes; sort those byte strings lexicographically, retaining duplicates; compare the resulting byte lists exactly.",
+    "route_multiset_sha256": "SHA-256 of ASCII [ + comma-joined sorted canonical route-object byte strings + ASCII ]; empty array hashes ASCII []; no trailing newline.",
+    "unsafe_route_result": "On an unsafe or unparseable route snapshot, block and use not_observed for its persisted route array; never persist raw customer/global route objects or command output."
+  },
+  "collision_clearance": false,
+  "correction_linkage": {
+    "append_only": "Publish a new unique receipt with no-replace; never edit, replace, or delete an earlier receipt. If multiple corrections reference the same prior receipt, treat chain as ambiguous and block qualification pending owner review.",
+    "correction": "record_kind=correction requires correction_of with prior filename, SHA-256, transaction ID, prior outcome and reason code; verify prior root-only single-link file and digest, same session/transaction, chronological order, and no symlink before publication",
+    "original": "record_kind=original requires correction_of=null",
+    "post_publication_failure": "Publish a linked correction with failure or rollback outcome; do not mutate a previously published STAGED_UNQUALIFIED_PENDING_REVIEW receipt.",
+    "self_hash": "Receipt digest is calculated after publication and lives only in later correction references or external review records."
+  },
+  "custody_and_publication": {
+    "algorithm": [
+      "open each directory by dirfd with O_DIRECTORY|O_NOFOLLOW and verify identity/custody",
+      "create unpredictable same-directory temporary file with O_CREAT|O_EXCL|O_NOFOLLOW and mode 0600",
+      "write canonical UTF-8 JSON with sorted keys, compact separators and one trailing newline; fsync file",
+      "reparse and validate schema, bindings, route comparisons and sanitized allowlist",
+      "publish with renameat2(RENAME_NOREPLACE) using pinned dirfd; fsync directory",
+      "verify final inode, type, owner, mode, link count, bytes and externally computed SHA-256; no self-hash or overwrite"
+    ],
+    "existing_parent": "/var/lib/orion-pilot root:orion-pilot 0750, non-symlink, verified before application",
+    "failure_rule": "Any publication or verification failure blocks qualification; published receipts are never modified or deleted.",
+    "new_directories": "host-profile-v2 and receipts root:root 0700, non-symlink",
+    "receipt_file": "root:root 0600, regular, single link; service account cannot write"
+  },
+  "fixture_loopback_entries_excluded": true,
+  "host_application_authorized": false,
+  "production_host_routes_observed": false,
+  "proposal_schema": "orion.host_profile_v2.runtime_receipt_schema_review.v2",
+  "receipt_destination": "/var/lib/orion-pilot/host-profile-v2/receipts/application-<UTC-basic>-<128-bit-random>.json",
+  "receipt_json_schema": {
+    "$defs": {
+      "correction_link": {
+        "additionalProperties": false,
+        "properties": {
+          "prior_filename": {
+            "pattern": "^application-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{32}\\.json$",
+            "type": "string"
+          },
+          "prior_outcome": {
+            "enum": [
+              "STAGED_UNQUALIFIED_PENDING_REVIEW",
+              "ROLLED_BACK",
+              "ROLLBACK_INCOMPLETE"
+            ]
+          },
+          "prior_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "prior_transaction_id": {
+            "pattern": "^[0-9a-f]{32}$",
+            "type": "string"
+          },
+          "reason_code": {
+            "enum": [
+              "POST_PUBLICATION_VERIFICATION_FAILED",
+              "ROLLBACK_OUTCOME",
+              "EVIDENCE_CORRECTION",
+              "OWNER_REVIEW_REQUIRED"
+            ]
+          }
+        },
+        "required": [
+          "prior_filename",
+          "prior_sha256",
+          "prior_transaction_id",
+          "prior_outcome",
+          "reason_code"
+        ],
+        "type": "object"
+      },
+      "host_route_snapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "added_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "added_multiset_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "added_objects": {
+            "items": {
+              "$ref": "#/$defs/route_object"
+            },
+            "type": "array"
+          },
+          "after_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "after_multiset_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "approved_delta_exact_match": {
+            "type": "boolean"
+          },
+          "before_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "before_multiset_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "removed_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "unchanged_baseline": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "before_count",
+          "before_multiset_sha256",
+          "after_count",
+          "after_multiset_sha256",
+          "unchanged_baseline",
+          "removed_count",
+          "added_count",
+          "added_objects",
+          "added_multiset_sha256",
+          "approved_delta_exact_match"
+        ],
+        "type": "object"
+      },
+      "route_object": {
+        "additionalProperties": false,
+        "properties": {
+          "dev": {
+            "enum": [
+              "lo",
+              "orionp0",
+              "orionp1"
+            ]
+          },
+          "dst": {
+            "enum": [
+              "10.254.205.0/30",
+              "10.254.205.1",
+              "10.254.205.2",
+              "10.254.205.3",
+              "127.0.0.0/8",
+              "127.0.0.1",
+              "127.255.255.255",
+              "::1",
+              "default",
+              "fe80::/64",
+              "ff00::/8"
+            ]
+          },
+          "flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "gateway": {
+            "enum": [
+              "10.254.205.1"
+            ]
+          },
+          "ifindex": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "metric": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "pref": {
+            "type": "string"
+          },
+          "prefsrc": {
+            "enum": [
+              "10.254.205.1",
+              "10.254.205.2",
+              "127.0.0.1"
+            ]
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "table": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dev",
+          "dst"
+        ],
+        "type": "object"
+      },
+      "route_snapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_multiset_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "exact_match": {
+            "type": "boolean"
+          },
+          "objects": {
+            "items": {
+              "$ref": "#/$defs/route_object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "count",
+          "canonical_multiset_sha256",
+          "objects",
+          "exact_match"
+        ],
+        "type": "object"
+      }
+    },
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "record_kind": {
+              "const": "original"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "correction_of": {
+              "type": "null"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "record_kind": {
+              "const": "correction"
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "correction_of": {
+              "$ref": "#/$defs/correction_link"
+            }
+          }
+        }
+      }
+    ],
+    "properties": {
+      "artifact_custody": {
+        "additionalProperties": false,
+        "properties": {
+          "markers_match_namespace_inode": {
+            "type": "boolean"
+          },
+          "protected_historical_after_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "protected_historical_before_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "protected_historical_hashes_unchanged": {
+            "type": "boolean"
+          },
+          "v2_files": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "gid": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "kind": {
+                  "enum": [
+                    "regular_file",
+                    "directory"
+                  ]
+                },
+                "link_count": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "mode": {
+                  "pattern": "^0[0-7]{3}$",
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "uid": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "path",
+                "sha256",
+                "kind",
+                "uid",
+                "gid",
+                "mode",
+                "link_count"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "v2_files_exact": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "v2_files",
+          "v2_files_exact",
+          "markers_match_namespace_inode",
+          "protected_historical_before_sha256",
+          "protected_historical_after_sha256",
+          "protected_historical_hashes_unchanged"
+        ],
+        "type": "object"
+      },
+      "authorization": {
+        "additionalProperties": false,
+        "properties": {
+          "customer_io_allowed": {
+            "const": false
+          },
+          "grant_id": {
+            "type": "string"
+          },
+          "grant_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "scope": {
+            "const": "host_application_only"
+          },
+          "verified": {
+            "const": true
+          }
+        },
+        "required": [
+          "grant_id",
+          "grant_sha256",
+          "scope",
+          "verified",
+          "customer_io_allowed"
+        ],
+        "type": "object"
+      },
+      "bindings": {
+        "additionalProperties": false,
+        "properties": {
+          "namespace_probe_line_sha256": {
+            "const": "c1836d81ed25730f8efd8582e599224256e7fd3e8f4a4bc206317118830e22c0"
+          },
+          "owner_route_decision_sha256": {
+            "const": "50c4cb3b420eaa8beca5794fe64457f3b342457e4744329608ce4dfb980b64b0"
+          },
+          "procedure_sha256": {
+            "const": "32089d367b133226d6b971d173fda2383a7e595cff4a4e0a62f1ac0224c79399"
+          },
+          "retained_network_script_sha256": {
+            "const": "e4b9104a9c3f43a91c0e925a028e30f4afc8471710e363f9c8130041637daf8d"
+          },
+          "review_manifest_v7_sha256": {
+            "const": "15ccc0c0d9afb94756c2fe6720321da4b37b121f4e45dad292a7d09ef6316241"
+          },
+          "review_manifest_v8_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "review_profile_sha256": {
+            "const": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43"
+          },
+          "synthetic_outer_delta_sha256": {
+            "const": "dc855d17b5f22f0d84b9895636a4e68bb100607b70f6794eb96a909d816b55d3"
+          },
+          "this_schema_proposal_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "review_manifest_v7_sha256",
+          "owner_route_decision_sha256",
+          "synthetic_outer_delta_sha256",
+          "review_profile_sha256",
+          "procedure_sha256",
+          "retained_network_script_sha256",
+          "namespace_probe_line_sha256",
+          "review_manifest_v8_sha256",
+          "this_schema_proposal_sha256"
+        ],
+        "type": "object"
+      },
+      "boundaries": {
+        "additionalProperties": false,
+        "properties": {
+          "authenticated_metadata_attempt_count": {
+            "const": "unknown_not_assessed"
+          },
+          "customer_http_performed": {
+            "const": false
+          },
+          "dns_tls_performed": {
+            "const": false
+          },
+          "durable_two_get_budget_verified": {
+            "const": false
+          },
+          "enrolled": {
+            "const": false
+          },
+          "packet_subjects_prepared": {
+            "const": false
+          },
+          "service_started": {
+            "const": false
+          }
+        },
+        "required": [
+          "dns_tls_performed",
+          "customer_http_performed",
+          "service_started",
+          "packet_subjects_prepared",
+          "enrolled",
+          "durable_two_get_budget_verified",
+          "authenticated_metadata_attempt_count"
+        ],
+        "type": "object"
+      },
+      "correction_of": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$ref": "#/$defs/correction_link"
+          }
+        ]
+      },
+      "evidence_class": {
+        "const": "PRODUCTION_RUNTIME_OBSERVATION"
+      },
+      "host_routes": {
+        "additionalProperties": false,
+        "properties": {
+          "ipv4_all": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/host_route_snapshot"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          },
+          "ipv4_main": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/host_route_snapshot"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          },
+          "ipv6_all": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/host_route_snapshot"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          },
+          "ipv6_main": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/host_route_snapshot"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ipv4_main",
+          "ipv4_all",
+          "ipv6_main",
+          "ipv6_all"
+        ],
+        "type": "object"
+      },
+      "namespace_routes": {
+        "additionalProperties": false,
+        "properties": {
+          "ipv4_all": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/route_snapshot"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          },
+          "ipv4_main": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/route_snapshot"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          },
+          "ipv6_all": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/route_snapshot"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          },
+          "ipv6_main": {
+            "oneOf": [
+              {
+                "$ref": "#/$defs/route_snapshot"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          }
+        },
+        "required": [
+          "ipv4_main",
+          "ipv4_all",
+          "ipv6_main",
+          "ipv6_all"
+        ],
+        "type": "object"
+      },
+      "outcome": {
+        "enum": [
+          "STAGED_UNQUALIFIED_PENDING_REVIEW",
+          "ROLLED_BACK",
+          "ROLLBACK_INCOMPLETE"
+        ]
+      },
+      "policy_checks": {
+        "additionalProperties": false,
+        "properties": {
+          "docker_user_created_rule_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "egress_eth0_tcp443_exact": {
+            "type": "boolean"
+          },
+          "egress_interface": {
+            "const": "eth0"
+          },
+          "egress_tcp_port": {
+            "const": 443
+          },
+          "firewall_exact": {
+            "type": "boolean"
+          },
+          "firewall_semantic_sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "forwarding_ipv4": {
+            "enum": [
+              "0",
+              "not_observed"
+            ]
+          },
+          "forwarding_ipv6": {
+            "enum": [
+              "0",
+              "not_observed"
+            ]
+          },
+          "host_nat_table_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "namespace_filter_table_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "policy_tuple_sha256": {
+            "const": "27d89f516277ffe89ccf66636622125eb680e412b0c6f733301a16df29431878"
+          },
+          "resolver_custody_exact": {
+            "type": "boolean"
+          },
+          "resolver_hosts_sha256": {
+            "const": "437f03b01c85e95cc39d54d34fdf17e6cde796fe41b58acedf8a4dba445af736"
+          },
+          "unit_files_exact": {
+            "type": "boolean"
+          },
+          "units_stopped_disabled": {
+            "type": "boolean"
+          },
+          "v2_socket_unit_sha256": {
+            "const": "a106b09e4ec78418e2914c7f6a5af7b6095a486af1d72818a0f0580827888fac"
+          },
+          "v2_template_unit_sha256": {
+            "const": "1dd429645f160cd55038366f5a971c8239f619d906dcf2188069a653572b67cf"
+          }
+        },
+        "required": [
+          "policy_tuple_sha256",
+          "resolver_hosts_sha256",
+          "resolver_custody_exact",
+          "forwarding_ipv4",
+          "forwarding_ipv6",
+          "host_nat_table_count",
+          "namespace_filter_table_count",
+          "docker_user_created_rule_count",
+          "firewall_semantic_sha256",
+          "firewall_exact",
+          "egress_interface",
+          "egress_tcp_port",
+          "egress_eth0_tcp443_exact",
+          "v2_socket_unit_sha256",
+          "v2_template_unit_sha256",
+          "unit_files_exact",
+          "units_stopped_disabled"
+        ],
+        "type": "object"
+      },
+      "preflight": {
+        "additionalProperties": false,
+        "properties": {
+          "active_old_instance_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "active_v2_instance_count": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "checked_at_utc": {
+            "type": "string"
+          },
+          "digest_chain_valid": {
+            "type": "boolean"
+          },
+          "egress_interface_expected": {
+            "type": "boolean"
+          },
+          "fresh_collision_clear": {
+            "type": "boolean"
+          },
+          "host_forwarding_expected": {
+            "type": "boolean"
+          },
+          "link_names_clear": {
+            "type": "boolean"
+          },
+          "namespace_and_handle_absent": {
+            "type": "boolean"
+          },
+          "old_socket_stopped_disabled": {
+            "type": "boolean"
+          },
+          "private_30_clear": {
+            "type": "boolean"
+          },
+          "resolver_directory_absent": {
+            "type": "boolean"
+          },
+          "v2_markers_absent": {
+            "type": "boolean"
+          },
+          "v2_nft_objects_and_comment_absent": {
+            "type": "boolean"
+          },
+          "v2_socket_absent_or_stopped_disabled": {
+            "type": "boolean"
+          },
+          "v2_socket_node_absent": {
+            "type": "boolean"
+          },
+          "v2_unit_files_absent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "checked_at_utc",
+          "digest_chain_valid",
+          "fresh_collision_clear",
+          "namespace_and_handle_absent",
+          "v2_markers_absent",
+          "resolver_directory_absent",
+          "v2_nft_objects_and_comment_absent",
+          "v2_unit_files_absent",
+          "v2_socket_node_absent",
+          "private_30_clear",
+          "link_names_clear",
+          "old_socket_stopped_disabled",
+          "v2_socket_absent_or_stopped_disabled",
+          "active_old_instance_count",
+          "active_v2_instance_count",
+          "host_forwarding_expected",
+          "egress_interface_expected"
+        ],
+        "type": "object"
+      },
+      "record_kind": {
+        "enum": [
+          "original",
+          "correction"
+        ]
+      },
+      "recorded_at_utc": {
+        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+        "type": "string"
+      },
+      "rollback": {
+        "additionalProperties": false,
+        "properties": {
+          "created_resource_identities_checked": {
+            "type": "boolean"
+          },
+          "retained_v2_resource_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "not_needed",
+              "complete",
+              "incomplete"
+            ]
+          }
+        },
+        "required": [
+          "status",
+          "created_resource_identities_checked",
+          "retained_v2_resource_names"
+        ],
+        "type": "object"
+      },
+      "schema": {
+        "const": "orion.host_profile_v2.application_receipt.v2"
+      },
+      "session_and_resources": {
+        "additionalProperties": false,
+        "properties": {
+          "historical_artifacts_unchanged": {
+            "type": "boolean"
+          },
+          "host_ifindex": {
+            "oneOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          },
+          "host_link": {
+            "const": "orionp0"
+          },
+          "host_nft_nat_table": {
+            "const": "orion_pilot_nat_v2_fc4cb43c"
+          },
+          "namespace_handle": {
+            "const": "/run/netns/orion-pilot-fc4cb43c-v2"
+          },
+          "namespace_inode": {
+            "oneOf": [
+              {
+                "pattern": "^net:\\[[0-9]+\\]$",
+                "type": "string"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          },
+          "namespace_name": {
+            "const": "orion-pilot-fc4cb43c-v2"
+          },
+          "namespace_nft_filter_table": {
+            "const": "orion_pilot_v2_fc4cb43c"
+          },
+          "nft_handles": {
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "pilot_ifindex": {
+            "oneOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "const": "not_observed"
+              }
+            ]
+          },
+          "pilot_link": {
+            "const": "orionp1"
+          },
+          "private_network": {
+            "const": "10.254.205.0/30"
+          },
+          "service_template": {
+            "const": "orion-pilot-metadata-v2@.service"
+          },
+          "session_id": {
+            "const": "orion-metadata-fc4cb43c1468d83a558b589a"
+          },
+          "socket_path": {
+            "const": "/run/orion-pilot-v2/operator.sock"
+          },
+          "socket_unit": {
+            "const": "orion-pilot-metadata-v2.socket"
+          }
+        },
+        "required": [
+          "session_id",
+          "namespace_name",
+          "namespace_handle",
+          "namespace_inode",
+          "host_link",
+          "pilot_link",
+          "host_ifindex",
+          "pilot_ifindex",
+          "private_network",
+          "host_nft_nat_table",
+          "namespace_nft_filter_table",
+          "nft_handles",
+          "socket_unit",
+          "service_template",
+          "socket_path",
+          "historical_artifacts_unchanged"
+        ],
+        "type": "object"
+      },
+      "transaction_id": {
+        "pattern": "^[0-9a-f]{32}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "schema",
+      "record_kind",
+      "outcome",
+      "recorded_at_utc",
+      "transaction_id",
+      "correction_of",
+      "evidence_class",
+      "bindings",
+      "authorization",
+      "session_and_resources",
+      "preflight",
+      "policy_checks",
+      "namespace_routes",
+      "host_routes",
+      "artifact_custody",
+      "boundaries",
+      "rollback"
+    ],
+    "type": "object"
+  },
+  "review_limit": "Owner review of this revision remains pending. It does not authorize host application, DNS/TLS, packet preparation, signing, enrollment, service start, launch or customer activity.",
+  "route_field_contract": {
+    "allowed_fields": [
+      "dev",
+      "dst",
+      "flags",
+      "gateway",
+      "ifindex",
+      "metric",
+      "pref",
+      "prefsrc",
+      "protocol",
+      "scope",
+      "src",
+      "table",
+      "type"
+    ],
+    "duplicate_json_keys": "reject during parse before object construction",
+    "duplicate_route_objects": "retain multiplicity in multiset counts and hash",
+    "missing_vs_null": "a missing key is not materialized; null is rejected for all defined route fields",
+    "required_fields": [
+      "dev",
+      "dst"
+    ],
+    "route_object_schema_pointer": "receipt_json_schema/$defs/route_object",
+    "safe_persisted_values": {
+      "dev": [
+        "lo",
+        "orionp0",
+        "orionp1"
+      ],
+      "dst": [
+        "10.254.205.0/30",
+        "10.254.205.1",
+        "10.254.205.2",
+        "10.254.205.3",
+        "127.0.0.0/8",
+        "127.0.0.1",
+        "127.255.255.255",
+        "::1",
+        "default",
+        "fe80::/64",
+        "ff00::/8"
+      ],
+      "gateway": [
+        "10.254.205.1"
+      ],
+      "prefsrc": [
+        "10.254.205.1",
+        "10.254.205.2",
+        "127.0.0.1"
+      ]
+    },
+    "unknown_fields": "reject; no field is silently dropped",
+    "unsafe_observation": "If any production route has a destination, gateway, source or interface outside the safe-persisted enums, never put that object in the receipt; record not_observed and a blocking mismatch instead."
+  },
+  "source_bindings": {
+    "namespace_probe_line": "c1836d81ed25730f8efd8582e599224256e7fd3e8f4a4bc206317118830e22c0",
+    "network_script": "e4b9104a9c3f43a91c0e925a028e30f4afc8471710e363f9c8130041637daf8d",
+    "owner_route_decision": "50c4cb3b420eaa8beca5794fe64457f3b342457e4744329608ce4dfb980b64b0",
+    "prior_receipt_proposal": "52b8d783422226f1a3e55e327de241629e804d247bcff141d2fdd9452710a0e5",
+    "procedure": "32089d367b133226d6b971d173fda2383a7e595cff4a4e0a62f1ac0224c79399",
+    "profile": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43",
+    "synthetic_outer_delta": "dc855d17b5f22f0d84b9895636a4e68bb100607b70f6794eb96a909d816b55d3",
+    "v7_manifest": "15ccc0c0d9afb94756c2fe6720321da4b37b121f4e45dad292a7d09ef6316241"
+  },
+  "status": "REVIEW_ONLY_UNAPPROVED_SCHEMA"
+}

@@ -1,0 +1,33 @@
+{
+  "apply_path_executed": false,
+  "collision_clearance": false,
+  "customer_activity_authorized": false,
+  "file_sha256": {
+    "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43",
+    "REVIEW_MANIFEST_20260926_12.json": "b6532a862c7514aefeeb980372f3a58cfde52fed93029e0e49b91d9d2ca3543a",
+    "apply-host-profile-v2-v12.py": "1dc131086df3e898aafc44e309bcde7551e7972f82f22848b19042378df8ba49",
+    "apply-host-profile-v2.py": "e17309cddd16bb998b0f002287231242900e6c40d79ff9639a46bd1aec6a0483",
+    "test_apply_host_profile_v2_failures-v12.py": "4aac384f370afa5e398ee243b26676ae659726100a36204a46dad6f7b6593ab4",
+    "test_apply_host_profile_v2_failures.py": "4aac384f370afa5e398ee243b26676ae659726100a36204a46dad6f7b6593ab4",
+    "test_apply_host_profile_v2_systemctl.py": "b30c788c8023d210d33c563aa9389c9e101f18c06eb1f70005a6dfe219916f55"
+  },
+  "focused_in_memory_test_count_total": 23,
+  "host_application_authorized": false,
+  "host_check_mode_executed": false,
+  "note": "Fixed systemctl read labels and return-code-only diagnostics. v12 script and fixture retained by exact digest. No host command or authorization is inferred.",
+  "predecessor_manifest_sha256": "b6532a862c7514aefeeb980372f3a58cfde52fed93029e0e49b91d9d2ca3543a",
+  "root_grant_created": false,
+  "schema": "orion.host_profile_v2.review_manifest.v13",
+  "status": "GUARDED_HOST_SCRIPT_REVIEW_ONLY_NOT_APPLIED",
+  "systemctl_check_labels": [
+    "SHOW_OLD_SOCKET",
+    "SHOW_V2_SOCKET",
+    "SHOW_PLAIN_SERVICE",
+    "LIST_OLD_INSTANCE_FILES",
+    "LIST_OLD_INSTANCES",
+    "SHOW_OLD_INSTANCE",
+    "LIST_V2_INSTANCE_FILES",
+    "LIST_V2_INSTANCES",
+    "SHOW_V2_INSTANCE"
+  ]
+}

@@ -1,0 +1,2 @@
+# Preserve byte-identical reviewed predecessor evidence, including its existing whitespace.
+review/host-profile-v2/V2_SYSTEMD_PAIRING_REVIEW_20260926.md -whitespace

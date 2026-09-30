@@ -1,0 +1,12 @@
+{
+  "collision_clearance": false,
+  "file_sha256": {
+    "REVIEW_MANIFEST_20260926_5.json": "980d467faf416ff1e8848e42c1b9be356ead664eda2b34dfc610b5c7addbe027",
+    "V2_RUNTIME_RECEIPT_SCHEMA_REVIEW_20260926.md": "52b8d783422226f1a3e55e327de241629e804d247bcff141d2fdd9452710a0e5"
+  },
+  "host_application_authorized": false,
+  "note": "Append-only receipt destination and schema proposal; v5 and its earlier bindings remain unchanged. No runtime receipt exists from this review.",
+  "predecessor_manifest_sha256": "980d467faf416ff1e8848e42c1b9be356ead664eda2b34dfc610b5c7addbe027",
+  "schema": "orion.host_profile_v2.review_manifest.v6",
+  "status": "REVIEW_ONLY_NOT_APPLIED"
+}

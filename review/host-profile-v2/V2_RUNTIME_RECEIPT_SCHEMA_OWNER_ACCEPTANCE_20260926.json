@@ -1,0 +1,28 @@
+{
+  "bindings": {
+    "manifest_v8_sha256": "a147e92aeecb7399f7f51d9ddab74c30c41fd07b0b536f7071d8632f2aa4daa7",
+    "pending_draft_sha256_preserved": "28b8c0a945ab7c31678c59f9cf217a8a3f116cec8cd80e46e8e6c837c8c7e600",
+    "revised_schema_proposal_sha256": "14228ce1dd432212fa432360443ab95c656e60662ffd546d04bbeff1f06b2f27"
+  },
+  "decision": {
+    "collision_clearance": false,
+    "customer_activity_authorized": false,
+    "dns_tls_authorized": false,
+    "enrollment_authorized": false,
+    "host_application_authorized": false,
+    "in_memory_validation_is_production_evidence": false,
+    "launch_authorized": false,
+    "packet_preparation_authorized": false,
+    "production_host_observed": false,
+    "schema_format_approved": true,
+    "scope": "RUNTIME_RECEIPT_SCHEMA_FORMAT_ONLY",
+    "service_start_authorized": false,
+    "signing_authorized": false
+  },
+  "declaration_kind": "DIRECT_OWNER_INSTRUCTION",
+  "note": "This is a new owner decision. The earlier pending draft remains an immutable historical proposal and is not edited or promoted in place.",
+  "recorded_at_utc": "2026-09-26T10:30:57Z",
+  "schema": "orion.host_profile_v2.runtime_receipt_schema_owner_acceptance.v1",
+  "status": "SCHEMA_FORMAT_APPROVED_ONLY",
+  "verbatim_owner_instruction": "Record owner acceptance of the receipt schema bound to manifest v8 and the revised schema digest. Preserve the pending draft and prior manifests. Mark the decision as schema-format approval only; do not apply the host profile, run DNS/TLS, prepare packet subjects, or start units. Report the new decision and manifest digests."
+}

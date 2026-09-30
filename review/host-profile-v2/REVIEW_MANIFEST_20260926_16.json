@@ -1,0 +1,24 @@
+{
+  "apply_path_executed": false,
+  "collision_clearance": false,
+  "customer_activity_authorized": false,
+  "file_sha256": {
+    "HOST_PROFILE_V2_DISTINCT_PAIR_REVIEW.json": "a11b2cc5ae6612e2e0d84d340b1ffe28d527a23ad859ceeed2dea6965ae7fc43",
+    "REVIEW_MANIFEST_20260926_15.json": "4fa96df37f8a502550ffcb29d0378d1ebc4dc8279082c0d889a612d5e43ae0fd",
+    "apply-host-profile-v2-v15.py": "9d550cd8db45f8ca56e1ebed9d2b065e86c8ca70b664b38beac9cc16da1739a2",
+    "apply-host-profile-v2.py": "fddc3ed78510c1d359a5767af539eae802c6a64220a836fa21ff17ce94aed362",
+    "test_apply_host_profile_v2_failures-v15.py": "f4a8cd0078a3b075bafabedc2fa9356bd25bfc831b1d25629677078c2803aba5",
+    "test_apply_host_profile_v2_failures.py": "d7407a99477fe8efa36c660bd36a122c28c9e02dec81e3ad7b0bb732cc335c83",
+    "test_apply_host_profile_v2_systemctl.py": "eaaa28f4e3100d804287011ad271d2cacf457f8fed0c3374eff55b2566c4df67"
+  },
+  "host_application_authorized": false,
+  "host_check_mode_executed": false,
+  "note": "Exact script/profile/manifest, expiry, and one-use grant ID are authenticated under the root controller approval purpose. Historical root-key metadata is retained evidence only; live custody and any grant remain unverified. Application and customer activity remain unauthorized.",
+  "predecessor_manifest_sha256": "4fa96df37f8a502550ffcb29d0378d1ebc4dc8279082c0d889a612d5e43ae0fd",
+  "root_grant_created": false,
+  "schema": "orion.host_profile_v2.review_manifest.v16",
+  "service_owned_historical_key_used": false,
+  "status": "GUARDED_HOST_SCRIPT_REVIEW_ONLY_NOT_APPLIED",
+  "trusted_key_live_custody_verified": false,
+  "trusted_root_controller_key_path": "/etc/orion-pilot/controllers/deployment-approval"
+}

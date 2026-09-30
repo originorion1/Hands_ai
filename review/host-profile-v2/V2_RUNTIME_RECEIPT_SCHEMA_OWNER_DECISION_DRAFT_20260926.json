@@ -1,0 +1,19 @@
+{
+  "bindings": {
+    "review_manifest_v8_sha256": "a147e92aeecb7399f7f51d9ddab74c30c41fd07b0b536f7071d8632f2aa4daa7",
+    "revised_receipt_schema_sha256": "14228ce1dd432212fa432360443ab95c656e60662ffd546d04bbeff1f06b2f27"
+  },
+  "collision_clearance": false,
+  "customer_activity_authorized": false,
+  "decision_scope": "RUNTIME_RECEIPT_SCHEMA_ACCEPTANCE_ONLY",
+  "effect_if_owner_accepts": "Only the schema-review gate may be marked accepted in a later append-only record after the owner supplies an explicit direct declaration. All other gates remain separate.",
+  "host_application_authorized": false,
+  "in_memory_validation_is_production_evidence": false,
+  "owner_declaration_received": false,
+  "prepared_at_utc": "2026-09-26T10:29:07Z",
+  "production_host_observed": false,
+  "proposed_owner_declaration_exact": "I accept V2_RUNTIME_RECEIPT_SCHEMA_REVIEW_20260926_V2.json (SHA-256 14228ce1dd432212fa432360443ab95c656e60662ffd546d04bbeff1f06b2f27) as the review-only runtime-receipt schema for the v2 host profile. The focused in-memory validation is not production evidence. This schema acceptance does not authorize host application, clear the fresh collision and stopped-unit checks, or authorize DNS/TLS, packet preparation, signing, enrollment, service start, launch, or customer activity.",
+  "record_kind": "UNSIGNED_REVIEW_DRAFT_NOT_OWNER_DECLARATION",
+  "schema": "orion.host_profile_v2.runtime_receipt_schema_owner_decision_draft.v1",
+  "status": "PENDING_OWNER_DECISION"
+}

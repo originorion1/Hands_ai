@@ -1,0 +1,14 @@
+{
+  "host": {
+    "ifindex": "2\n",
+    "iflink": "2\n"
+  },
+  "network_namespaces": {
+    "host": "net:[4026532364]",
+    "peer": "net:[4026532487]"
+  },
+  "peer": {
+    "ifindex": "2\n",
+    "iflink": "2\n"
+  }
+}

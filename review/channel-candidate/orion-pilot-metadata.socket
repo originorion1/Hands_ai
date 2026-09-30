@@ -1,0 +1,15 @@
+[Unit]
+Description=ORION root-only exact-session operator channel (candidate, not installed)
+
+[Socket]
+ListenStream=/run/orion-pilot/operator.sock
+Accept=yes
+SocketMode=0600
+SocketUser=root
+SocketGroup=root
+DirectoryMode=0700
+MaxConnections=1
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target
