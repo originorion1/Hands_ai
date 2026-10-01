@@ -9,7 +9,7 @@ description = "ORION — generic learning and governed automation kernel"
 requires-python = ">=3.12"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-dependencies = []
+dependencies = ["cryptography>=43.0"]
 
 [project.scripts]
 orion-runtime = "orion.pilot.deployment:main"
