@@ -7,8 +7,46 @@ from collections.abc import Mapping
 from typing import Any
 
 REQUIRED = {
-    "record_type", "record_version", "grant_id", "issuer", "issued_at", "expires_at",
-    "target", "authorization", "limits", "software_binding", "revocation", "audit", "integrity",
+    "record_type",
+    "record_version",
+    "grant_id",
+    "issuer",
+    "issued_at",
+    "expires_at",
+    "target",
+    "authorization",
+    "limits",
+    "software_binding",
+    "revocation",
+    "audit",
+    "integrity",
+}
+OBJECT_FIELDS = {
+    "issuer": {"authority", "key_id"},
+    "target": {"tenant_id", "company", "source_id", "origin"},
+    "authorization": {
+        "mode",
+        "operations",
+        "writes",
+        "record_access",
+        "execution",
+        "autonomous_permission",
+    },
+    "limits": {"max_requests", "max_response_bytes", "rate_limit"},
+    "software_binding": {
+        "repository",
+        "release_ref",
+        "release_tree_sha256",
+        "grant_policy_version",
+    },
+    "revocation": {"authority", "reference"},
+    "audit": {"audit_reference"},
+    "integrity": {
+        "canonicalization",
+        "signature_algorithm",
+        "payload_sha256",
+        "signature",
+    },
 }
 RECORD_TYPE = "ORION_HOST_APPLICATION_GRANT"
 RECORD_VERSION = "1.0"
@@ -24,22 +62,38 @@ def _nonempty(value: Any, field: str) -> None:
         raise GrantSchemaError(f"{field} must be a non-empty string")
 
 
+def _reject_unsupported_fields(value: Mapping[str, Any], allowed: set[str], field: str) -> None:
+    extra = set(value) - allowed
+    if extra:
+        raise GrantSchemaError(f"unsupported {field} fields: {sorted(extra)}")
+
+
 def validate_grant(grant: Mapping[str, Any]) -> None:
     if not isinstance(grant, Mapping):
         raise GrantSchemaError("grant must be an object")
     missing = REQUIRED - set(grant)
     if missing:
         raise GrantSchemaError(f"missing required fields: {sorted(missing)}")
+    _reject_unsupported_fields(grant, REQUIRED, "grant")
     if grant["record_type"] != RECORD_TYPE or grant["record_version"] != RECORD_VERSION:
         raise GrantSchemaError("unsupported grant record type/version")
     _nonempty(grant["grant_id"], "grant_id")
 
     objects = {}
-    for name in ("issuer", "target", "authorization", "limits", "software_binding",
-                 "revocation", "audit", "integrity"):
+    for name in (
+        "issuer",
+        "target",
+        "authorization",
+        "limits",
+        "software_binding",
+        "revocation",
+        "audit",
+        "integrity",
+    ):
         value = grant[name]
         if not isinstance(value, Mapping):
             raise GrantSchemaError(f"{name} must be an object")
+        _reject_unsupported_fields(value, OBJECT_FIELDS[name], name)
         objects[name] = value
 
     for key in ("authority", "key_id"):

@@ -1,12 +1,17 @@
-from datetime import UTC, datetime, timedelta
 import base64
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from orion.grants.canonical import canonical_bytes, grant_digest, payload_without_integrity
 from orion.grants.schema import GrantSchemaError, validate_grant
-from orion.grants.verification import GrantExpiredError, GrantScopeError, GrantSignatureError, verify_grant
+from orion.grants.verification import (
+    GrantExpiredError,
+    GrantScopeError,
+    GrantSignatureError,
+    verify_grant,
+)
 
 NOW = datetime(2026, 10, 1, 14, 0, tzinfo=UTC)
 
@@ -93,7 +98,25 @@ def test_signature_tampering_is_rejected():
 def test_expired_grant_is_rejected():
     grant, public_key = signed_grant()
     with pytest.raises(GrantExpiredError):
-        verify_grant(grant, public_key, now=NOW + timedelta(hours=1), expected_release_tree_sha256="a" * 64)
+        verify_grant(
+            grant, public_key, now=NOW + timedelta(hours=1), expected_release_tree_sha256="a" * 64
+        )
+
+
+def test_validity_interval_includes_issuance_and_excludes_expiry():
+    grant, public_key = signed_grant()
+    release = "a" * 64
+    with pytest.raises(GrantExpiredError):
+        verify_grant(grant, public_key, now=NOW - timedelta(microseconds=1))
+    assert verify_grant(grant, public_key, now=NOW, expected_release_tree_sha256=release)
+    assert verify_grant(
+        grant,
+        public_key,
+        now=NOW + timedelta(hours=1) - timedelta(microseconds=1),
+        expected_release_tree_sha256=release,
+    )
+    with pytest.raises(GrantExpiredError):
+        verify_grant(grant, public_key, now=NOW + timedelta(hours=1))
 
 
 def test_wrong_release_binding_is_rejected():
@@ -120,4 +143,26 @@ def test_https_origin_is_required_by_schema_boundary():
     grant, _ = signed_grant()
     grant["target"]["origin"] = "http://example.invalid/api"
     with pytest.raises(GrantSchemaError, match="origin"):
+        validate_grant(grant)
+
+
+@pytest.mark.parametrize(
+    ("section", "field"),
+    [
+        (None, "host_application_authorized"),
+        ("issuer", "alternate_key_id"),
+        ("authorization", "host_profile_v2_application"),
+        ("target", "extra_origin"),
+        ("limits", "max_records"),
+        ("software_binding", "script_sha256"),
+        ("revocation", "revoked"),
+        ("audit", "owner_approval"),
+        ("integrity", "alternate_signature"),
+    ],
+)
+def test_unsupported_fields_are_rejected(section, field):
+    grant = make_grant()
+    value = grant if section is None else grant[section]
+    value[field] = True
+    with pytest.raises(GrantSchemaError, match="unsupported"):
         validate_grant(grant)

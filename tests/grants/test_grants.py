@@ -1,6 +1,5 @@
-from datetime import UTC, datetime, timedelta
 import base64
-import copy
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -88,8 +87,9 @@ def test_valid_signed_grant_verifies():
 def test_tampering_is_rejected():
     private = Ed25519PrivateKey.generate()
     grant = make_grant(private)
-    grant["authorization"]["writes"] = True
-    with pytest.raises(GrantSignatureError):
+    grant["target"]["company"] = "Changed Test Company"
+    grant["integrity"]["payload_sha256"] = grant_digest(grant)
+    with pytest.raises(GrantSignatureError, match="invalid Ed25519 signature"):
         verify_grant(grant, private.public_key().public_bytes_raw())
 
 
@@ -97,14 +97,23 @@ def test_expired_grant_is_rejected():
     private = Ed25519PrivateKey.generate()
     grant = make_grant(private)
     with pytest.raises(GrantExpiredError):
-        verify_grant(grant, private.public_key().public_bytes_raw(), now=datetime(2026, 10, 1, 12, 0, 1, tzinfo=UTC))
+        verify_grant(
+            grant,
+            private.public_key().public_bytes_raw(),
+            now=datetime(2026, 10, 1, 12, 0, 1, tzinfo=UTC),
+        )
 
 
 def test_scope_is_bound():
     private = Ed25519PrivateKey.generate()
     grant = make_grant(private)
     with pytest.raises(GrantScopeError):
-        verify_grant(grant, private.public_key().public_bytes_raw(), now=datetime(2026, 10, 1, 10, 30, tzinfo=UTC), expected_target={"source_id": "wrong"})
+        verify_grant(
+            grant,
+            private.public_key().public_bytes_raw(),
+            now=datetime(2026, 10, 1, 10, 30, tzinfo=UTC),
+            expected_target={"source_id": "wrong"},
+        )
 
 
 def test_schema_rejects_write_authority():
@@ -118,4 +127,8 @@ def test_schema_rejects_write_authority():
 def test_verifier_requires_only_public_key():
     private = Ed25519PrivateKey.generate()
     grant = make_grant(private)
-    assert verify_grant(grant, private.public_key().public_bytes_raw(), now=datetime(2026, 10, 1, 10, 30, tzinfo=UTC))
+    assert verify_grant(
+        grant,
+        private.public_key().public_bytes_raw(),
+        now=datetime(2026, 10, 1, 10, 30, tzinfo=UTC),
+    )

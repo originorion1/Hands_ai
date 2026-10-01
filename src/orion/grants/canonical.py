@@ -30,9 +30,9 @@ def canonical_bytes(value: Mapping[str, Any]) -> bytes:
     normalized = _normalize(value)
     if not isinstance(normalized, dict):
         raise CanonicalizationError("root value must be an object")
-    return json.dumps(
-        normalized, ensure_ascii=False, separators=(",", ":"), sort_keys=True
-    ).encode("utf-8")
+    return json.dumps(normalized, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode(
+        "utf-8"
+    )
 
 
 def payload_without_integrity(grant: Mapping[str, Any]) -> dict[str, Any]:

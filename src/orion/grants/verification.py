@@ -40,7 +40,7 @@ class GrantScopeError(GrantError):
 
 def _timestamp(value: str) -> datetime:
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value)
     except ValueError as exc:
         raise GrantError(f"invalid RFC3339 timestamp: {value!r}") from exc
     if parsed.tzinfo is None:
@@ -89,7 +89,7 @@ def verify_grant(
         raise GrantSignatureError("invalid Ed25519 signature") from exc
 
     current = (now or datetime.now(UTC)).astimezone(UTC)
-    if current < _timestamp(grant["issued_at"]) or current > _timestamp(grant["expires_at"]):
+    if current < _timestamp(grant["issued_at"]) or current >= _timestamp(grant["expires_at"]):
         raise GrantExpiredError("grant is outside its validity interval")
 
     if expected_target:
@@ -97,8 +97,10 @@ def verify_grant(
         for key, value in expected_target.items():
             if target.get(key) != value:
                 raise GrantScopeError(f"target mismatch for {key}")
-    if expected_release_tree_sha256 is not None:
-        if grant["software_binding"]["release_tree_sha256"] != expected_release_tree_sha256:
-            raise GrantScopeError("release tree digest mismatch")
+    if (
+        expected_release_tree_sha256 is not None
+        and grant["software_binding"]["release_tree_sha256"] != expected_release_tree_sha256
+    ):
+        raise GrantScopeError("release tree digest mismatch")
 
     return calculated
