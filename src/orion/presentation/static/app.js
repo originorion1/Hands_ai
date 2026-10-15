@@ -194,7 +194,7 @@ function ask(query) {
   } else if (/attention|next/.test(lower)) {
     reply = report
       ? 'The useful next step is human review of the persisted evidence. This interface has no execution endpoint.'
-      : 'Connect the locally bound report. No action can be inferred without evidence.';
+      : 'Connect an authorized report. No action can be inferred without evidence.';
   } else if (/brief|status|update/.test(lower)) {
     reply = brief();
   } else {
@@ -247,9 +247,22 @@ function applyReportView(value) {
     cyclesCompleted: value.cycles.completed,
     stopReason: value.stop_reason
   };
-  source = 'locally bound aggregate report';
+  source = 'authenticated aggregate report';
   renderReport();
   $('summary').textContent = 'A completed aggregate report is connected read-only. Ask for a briefing to review its counters.';
+}
+
+function clearReportView() {
+  report = null;
+  source = 'no bound report';
+  $('metadata').textContent = '—';
+  $('metadataDetail').textContent = 'No report';
+  $('studies').textContent = '—';
+  $('studyDetail').textContent = 'No report';
+  $('observations').textContent = '—';
+  $('reportStatus').textContent = 'No report';
+  $('historySummary').textContent = 'No bound historical report loaded.';
+  $('summary').textContent = 'No aggregate report is connected. No result will be inferred without evidence.';
 }
 
 $('form').addEventListener('submit', eventObject => {
@@ -368,5 +381,5 @@ window.addEventListener('pagehide', () => {
   if (recognition) recognition.abort();
   cancelVoice();
 });
-window.ORIONPreview = Object.freeze({ applyReportView });
+window.ORIONPreview = Object.freeze({ applyReportView, clearReportView });
 core();

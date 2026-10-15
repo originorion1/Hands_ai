@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
+
+from .report import _upstream_url
 
 STATUS = {
     "interface_version": "orion.deployment-status.v1",
@@ -42,7 +45,10 @@ class StatusHandler(BaseHTTPRequestHandler):
         if target.path != self.route or target.query or target.fragment:
             self._reply(HTTPStatus.NOT_FOUND, b'{"error":"not_found"}\n', head=head)
             return
-        body = (json.dumps(STATUS, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        state = dict(STATUS)
+        if _upstream_url(os.environ.get("ORION_REPORT_BACKEND_URL")) is not None:
+            state["report_service"] = "requires_authentication"
+        body = (json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n").encode()
         self._reply(HTTPStatus.OK, body, head=head)
 
     def do_GET(self) -> None:
