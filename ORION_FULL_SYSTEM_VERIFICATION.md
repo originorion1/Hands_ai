@@ -74,9 +74,11 @@ The actual local HTTP router also returned: `/` 200, `/api/health` 200, `/api/v1
 
 ## Deployment evidence
 
-- Vercel Preview for implementation commit: `https://hands-2tigh6qoa-orionteam.vercel.app` (deployment ID `7102655422`; GitHub Vercel check succeeded).
-- Direct unauthenticated requests to `/`, `/api/health`, and `/api/v1/report` each returned HTTP 302 to Vercel SSO. The public Command Center and deployed authenticated API therefore remain **unverified and unavailable** from the public internet.
+- Vercel Preview for implementation commit `eb0053c`: `https://hands-2tigh6qoa-orionteam.vercel.app` (deployment ID `7102655422`; GitHub Vercel check succeeded).
+- Vercel Preview for report head `e53cf36` containing the verified correction: `https://hands-nph0tbnox-orionteam.vercel.app` (deployment ID `7104259655`; GitHub Vercel check and deployment status succeeded).
+- Direct unauthenticated requests to `/`, `/api/health`, `/api/ready`, and `/api/v1/report` on the newer preview each returned HTTP 302 to Vercel SSO. The public Command Center and deployed authenticated API therefore remain **unverified and unavailable** from the public internet.
 - No production URL, persistent report host URL, identity issuer, or configured `ORION_REPORT_BACKEND_URL` is available. No production activation was performed.
+- `gh run list --branch codex/connected-command-center-212` returned no GitHub Actions run at the inspection time. The Vercel deployment check does not replace the repository's test workflow.
 
 ## Blockers and decision
 
