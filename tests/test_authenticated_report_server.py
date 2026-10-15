@@ -6,6 +6,7 @@ import base64
 import hashlib
 import http.client
 import json
+import os
 import ssl
 import threading
 import time
@@ -17,6 +18,7 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import (
+    BestAvailableEncryption,
     Encoding,
     NoEncryption,
     PrivateFormat,
@@ -24,10 +26,12 @@ from cryptography.hazmat.primitives.serialization import (
 )
 from cryptography.x509.oid import NameOID
 
+from deployment.identity.issue_report_token import IssuanceError, issue_token
+from deployment.identity.issue_report_token import main as issue_token_main
 from deployment.local_preview import create_server as create_application_server
 from deployment.vercel.build_static import main as build_static
 from orion.discovery.erpnext_live_session import LiveSessionRunReport, live_session_report_json
-from orion.presentation.report_auth import ReportAccessPolicy
+from orion.presentation.report_auth import ReportAccessPolicy, ReportAuthenticationError
 from orion.presentation.report_interface import REPORT_INTERFACE_VERSION, BoundReportSource
 from orion_http.report_server import create_server
 
@@ -204,6 +208,137 @@ def test_digest_change_fails_closed_and_readiness_reports_unavailable(tmp_path: 
         worker.join(timeout=2)
     with pytest.raises(ValueError, match="digest does not match"):
         create_server(source, policy, port=0)
+
+
+def test_report_policy_revocation_and_rotation_apply_without_restart(tmp_path: Path) -> None:
+    source, _, old_key, _ = _fixture(tmp_path)
+    policy_path = tmp_path / "policy.json"
+    old_token = _token(old_key)
+    new_key = Ed25519PrivateKey.generate()
+
+    def replace_policy(*, subjects: list[str], key: Ed25519PrivateKey) -> None:
+        policy = json.loads(policy_path.read_text())
+        policy["allowed_subjects"] = subjects
+        policy["ed25519_public_key"] = _b64(
+            key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        )
+        replacement = tmp_path / "policy-replacement.json"
+        _private(replacement, json.dumps(policy).encode())
+        os.replace(replacement, policy_path)
+
+    server = create_server(source, policy_path, port=0)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        port = server.server_port
+        assert _request(port, "GET", "/api/v1/report", old_token)[0] == 200
+        assert _request(port, "GET", "/api/v1/report", _token(old_key, aud="wrong"))[0] == 401
+
+        replace_policy(subjects=["revoked-reader"], key=old_key)
+        assert _request(port, "GET", "/ready")[0] == 200
+        assert _request(port, "GET", "/api/v1/report", old_token)[0] == 401
+
+        replace_policy(subjects=["fixture-reader"], key=new_key)
+        assert _request(port, "GET", "/api/v1/report", old_token)[0] == 401
+        assert _request(port, "GET", "/api/v1/report", _token(new_key))[0] == 200
+
+        policy_path.unlink()
+        assert _request(port, "GET", "/ready")[0] == 503
+        assert _request(port, "GET", "/api/v1/report", _token(new_key))[0] == 503
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=2)
+
+
+def test_separate_issuer_writes_private_short_lived_token(tmp_path: Path) -> None:
+    source, policy, key, _ = _fixture(tmp_path)
+    private_dir = tmp_path / "issuance"
+    private_dir.mkdir(mode=0o700)
+    key_path = private_dir / "signing-key.pem"
+    _private(
+        key_path,
+        key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, BestAvailableEncryption(b"fixture-passphrase")),
+    )
+    output_path = private_dir / "one-token"
+    now = int(time.time())
+    issue_token(
+        policy_path=tmp_path / "policy.json",
+        key_path=key_path,
+        subject="fixture-reader",
+        passphrase=b"fixture-passphrase",
+        output_path=output_path,
+        now=now,
+    )
+    assert output_path.stat().st_mode & 0o777 == 0o600
+    issued = f"Bearer {output_path.read_text().strip()}"
+    policy.authorize(issued, report_tenant=source.tenant_id, now=now)
+    with pytest.raises(ReportAuthenticationError):
+        policy.authorize(issued, report_tenant=source.tenant_id, now=now + 300)
+    with pytest.raises(IssuanceError):
+        issue_token(
+            policy_path=tmp_path / "policy.json",
+            key_path=key_path,
+            subject="fixture-reader",
+            passphrase=b"fixture-passphrase",
+            output_path=output_path,
+            now=now,
+        )
+    with pytest.raises(IssuanceError):
+        issue_token(
+            policy_path=tmp_path / "policy.json",
+            key_path=key_path,
+            subject="unauthorized-reader",
+            passphrase=b"fixture-passphrase",
+            output_path=private_dir / "denied-token",
+            now=now,
+        )
+    assert not (private_dir / "denied-token").exists()
+    with pytest.raises(IssuanceError):
+        issue_token(
+            policy_path=tmp_path / "policy.json",
+            key_path=key_path,
+            subject="fixture-reader",
+            passphrase=b"wrong-passphrase",
+            output_path=private_dir / "wrong-passphrase-token",
+            now=now,
+        )
+    assert not (private_dir / "wrong-passphrase-token").exists()
+
+
+def test_issuer_cli_uses_private_descriptors_without_printing_token(tmp_path: Path, capsys) -> None:
+    source, policy, key, _ = _fixture(tmp_path)
+    private_dir = tmp_path / "issuance"
+    private_dir.mkdir(mode=0o700)
+    key_path = private_dir / "signing-key.pem"
+    _private(
+        key_path,
+        key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, BestAvailableEncryption(b"fixture-passphrase")),
+    )
+    subject_read, subject_write = os.pipe()
+    passphrase_read, passphrase_write = os.pipe()
+    try:
+        os.write(subject_write, b"fixture-reader")
+        os.write(passphrase_write, b"fixture-passphrase")
+        os.close(subject_write)
+        os.close(passphrase_write)
+        subject_write = passphrase_write = -1
+        output_path = private_dir / "cli-token"
+        assert issue_token_main([
+            "--policy", str(tmp_path / "policy.json"),
+            "--key", str(key_path),
+            "--subject-fd", str(subject_read),
+            "--passphrase-fd", str(passphrase_read),
+            "--output", str(output_path),
+        ]) == 0
+        assert capsys.readouterr() == ("", "")
+        policy.authorize(
+            f"Bearer {output_path.read_text().strip()}", report_tenant=source.tenant_id
+        )
+    finally:
+        for descriptor in (subject_read, subject_write, passphrase_read, passphrase_write):
+            if descriptor >= 0:
+                os.close(descriptor)
 
 
 def test_ui_api_tls_host_and_persistent_report_chain(tmp_path: Path, monkeypatch) -> None:

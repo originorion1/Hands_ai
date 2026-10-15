@@ -1,7 +1,7 @@
 """Verify independently issued, short-lived report access tokens.
 
-ORION cannot issue these tokens. An owner-managed identity service signs them,
-and a private host policy binds allowed subjects to one report tenant.
+The report host cannot issue these tokens. An owner-managed identity service
+signs them, and a private host policy binds subjects to one report tenant.
 """
 
 from __future__ import annotations

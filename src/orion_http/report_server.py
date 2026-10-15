@@ -21,6 +21,15 @@ from orion.presentation.report_interface import BoundReportSource, ReportInterfa
 class AuthenticatedReportServer(HTTPServer):
     source: BoundReportSource
     policy: ReportAccessPolicy
+    policy_path: Path | None
+
+    def current_policy(self) -> ReportAccessPolicy:
+        if self.policy_path is None:
+            return self.policy
+        policy = ReportAccessPolicy.from_private_file(self.policy_path)
+        if policy.tenant_id != self.source.tenant_id:
+            raise ReportAuthenticationError("report access policy unavailable")
+        return policy
 
 
 class AuthenticatedReportHandler(BaseHTTPRequestHandler):
@@ -56,7 +65,8 @@ class AuthenticatedReportHandler(BaseHTTPRequestHandler):
             if target.path == "/ready":
                 try:
                     self.server.source.read_view()
-                except ReportInterfaceError:
+                    self.server.current_policy()
+                except (ReportInterfaceError, ReportAuthenticationError):
                     self._reply(HTTPStatus.SERVICE_UNAVAILABLE, b'{"ready":false}\n', head=head)
                     return
             self._reply(HTTPStatus.OK, b'{"ready":true,"execution_allowed":false}\n', head=head)
@@ -66,7 +76,14 @@ class AuthenticatedReportHandler(BaseHTTPRequestHandler):
             return
         try:
             authorizations = self.headers.get_all("Authorization") or []
-            self.server.policy.authorize(
+            policy = self.server.current_policy()
+        except ReportAuthenticationError:
+            self._reply(
+                HTTPStatus.SERVICE_UNAVAILABLE, b'{"error":"report_unavailable"}\n', head=head
+            )
+            return
+        try:
+            policy.authorize(
                 authorizations[0] if len(authorizations) == 1 else None,
                 report_tenant=self.server.source.tenant_id,
             )
@@ -99,16 +116,19 @@ class AuthenticatedReportHandler(BaseHTTPRequestHandler):
 
 
 def create_server(
-    source: BoundReportSource, policy: ReportAccessPolicy, *, port: int
+    source: BoundReportSource, policy: ReportAccessPolicy | Path, *, port: int
 ) -> AuthenticatedReportServer:
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535")
-    if source.tenant_id != policy.tenant_id:
+    policy_path = policy if isinstance(policy, Path) else None
+    active_policy = ReportAccessPolicy.from_private_file(policy) if policy_path else policy
+    if source.tenant_id != active_policy.tenant_id:
         raise ReportAuthenticationError("report access policy unavailable")
     source.read_view()
     server = AuthenticatedReportServer(("127.0.0.1", port), AuthenticatedReportHandler)
     server.source = source
-    server.policy = policy
+    server.policy = active_policy
+    server.policy_path = policy_path
     return server
 
 
@@ -119,8 +139,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", required=True, type=int)
     arguments = parser.parse_args(argv)
     source = BoundReportSource.from_private_binding(arguments.binding)
-    policy = ReportAccessPolicy.from_private_file(arguments.access_policy)
-    server = create_server(source, policy, port=arguments.port)
+    server = create_server(source, arguments.access_policy, port=arguments.port)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
