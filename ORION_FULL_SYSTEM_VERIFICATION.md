@@ -1,5 +1,9 @@
 # ORION full-system verification — 2026-10-15 to 2026-10-16
 
+The **2026-10-16 current-candidate addendum at the end** supersedes the earlier
+deployment and test status below. Earlier results are retained as historical
+evidence and must not be read as certification of the current head.
+
 ## Candidate and scope
 
 - Canonical laboratory base: `374150b78ffd95fb55a72509c1a7ad20d0c0f7d8`.
@@ -92,3 +96,110 @@ The actual local HTTP router also returned: `/` 200, `/api/health` 200, `/api/v1
 ## Final exact-head verification
 
 Verified implementation commit: `421ae652bd4ff11dc5b5cc64ab1313483f70290b`, tree `ff53206ff6e2c7fb4ac09a6caabb78fa226b0317`. The code worktree was clean during the 2,204-pass / 3-fail full pytest rerun. `pip check`, compilation, scoped Ruff, focused regressions, local HTTP responses, browser smoke, Node UI checks, static build, demo, source scans, and `git diff --check` passed. The full pytest and whole-repository Ruff gates did not pass; production application activation is therefore not qualified. This report is added after the code-tree verification and does not change runtime code.
+
+## 2026-10-16 current-candidate addendum
+
+### Exact code, ownership, and architecture
+
+- Code commit: `9fe89ee57032bb10aab291d661f05f3afc23ac1b`; tree:
+  `bef6a68dd7a97287107b67f9fad58653611b3598`. This addendum is a
+  later documentation-only change. Issue #212 is the implementation scope.
+- Canonical `laboratory/orion-v0.1` remains
+  `374150b78ffd95fb55a72509c1a7ad20d0c0f7d8`.
+- Draft PR #215 at `8d11e2cbd66090f93ba5bd3d137bfec7a42b16d2` targets
+  canonical. Draft PR #216 contains this candidate and targets #215's branch.
+  Human integration order remains #215 first, then restack and review #216.
+  Neither PR is merged and no independent exact-head review is recorded.
+
+The reviewed Command Center frontend and same-origin Vercel API remain the
+application entry point. The persistent `orion_http` report service runs only
+on loopback behind an HTTPS boundary and reads one digest-bound private
+aggregate. Vercel has no ERP connector, report file, signing key, or tenant
+binding. The separate administrative identity tool is source-only, writes a
+five-minute token to an owner-only exclusive file, and prints no token. It
+requires an encrypted operator-held Ed25519 key and private subject policy;
+none has been provisioned. The report host now reloads its owner-only trust
+policy on each report read, allowing immediate subject revocation or key
+rotation without a restart. A missing policy fails readiness and reporting
+closed. The proposed host verification-key and trust-policy path is
+`/etc/orion/report-access-policy.json`; it is **not installed**. The issuer
+identity, actual key reference, and actual policy path are not yet assigned.
+
+The governed ERPNext connector, audit SQLite, worker, and host-isolation
+controls remain separate from the Vercel/report boundary. No customer ERP
+connection, production signing, grant issue, or customer service activation
+occurred.
+
+### Exact-head verification
+
+| Check | Result |
+| --- | --- |
+| Install and build | Clean Python 3.12 venv `pip install -e '.[dev]'` and `pip check` passed. A clean wheel built; `orion_http/report_server.py` is included and the administrative issuer is excluded from that runtime wheel. The wheel installed and passed `pip check` in a separate host venv. |
+| Python and Ruff | `py_compile` passed for 346 tracked/new Python files. `ruff check src/orion src/orion_http deployment api tests` passed. Whole-root Ruff still has 146 findings in 17 pre-existing `review/host-profile-v2` files; these were not altered. |
+| Full pytest at clean `9fe89ee` | **2,205 passed, 5 failed, 64 subtests passed in 34:13**. The complete suite is **not passing**. Failures: `test_nonpublic_metadata_does_not_escape[None]`, `test_instrument_scope_denied_before_worker_or_reservation[tenant_id]`, and installed-runtime `revision`, `witness_unavailable`, and `independent_expired`. The first two passed singly. The three installed cases later yielded one pass and two failures together; `revision` passed singly, while `independent_expired` both failed and passed in separate single-case runs. Installed denials were `record_reasoning_denied` / `packaged_deployment_witness_failed`, including later reads denied before successful witness completion. The underlying cause is unconfirmed. No control, deadline, test expectation, or safety gate was weakened. |
+| Focused report/API security | 14 passed on the code tree: valid, expired, forged, revoked-subject, wrong-audience, wrong-tenant, wrong-scope and unauthorized access; private token issuance, policy replacement, digest tamper denial, restart, TLS path, and Vercel route boundaries. |
+| UI and doctrine | Node Command Center interaction checks, static build, `git diff --check`, source/capability scans, and the demo passed. The demo retained `execution_allowed=false`. No ERP/execution import or authority-true setting was found in the Vercel/report/issuer boundary. |
+| Supervised WSL integration | A systemd-user-supervised local report host from the installed wheel and local application router served a **synthetic** aggregate. UI/health/readiness and authorized report returned 200; missing/forged tokens returned 401. Service restart preserved the report. Evidence tampering made readiness/report return 503; restoring the exact synthetic bytes restored readiness. The test units were stopped. WSL is not a production server. |
+| Real local browser end-to-end | Headless Chrome used the systemd-supervised local application and installed-wheel report service in one run. It rendered the Command Center, denied an empty and forged token, and loaded the authorized **synthetic** aggregate from the private persistent report file (metadata 3/7, observations 4). Zero page exceptions and failed requests. The browser and supervised units were stopped. These counts are test data, not customer observations. |
+
+### Protected Vercel preview at code commit
+
+- URL: `https://hands-65hx8rqvk-orionteam.vercel.app/`.
+- Deployment: `dpl_8J8Fc5ncZXaiJASB1V9bXUqsKeYd`, `READY`, Vercel check
+  succeeded for `9fe89ee`. Deployment protection remains enabled.
+- Authenticated Vercel CLI checks: `/` 200 with the actual Command Center;
+  `/api/health` 200 and `/api/v1/status` 200 with
+  `report_service=not_connected` and `execution_allowed=false`;
+  `/api/ready` 503 with `ready=false`; unauthenticated `/api/v1/report` 401.
+- A real Chrome check used a short-lived Vercel OIDC Trusted Sources header
+  scoped to this preview origin. It rendered the Command Center with zero page
+  exceptions and failed requests and displayed `Disconnected. No report
+  loaded.` Vercel preview access is not an ORION report identity issuer.
+- No independently hosted HTTPS report service URL or running identity issuer
+  has been verified. `ORION_REPORT_BACKEND_URL` is absent from the preview.
+  Consequently deployed browser-to-report-host authentication, report
+  custody, and restart recovery are **unverified**, and no production URL or
+  customer report is claimed.
+
+### Infrastructure recommendation and remaining gates
+
+No owner-controlled server, cloud-provider session, SSH host reference, or
+report-host endpoint was found in this WSL workspace. Vercel supplies the
+frontend and compatible HTTP routes but cannot host this persistent private
+report/audit/worker boundary. For an owner-approved deployment, recommend
+**two Hetzner Cloud CX23 Linux VPS instances** in an available EU region:
+one for the persistent report/backend services and one, separately
+administered, for the identity signer. Each CX23 has 2 shared vCPUs, 4 GB RAM,
+and 40 GB NVMe. The listed price is €5.49 per instance per month excluding
+IPv4; two servers cost €10.98. Two primary IPv4 addresses add €1.20/month,
+and weekly backups at 20% add about €2.20/month: **about €14.38/month before
+VAT, DNS/domain, and any extra storage**. Availability and final checkout
+price require owner confirmation. The operator would create the servers in
+Hetzner Cloud Console with owner-held SSH public keys, then provide only the
+resource references and SSH access method. Restrict ingress with firewalls;
+qualify TLS/DNS, service users, private policy and signing-key custody,
+backup/restore, and issuance audit before any activation. Official pricing:
+[Hetzner cloud price adjustment](https://docs.hetzner.com/general/infrastructure-and-availability/price-adjustment/),
+[IPv4 pricing](https://docs.hetzner.com/de/general/infrastructure-and-availability/ipv4-pricing/),
+[backup pricing](https://docs.hetzner.com/cloud/billing/faq/).
+For comparison, DigitalOcean Basic 2 GB plus 1 GB Droplets list at $12 + $6
+monthly, and weekly backups add 20%, approximately $21.60/month before other
+charges ([Droplet pricing](https://www.digitalocean.com/pricing/droplets),
+[backup pricing](https://docs.digitalocean.com/products/backups/details/pricing/)).
+No paid resource was purchased or provisioned.
+
+The non-executing ERPNext readiness inspection previously returned
+`configuration_invalid`, `ready=false`, and `execution_allowed=false` because
+the current shell has no ORION live configuration/credential variables. The
+historical seven-entity/133-field candidate remains a candidate only. Its
+field-level review and a fresh, valid session authorization are still required;
+consumed claims cannot be reused. No `--execute` or customer ERP request was
+made in this verification.
+
+**Application decision: `PARTIALLY_OPERATIONAL`.** Local authenticated
+frontend → API → installed report backend → persistent synthetic evidence →
+frontend operation is verified, and the protected Vercel frontend/API are
+running. The persistent production host, independent issuer, TLS endpoint,
+Vercel backend binding, deployed authenticated report flow, full pytest gate,
+whole-root Ruff gate, and independent exact-head review are outstanding.
+**Customer ERP live-pilot readiness: blocked; no live access attempted.**
