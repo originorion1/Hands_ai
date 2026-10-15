@@ -1,0 +1,42 @@
+name: Command Center release candidate checks
+
+on:
+  pull_request:
+    paths:
+      - "api/**"
+      - "deployment/**"
+      - "src/orion/presentation/static/**"
+      - "tests/test_vercel_report_boundary.py"
+      - "tests/test_vercel_stage_a.py"
+      - "tests/ui/test-command-center.js"
+      - "vercel.json"
+      - ".github/workflows/command-center-release-candidate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ui-api-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install focused test tools
+        run: python -m pip install "pytest>=8,<10"
+      - name: Python syntax and deployment configuration
+        run: |
+          python -m compileall -q api deployment
+          python -m json.tool vercel.json > /dev/null
+      - name: Focused HTTP boundary tests
+        run: python -m pytest -q tests/test_vercel_report_boundary.py tests/test_vercel_stage_a.py
+      - name: Build reviewed UI
+        run: python deployment/vercel/build_static.py
+      - name: DOM behavior regression
+        run: node tests/ui/test-command-center.js
