@@ -60,7 +60,7 @@ class Element {
   set scrollTop(_value) {}
 }
 
-function buildHarness({ speech = true, response } = {}) {
+function buildHarness({ speech = true, response, statusResponse } = {}) {
   const ids = [
     'ack', 'alertVoice', 'brief', 'demo', 'feed', 'form', 'historySummary',
     'connectReport', 'connectionStatus', 'metadata', 'metadataDetail', 'mic', 'micStatus', 'mode',
@@ -124,7 +124,9 @@ function buildHarness({ speech = true, response } = {}) {
     clearTimeout: () => {},
     setInterval: () => nextTimer++,
     clearInterval: () => {},
-    fetch: async () => response || { ok: true, status: 200, json: async () => validView() }
+    fetch: async path => path === '/api/v1/status'
+      ? statusResponse || { ok: false, status: 503 }
+      : response || { ok: true, status: 200, json: async () => validView() }
   });
   vm.runInContext(fs.readFileSync('app.js', 'utf8'), context, { filename: 'app.js' });
   vm.runInContext(fs.readFileSync('report-link.js', 'utf8'), context, { filename: 'report-link.js' });
@@ -230,6 +232,40 @@ function validView() {
   const failed = buildHarness({ response: { ok: false, status: 503 } });
   await failed.elements.connectReport.listeners.click();
   assert.match(failed.elements.connectionStatus.textContent, /no fallback data/);
+
+  const stageA = buildHarness({
+    statusResponse: {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        interface_version: 'orion.deployment-status.v1',
+        http_api: 'healthy',
+        report_service: 'not_connected',
+        governed_worker: 'not_connected',
+        persistent_storage: 'not_connected',
+        live_pilot_ready: false,
+        execution_allowed: false
+      })
+    }
+  });
+  await stageA.context.window.ORIONReportLink.checkBackend();
+  assert.match(stageA.elements.source.textContent, /Interface API connected/);
+  assert.match(stageA.elements.source.textContent, /governed services disconnected/);
+  const unsafeStatus = buildHarness({
+    statusResponse: {
+      ok: true, status: 200, json: async () => ({
+        interface_version: 'orion.deployment-status.v1',
+        http_api: 'healthy',
+        report_service: 'not_connected',
+        governed_worker: 'not_connected',
+        persistent_storage: 'not_connected',
+        live_pilot_ready: false,
+        execution_allowed: true
+      })
+    }
+  });
+  await unsafeStatus.context.window.ORIONReportLink.checkBackend();
+  assert.match(unsafeStatus.elements.source.textContent, /unavailable/);
 
   elements.motion.checked = false;
   elements.motion.onchange();
