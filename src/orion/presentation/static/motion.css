@@ -1,0 +1,27 @@
+/* Motion vocabulary: status, not fabricated measurements. */
+.orb{transform:none;overflow:visible;--signal:#b1f8ed}
+.orb:before{animation:none!important;opacity:.4}
+.orb:after{animation:presence 7s ease-in-out infinite!important}
+.orb span{transform:none}.orb span:before{content:'✧';font-size:32px}.orb span:after{content:'STANDBY';font-size:8px;letter-spacing:3px;color:#9baec8}
+.core-rings{position:absolute;inset:-12%;width:124%;height:124%;overflow:visible;pointer-events:none;fill:none;stroke:var(--signal);stroke-width:.65;transition:stroke .4s;opacity:.8}
+.ring-outer{transform-origin:160px 160px;animation:outer-drift 100s linear infinite;stroke-dasharray:1 7;opacity:.3}
+.ring-track{stroke-dasharray:95 14 18 110 50 250;transform-origin:160px 160px;animation:outer-drift 60s linear infinite;opacity:.5}
+.ring-inner{stroke-dasharray:14 6 1 8;opacity:.35;transform-origin:160px 160px;animation:outer-drift 45s linear reverse infinite}
+.ring-cross{opacity:.25;stroke-width:.5}.ring-scan{opacity:0;stroke-width:2;stroke-dasharray:45 710;transform-origin:160px 160px}
+.listening-wave{opacity:0;transform-origin:center;transform-box:fill-box;stroke-width:1.2}
+.voice-bars{position:absolute;bottom:25%;left:50%;transform:translateX(-50%);height:18px;display:flex;gap:3px;align-items:center;z-index:4;opacity:0}.voice-bars i{width:2px;height:12px;display:block;background:var(--signal);border-radius:2px;transform:scaleY(.2)}
+.orb[data-state="demo"]{--signal:#c3b5ff}.orb[data-state="demo"] .ring-scan{opacity:.9;animation:outer-drift 3s linear infinite}.orb[data-state="demo"] .ring-inner{animation-duration:12s}.orb[data-state="demo"] span:after{content:'DEMO STUDY';color:#c3b5ff}
+.orb[data-state="listening"]{--signal:#9effec}.orb[data-state="listening"] .listening-wave{animation:inward 2.4s ease-in-out infinite}.orb[data-state="listening"] .listening-wave.second{animation-delay:1.2s}.orb[data-state="listening"] span:after{content:'LISTENING';color:#9effec}
+.orb[data-state="speaking"]{--signal:#c3e7ff}.orb[data-state="speaking"] .voice-bars{opacity:.9}.orb[data-state="speaking"] .voice-bars i{animation:voice-symbol .8s ease-in-out infinite alternate}.voice-bars i:nth-child(2n){animation-delay:-.3s!important}.voice-bars i:nth-child(3n){animation-delay:-.65s!important}.orb[data-state="speaking"] span:after{content:'SPEAKING';color:#c3e7ff}
+.event{animation:event-arrival .45s ease-out both}.toast:not([hidden]){animation:alert-arrival .35s ease-out}.message{animation:message-arrival .3s ease-out}.metric strong{font-variant-numeric:tabular-nums}.motion-note{position:absolute;bottom:-23px;left:0;width:100%;text-align:center;font:8px monospace;letter-spacing:1px;color:#8ba0b6}.hero:after{bottom:12px}
+@keyframes presence{50%{opacity:.6;box-shadow:inset 8px 6px 25px #a7edff20,0 0 45px #9be5f518}}
+@keyframes outer-drift{to{transform:rotate(360deg)}}
+@keyframes inward{0%{opacity:0;transform:scale(1.12)}35%{opacity:.65}100%{opacity:0;transform:scale(.65)}}
+@keyframes voice-symbol{to{transform:scaleY(1)}}
+@keyframes event-arrival{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}
+@keyframes alert-arrival{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes message-arrival{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+body[data-motion="off"] *,body[data-motion="off"] *:before,body[data-motion="off"] *:after{animation:none!important;transition:none!important}
+body[data-motion="off"] .voice-bars i{transform:scaleY(.65)}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}.voice-bars i{transform:scaleY(.65)}}
+@media(max-width:560px){.hero{gap:30px}.motion-note{bottom:-20px}}

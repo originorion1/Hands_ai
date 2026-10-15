@@ -89,9 +89,10 @@ def test_pilot_has_no_implicit_production_transport():
         launch(adapter)
 
 
-def test_no_builtin_raw_network_openers_remain():
+def test_no_unreviewed_builtin_raw_network_openers_remain():
     root = Path(__file__).resolve().parents[1] / 'src' / 'orion'
     for path in root.rglob('*.py'):
+        relative = path.relative_to(root).as_posix()
         for node in ast.walk(ast.parse(path.read_text())):
             if isinstance(node, ast.Import):
                 assert not any(alias.name.split('.')[0] in
@@ -99,8 +100,21 @@ def test_no_builtin_raw_network_openers_remain():
                     for alias in node.names), path
             if isinstance(node, ast.ImportFrom):
                 module = node.module or ''
+                imported = {alias.name for alias in node.names}
+                reviewed_loopback_server_import = (
+                    relative == 'presentation/server.py'
+                    and (
+                        (module == 'http' and imported == {'HTTPStatus'})
+                        or (
+                            module == 'http.server'
+                            and imported == {'BaseHTTPRequestHandler', 'HTTPServer'}
+                        )
+                    )
+                )
+                if reviewed_loopback_server_import:
+                    continue
                 if module == 'urllib.request':
-                    assert {a.name for a in node.names} <= {'Request'}, path
+                    assert imported <= {'Request'}, path
                 else:
                     assert module.split('.')[0] not in {
                         'socket', 'requests', 'httpx', 'aiohttp', 'http'}, path

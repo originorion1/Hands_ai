@@ -14,6 +14,9 @@ dependencies = ["cryptography>=43.0"]
 [project.scripts]
 orion-runtime = "orion.pilot.deployment:main"
 
+[project.scripts]
+orion-report-ui = "orion.presentation.server:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.8", "hatchling>=1.27", "jsonschema>=4.0"]
 

@@ -14,7 +14,6 @@ import json
 import os
 import re
 import signal
-import stat
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
@@ -23,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 from ..contracts import utc_now
+from ..stores.private_files import PrivateFileError, read_private_file
 from .erpnext_adapter import DEFAULT_MAX_RESPONSE_BYTES, _default_opener
 from .erpnext_live_session import (
     LiveSessionError,
@@ -243,26 +243,14 @@ def _refresh_report_path(config: ERPNextMetadataPreflightConfig, ended_at: datet
 
 
 def _read_private_bytes(path: Path, label: str) -> bytes:
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
     try:
-        descriptor = os.open(path, flags)
-        with os.fdopen(descriptor, "rb") as stream:
-            info = os.fstat(stream.fileno())
-            if (
-                not stat.S_ISREG(info.st_mode)
-                or info.st_nlink != 1
-                or info.st_uid != os.geteuid()
-                or stat.S_IMODE(info.st_mode) != 0o600
-            ):
-                raise MetadataPreflightError(f"{label} is not private")
-            body = stream.read(DEFAULT_MAX_RESPONSE_BYTES + 1)
-    except OSError as exc:
-        raise MetadataPreflightError(f"{label} is unavailable") from exc
-    if len(body) > DEFAULT_MAX_RESPONSE_BYTES:
-        raise MetadataPreflightError(f"{label} exceeds its size bound")
-    return body
+        return read_private_file(
+            path,
+            label=label,
+            maximum_bytes=DEFAULT_MAX_RESPONSE_BYTES,
+        )
+    except PrivateFileError as exc:
+        raise MetadataPreflightError(str(exc)) from exc
 
 
 def _validated_completion_report(config: ERPNextMetadataPreflightConfig) -> str:
