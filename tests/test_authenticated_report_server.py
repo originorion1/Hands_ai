@@ -27,9 +27,9 @@ from cryptography.x509.oid import NameOID
 from deployment.local_preview import create_server as create_application_server
 from deployment.vercel.build_static import main as build_static
 from orion.discovery.erpnext_live_session import LiveSessionRunReport, live_session_report_json
-from orion.presentation.authenticated_report_server import create_server
 from orion.presentation.report_auth import ReportAccessPolicy
 from orion.presentation.report_interface import REPORT_INTERFACE_VERSION, BoundReportSource
+from orion_http.report_server import create_server
 
 
 def _private(path: Path, body: bytes) -> None:

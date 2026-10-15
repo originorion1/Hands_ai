@@ -23,7 +23,7 @@ from test_authenticated_report_server import _fixture, _tls_certificate, _token
 
 from deployment.local_preview import create_server as create_application_server
 from deployment.vercel.build_static import main as build_static
-from orion.presentation.authenticated_report_server import create_server
+from orion_http.report_server import create_server
 
 
 def main(argv: list[str] | None = None) -> int:
