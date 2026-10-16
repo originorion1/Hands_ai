@@ -19,6 +19,8 @@ _MAX_REPORT_BYTES = 64 * 1024
 _MAX_TOKEN_BYTES = 4096
 _SAFE_CATEGORY = re.compile(r"[a-z_]{1,64}\Z")
 _SAFE_TIMESTAMP = re.compile(r"[0-9T:+.\-Z]{1,64}\Z")
+_SERVICE_TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+_LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
 def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -114,22 +116,38 @@ def _upstream_url(value: str | None) -> tuple[str, int] | None:
     return target.hostname, port or 443
 
 
+def _service_headers(host: str, token: str | None) -> dict[str, str] | None:
+    """Require a distinct server-side credential for every non-loopback origin."""
+    if token is None and host in _LOCAL_HOSTS:
+        return {}
+    if type(token) is not str or _SERVICE_TOKEN.fullmatch(token) is None:
+        return None
+    return {"X-ORION-Service-Token": token}
+
+
 def fetch_report(
     authorization: str,
     *,
     backend_url: str | None,
+    service_token: str | None = None,
     connection_factory: type[http.client.HTTPSConnection] = http.client.HTTPSConnection,
 ) -> tuple[HTTPStatus, bytes]:
     upstream = _upstream_url(backend_url)
     if upstream is None:
         return HTTPStatus.SERVICE_UNAVAILABLE, b'{"error":"report_service_not_connected"}\n'
     host, port = upstream
+    service_headers = _service_headers(host, service_token)
+    if service_headers is None:
+        return HTTPStatus.SERVICE_UNAVAILABLE, b'{"error":"report_service_not_connected"}\n'
     try:
         connection = connection_factory(host, port=port, timeout=5, context=ssl.create_default_context())
         try:
             connection.request(
                 "GET", "/api/v1/report",
-                headers={"Authorization": authorization, "Accept": "application/json"},
+                headers={
+                    "Authorization": authorization, "Accept": "application/json",
+                    **service_headers,
+                },
             )
             response = connection.getresponse()
             status = response.status
@@ -151,6 +169,7 @@ def fetch_report(
 def probe_backend(
     backend_url: str | None,
     *,
+    service_token: str | None = None,
     connection_factory: type[http.client.HTTPSConnection] = http.client.HTTPSConnection,
 ) -> bool:
     """Check the separate report host without credentials or report contents."""
@@ -158,10 +177,15 @@ def probe_backend(
     if upstream is None:
         return False
     host, port = upstream
+    service_headers = _service_headers(host, service_token)
+    if service_headers is None:
+        return False
     try:
         connection = connection_factory(host, port=port, timeout=3, context=ssl.create_default_context())
         try:
-            connection.request("GET", "/ready", headers={"Accept": "application/json"})
+            connection.request(
+                "GET", "/ready", headers={"Accept": "application/json", **service_headers}
+            )
             response = connection.getresponse()
             body = response.read(257)
             return (
@@ -208,7 +232,8 @@ class ReportHandler(BaseHTTPRequestHandler):
             self._reply(HTTPStatus.UNAUTHORIZED, b'{"error":"access_denied"}\n', head=head)
             return
         status, body = fetch_report(
-            authorization, backend_url=os.environ.get("ORION_REPORT_BACKEND_URL")
+            authorization, backend_url=os.environ.get("ORION_REPORT_BACKEND_URL"),
+            service_token=os.environ.get("ORION_REPORT_SERVICE_TOKEN"),
         )
         self._reply(status, body, head=head)
 

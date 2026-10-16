@@ -30,9 +30,11 @@ from deployment.identity.issue_report_token import IssuanceError, issue_token
 from deployment.identity.issue_report_token import main as issue_token_main
 from deployment.local_preview import create_server as create_application_server
 from deployment.vercel.build_static import main as build_static
+from deployment.vercel.report import fetch_report, probe_backend
 from orion.discovery.erpnext_live_session import LiveSessionRunReport, live_session_report_json
 from orion.presentation.report_auth import ReportAccessPolicy, ReportAuthenticationError
 from orion.presentation.report_interface import REPORT_INTERFACE_VERSION, BoundReportSource
+from orion.stores.private_files import PrivateFileError
 from orion_http.report_server import create_server
 
 
@@ -142,9 +144,14 @@ def _tls_certificate(tmp_path: Path) -> tuple[Path, Path]:
     return cert_path, key_path
 
 
-def _request(port: int, method: str, path: str, token: str | None = None):
+def _request(
+    port: int, method: str, path: str, token: str | None = None,
+    *, service_token: str | None = None,
+):
     connection = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
     headers = {} if token is None else {"Authorization": f"Bearer {token}"}
+    if service_token is not None:
+        headers["X-ORION-Service-Token"] = service_token
     connection.request(method, path, headers=headers)
     response = connection.getresponse()
     result = response.status, dict(response.getheaders()), response.read()
@@ -188,6 +195,46 @@ def test_bound_report_requires_independent_identity_and_recovers_after_restart(t
             server.shutdown()
             server.server_close()
             worker.join(timeout=2)
+
+
+def test_service_credential_is_separate_rotatable_and_fail_closed(tmp_path: Path) -> None:
+    source, policy, key, _ = _fixture(tmp_path)
+    credential = tmp_path / "service-token"
+    first, second = "A" * 43, "B" * 43
+    _private(credential, first.encode())
+    credential.chmod(0o644)
+    with pytest.raises(PrivateFileError):
+        create_server(source, policy, port=0, service_token_path=credential)
+    credential.chmod(0o600)
+    link = tmp_path / "service-token-link"
+    link.symlink_to(credential)
+    with pytest.raises(PrivateFileError):
+        create_server(source, policy, port=0, service_token_path=link)
+    server = create_server(source, policy, port=0, service_token_path=credential)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        port = server.server_port
+        token = _token(key)
+        assert _request(port, "GET", "/ready")[0] == 401
+        assert _request(port, "GET", "/ready", service_token="C" * 43)[0] == 401
+        assert _request(port, "GET", "/ready", service_token=first)[0] == 200
+        assert _request(port, "GET", "/api/v1/report", token)[0] == 401
+        assert _request(port, "GET", "/api/v1/report", service_token=first)[0] == 401
+        assert _request(port, "GET", "/api/v1/report", token, service_token=first)[0] == 200
+
+        replacement = tmp_path / "service-token-replacement"
+        _private(replacement, second.encode())
+        os.replace(replacement, credential)
+        assert _request(port, "GET", "/api/v1/report", token, service_token=first)[0] == 401
+        assert _request(port, "GET", "/api/v1/report", token, service_token=second)[0] == 200
+        credential.unlink()
+        assert _request(port, "GET", "/ready", service_token=second)[0] == 503
+        assert _request(port, "GET", "/api/v1/report", token, service_token=second)[0] == 503
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join(timeout=2)
 
 
 def test_digest_change_fails_closed_and_readiness_reports_unavailable(tmp_path: Path) -> None:
@@ -379,3 +426,40 @@ def test_ui_api_tls_host_and_persistent_report_chain(tmp_path: Path, monkeypatch
             host.server_close()
             app_thread.join(timeout=2)
             host_thread.join(timeout=2)
+
+
+def test_https_proxy_and_report_host_require_both_credentials(tmp_path: Path, monkeypatch) -> None:
+    source, policy, key, _ = _fixture(tmp_path)
+    cert_path, key_path = _tls_certificate(tmp_path)
+    monkeypatch.setenv("SSL_CERT_FILE", str(cert_path))
+    credential = tmp_path / "service-token"
+    first, second = "A" * 43, "B" * 43
+    _private(credential, first.encode())
+    host = create_server(source, policy, port=0, service_token_path=credential)
+    tls = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    tls.load_cert_chain(str(cert_path), str(key_path))
+    host.socket = tls.wrap_socket(host.socket, server_side=True)
+    worker = threading.Thread(target=host.serve_forever, daemon=True)
+    worker.start()
+    url = f"https://localhost:{host.server_port}/api/v1/report"
+    try:
+        assert probe_backend(url, service_token=first)
+        assert not probe_backend(url)
+        assert fetch_report(f"Bearer {_token(key)}", backend_url=url, service_token=first)[0] == 200
+        assert fetch_report(f"Bearer {_token(key, exp=1)}", backend_url=url,
+                            service_token=first)[0] == 401
+        assert fetch_report(f"Bearer {_token(key, tenant_id='other')}", backend_url=url,
+                            service_token=first)[0] == 401
+        assert fetch_report(f"Bearer {_token(Ed25519PrivateKey.generate())}", backend_url=url,
+                            service_token=first)[0] == 401
+        replacement = tmp_path / "service-token-replacement"
+        _private(replacement, second.encode())
+        os.replace(replacement, credential)
+        assert not probe_backend(url, service_token=first)
+        assert probe_backend(url, service_token=second)
+        assert fetch_report(f"Bearer {_token(key)}", backend_url=url,
+                            service_token=second)[0] == 200
+    finally:
+        host.shutdown()
+        host.server_close()
+        worker.join(timeout=2)

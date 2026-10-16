@@ -8,7 +8,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
 
-from .report import _upstream_url
+from .report import _service_headers, _upstream_url
 
 STATUS = {
     "interface_version": "orion.deployment-status.v1",
@@ -46,7 +46,10 @@ class StatusHandler(BaseHTTPRequestHandler):
             self._reply(HTTPStatus.NOT_FOUND, b'{"error":"not_found"}\n', head=head)
             return
         state = dict(STATUS)
-        if _upstream_url(os.environ.get("ORION_REPORT_BACKEND_URL")) is not None:
+        upstream = _upstream_url(os.environ.get("ORION_REPORT_BACKEND_URL"))
+        if upstream is not None and _service_headers(
+            upstream[0], os.environ.get("ORION_REPORT_SERVICE_TOKEN")
+        ) is not None:
             state["report_service"] = "requires_authentication"
         body = (json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n").encode()
         self._reply(HTTPStatus.OK, body, head=head)
