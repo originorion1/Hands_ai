@@ -1,0 +1,12 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "orion-connector-sdk"
+version = "0.1.0"
+description = "Vendor-neutral ORION connector registration contracts"
+requires-python = ">=3.12"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/orion_connector_sdk"]

@@ -9,7 +9,7 @@ description = "ORION — generic learning and governed automation kernel"
 requires-python = ">=3.12"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-dependencies = ["cryptography>=43.0"]
+dependencies = ["cryptography>=43.0", "orion-connector-sdk==0.1.0"]
 
 [project.scripts]
 orion-runtime = "orion.pilot.deployment:main"
@@ -19,6 +19,7 @@ dev = ["pytest>=8.0", "ruff>=0.8", "hatchling>=1.27", "jsonschema>=4.0"]
 erpnext-discovery = ["orion-connector-erpnext-discovery==0.1.0"]
 
 [tool.uv.sources]
+orion-connector-sdk = { path = "packages/connector-sdk" }
 orion-connector-erpnext-discovery = { path = "packages/erpnext-discovery" }
 
 [tool.hatch.build.targets.wheel]
@@ -29,7 +30,7 @@ exclude = ["src/orion/discovery/erpnext_adapter.py"]
 exclude = ["src/orion/discovery/erpnext_adapter.py"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "packages/connector-sdk/src"]
 
 [tool.ruff]
 line-length = 100

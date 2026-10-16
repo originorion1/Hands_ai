@@ -7,7 +7,10 @@ name = "orion-connector-erpnext-discovery"
 version = "0.1.0"
 description = "ERPNext discovery adapter for the ORION Kernel"
 requires-python = ">=3.12"
-dependencies = ["orion-core==0.1.0"]
+dependencies = ["orion-core==0.1.0", "orion-connector-sdk==0.1.0"]
+
+[project.entry-points."orion.connectors.v1"]
+erpnext = "orion.discovery.erpnext_adapter:ERPNextDiscoveryAdapter"
 
 [tool.hatch.build.targets.wheel]
 only-include = []
