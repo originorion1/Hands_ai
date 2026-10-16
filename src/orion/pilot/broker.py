@@ -303,7 +303,10 @@ class Broker:
     def _metadata(self, value, identity):
         request = metadata_request_from(value['request'])
         supervisor = self
-        deadline = time.monotonic() + 5
+        # Catalog plus each reviewed schema is a distinct, rate-limited worker
+        # acquisition. Give each of the bounded acquisitions its own five-second
+        # allowance instead of spending one allowance on the whole discovery.
+        deadline = time.monotonic() + 5 * (1 + self.grant.max_schemas)
         requested = False
 
         class ProcessMetadata:
@@ -318,8 +321,15 @@ class Broker:
                 # Each catalog/schema acquisition consumes its own durable attempt.
                 attempts = [e for e in supervisor.journal.lifecycle_records() if e['event'] == 'attempt']
                 if attempts:
-                    wait = attempts[-1]['at'] + supervisor.limits.minimum_interval_seconds - utc_now().timestamp()
-                    if wait > 0:
+                    # Sleep is a scheduling hint, not proof that the journal's
+                    # wall-clock rate limit has elapsed. Recheck before claiming
+                    # the next attempt, including after an early wakeup.
+                    while True:
+                        wait = (attempts[-1]['at']
+                                + supervisor.limits.minimum_interval_seconds
+                                - utc_now().timestamp())
+                        if wait <= 0:
+                            break
                         if wait >= deadline - time.monotonic():
                             raise ValueError('metadata scheduling deadline')
                         time.sleep(wait)
@@ -338,7 +348,9 @@ class Broker:
                                      target=target)
                     if not supervisor.erpnext_candidate:
                         bootstrap['path'] = supervisor.config['source_path']
-                    result = supervisor._worker(bootstrap, timeout=max(0.001, deadline - time.monotonic()))
+                    result = supervisor._worker(
+                        bootstrap, timeout=min(5, max(0.001, deadline - time.monotonic()))
+                    )
                     received = len(result.stdout)
                     supervisor._validate_worker(result)
                     response = decode(result.stdout)
