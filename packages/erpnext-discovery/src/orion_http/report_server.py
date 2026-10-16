@@ -14,8 +14,9 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from orion.presentation.report_auth import ReportAccessPolicy, ReportAuthenticationError
 from orion.presentation.report_interface import BoundReportSource, ReportInterfaceError
+
+from orion.presentation.report_auth import ReportAccessPolicy, ReportAuthenticationError
 
 
 class AuthenticatedReportServer(HTTPServer):

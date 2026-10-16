@@ -221,21 +221,6 @@ wheels = [
 ]
 
 [[package]]
-name = "orion-connector-erpnext-discovery"
-version = "0.1.0"
-source = { directory = "packages/erpnext-discovery" }
-dependencies = [
-    { name = "orion-connector-sdk" },
-    { name = "orion-core" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "orion-connector-sdk", specifier = "==0.1.0" },
-    { name = "orion-core", specifier = "==0.1.0" },
-]
-
-[[package]]
 name = "orion-connector-sdk"
 version = "0.1.0"
 source = { directory = "packages/connector-sdk" }
@@ -256,21 +241,17 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
-erpnext-discovery = [
-    { name = "orion-connector-erpnext-discovery" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "cryptography", specifier = ">=43.0" },
     { name = "hatchling", marker = "extra == 'dev'", specifier = ">=1.27" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.0" },
-    { name = "orion-connector-erpnext-discovery", marker = "extra == 'erpnext-discovery'", directory = "packages/erpnext-discovery" },
     { name = "orion-connector-sdk", directory = "packages/connector-sdk" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
 ]
-provides-extras = ["dev", "erpnext-discovery"]
+provides-extras = ["dev"]
 
 [[package]]
 name = "packaging"

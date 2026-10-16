@@ -16,21 +16,32 @@ orion-runtime = "orion.pilot.deployment:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.8", "hatchling>=1.27", "jsonschema>=4.0"]
-erpnext-discovery = ["orion-connector-erpnext-discovery==0.1.0"]
 
 [tool.uv.sources]
 orion-connector-sdk = { path = "packages/connector-sdk" }
-orion-connector-erpnext-discovery = { path = "packages/erpnext-discovery" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orion", "src/orion_http"]
-exclude = ["src/orion/discovery/erpnext_adapter.py"]
+exclude = [
+    "src/orion/discovery/erpnext_*.py",
+    "src/orion/discovery/retained_investigation_session.py",
+    "src/orion/pilot/erpnext_candidate.py",
+    "src/orion/presentation/report_interface.py",
+    "src/orion_http/report_server.py",
+]
 
 [tool.hatch.build.targets.sdist]
-exclude = ["src/orion/discovery/erpnext_adapter.py"]
+exclude = [
+    "packages/**",
+    "src/orion/discovery/erpnext_*.py",
+    "src/orion/discovery/retained_investigation_session.py",
+    "src/orion/pilot/erpnext_candidate.py",
+    "src/orion/presentation/report_interface.py",
+    "src/orion_http/report_server.py",
+]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "packages/connector-sdk/src"]
+pythonpath = ["src", "packages/connector-sdk/src", "packages/erpnext-discovery/src"]
 
 [tool.ruff]
 line-length = 100
