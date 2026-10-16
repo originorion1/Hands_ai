@@ -11,6 +11,8 @@ from urllib.request import Request, urlopen
 
 from deployment.vercel.report import ReportHandler, _upstream_url, fetch_report, probe_backend
 
+_SERVICE_TOKEN = "A" * 43
+
 
 def _request(path: str, *, method: str = "GET", headers: dict[str, str] | None = None):
     server = HTTPServer(("127.0.0.1", 0), ReportHandler)
@@ -104,13 +106,15 @@ def test_proxy_forwards_only_authorization_to_fixed_https_host() -> None:
     status, body = fetch_report(
         "Bearer fixture-token",
         backend_url="https://reports.example.test/api/v1/report",
+        service_token=_SERVICE_TOKEN,
         connection_factory=_Connection,
     )
     assert status == 200
     assert json.loads(body)["observations_persisted"] == 4
     assert _Connection.last_request == (
         "GET", "/api/v1/report",
-        {"Authorization": "Bearer fixture-token", "Accept": "application/json"},
+        {"Authorization": "Bearer fixture-token", "Accept": "application/json",
+         "X-ORION-Service-Token": _SERVICE_TOKEN},
     )
 
 
@@ -125,13 +129,29 @@ def test_proxy_rejects_invalid_source_and_unsafe_envelope() -> None:
     _Connection.response = _Response(HTTPStatus.OK, _view().replace(b'"erp_writes": 0', b'"erp_writes": true'))
     assert fetch_report(
         "Bearer fixture", backend_url="https://reports.example.test/api/v1/report",
+        service_token=_SERVICE_TOKEN,
         connection_factory=_Connection,
     )[0] == 503
     _Connection.response = _Response(HTTPStatus.OK, _view() + b" " * (64 * 1024))
     assert fetch_report(
         "Bearer fixture", backend_url="https://reports.example.test/api/v1/report",
+        service_token=_SERVICE_TOKEN,
         connection_factory=_Connection,
     )[0] == 503
+
+
+def test_remote_backend_requires_distinct_service_credential() -> None:
+    _Connection.last_request = None
+    for token in (None, "short", "A" * 42):
+        assert fetch_report(
+            "Bearer fixture", backend_url="https://reports.example.test/api/v1/report",
+            service_token=token, connection_factory=_Connection,
+        )[0] == 503
+        assert probe_backend(
+            "https://reports.example.test/api/v1/report",
+            service_token=token, connection_factory=_Connection,
+        ) is False
+    assert _Connection.last_request is None
 
 
 def test_readiness_probes_only_the_separate_host() -> None:
@@ -139,10 +159,15 @@ def test_readiness_probes_only_the_separate_host() -> None:
         HTTPStatus.OK, b'{"ready":true,"execution_allowed":false}\n'
     )
     assert probe_backend(
-        "https://reports.example.test/api/v1/report", connection_factory=_Connection
+        "https://reports.example.test/api/v1/report", service_token=_SERVICE_TOKEN,
+        connection_factory=_Connection,
     ) is True
-    assert _Connection.last_request == ("GET", "/ready", {"Accept": "application/json"})
+    assert _Connection.last_request == (
+        "GET", "/ready", {"Accept": "application/json",
+                          "X-ORION-Service-Token": _SERVICE_TOKEN},
+    )
     _Connection.response = _Response(HTTPStatus.SERVICE_UNAVAILABLE, b'{"ready":false}')
     assert probe_backend(
-        "https://reports.example.test/api/v1/report", connection_factory=_Connection
+        "https://reports.example.test/api/v1/report", service_token=_SERVICE_TOKEN,
+        connection_factory=_Connection,
     ) is False

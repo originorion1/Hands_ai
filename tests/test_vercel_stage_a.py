@@ -76,6 +76,7 @@ def test_status_reports_configuration_without_claiming_backend_health(monkeypatc
     monkeypatch.setenv(
         "ORION_REPORT_BACKEND_URL", "https://reports.example.test/api/v1/report"
     )
+    monkeypatch.setenv("ORION_REPORT_SERVICE_TOKEN", "A" * 43)
     status, _, body = _request(StatusHandler, "/api/v1/status")
     assert status == 200
     value = json.loads(body)
