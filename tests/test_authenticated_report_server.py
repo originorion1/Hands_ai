@@ -218,6 +218,7 @@ def test_service_credential_is_separate_rotatable_and_fail_closed(tmp_path: Path
         token = _token(key)
         assert _request(port, "GET", "/ready")[0] == 401
         assert _request(port, "GET", "/ready", service_token="C" * 43)[0] == 401
+        assert _request(port, "GET", "/ready", service_token="é" * 43)[0] == 401
         assert _request(port, "GET", "/ready", service_token=first)[0] == 200
         assert _request(port, "GET", "/api/v1/report", token)[0] == 401
         assert _request(port, "GET", "/api/v1/report", service_token=first)[0] == 401
