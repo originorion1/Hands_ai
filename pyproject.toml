@@ -22,6 +22,9 @@ erpnext-discovery = ["orion-connector-erpnext-discovery==0.1.0"]
 packages = ["src/orion", "src/orion_http"]
 exclude = ["src/orion/discovery/erpnext_adapter.py"]
 
+[tool.hatch.build.targets.sdist]
+exclude = ["src/orion/discovery/erpnext_adapter.py"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 

@@ -25,11 +25,12 @@ ERPNext discovery helpers despite its neutral filename. No entry-point or
 installed connector registry exists at this baseline.
 
 The first extraction slice makes `orion-connector-erpnext-discovery` the sole
-wheel owner of `orion.discovery.erpnext_adapter` while retaining its historical
+distribution owner of `orion.discovery.erpnext_adapter` in built wheels and
+source archives while retaining its historical
 import path and behavior. The source tree retains that path for existing source
 tests. The connector build hook includes that one source file in both its wheel
 and source archive; a wheel rebuilt from the source archive must contain the
-same bytes. Core-only installed startup uses shared HTTPS-origin and credential
+same bytes. The core source archive excludes the adapter. Core-only installed startup uses shared HTTPS-origin and credential
 reference helpers without importing the ERPNext adapter. The installed-runtime
 suite checks this core-only state, then installs the connector wheel for the
 historical ERPNext scenarios. This is a packaging boundary only; it does not
