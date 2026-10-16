@@ -18,7 +18,7 @@ import stat
 import time
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -1213,6 +1213,41 @@ def live_session_report_json(report: LiveSessionReadinessReport | LiveSessionRun
         if name in payload:
             payload[name] = payload[name].isoformat()
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def live_session_run_report_from_json(body: bytes) -> LiveSessionRunReport:
+    """Parse the exact aggregate report schema through its semantic owner."""
+
+    try:
+        payload = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_json_object)
+        if type(payload) is not dict:
+            raise LiveSessionError("live study report must be a JSON object")
+        expected = {item.name for item in fields(LiveSessionRunReport)}
+        if set(payload) != expected:
+            raise LiveSessionError("live study report fields do not match its schema")
+        started_at = datetime.fromisoformat(payload.pop("session_started_at"))
+        ended_at = datetime.fromisoformat(payload.pop("session_ended_at"))
+        if (
+            started_at.utcoffset() is None
+            or ended_at.utcoffset() is None
+            or ended_at < started_at
+        ):
+            raise LiveSessionError("live study report timestamps are invalid")
+        categories = payload.get("failure_category_counts")
+        if type(categories) is not list:
+            raise LiveSessionError("live study failure categories must be a JSON array")
+        payload["failure_category_counts"] = tuple(
+            tuple(item) if type(item) is list else item for item in categories
+        )
+        return LiveSessionRunReport(
+            session_started_at=started_at,
+            session_ended_at=ended_at,
+            **payload,
+        )
+    except LiveSessionError:
+        raise
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError, ValueError) as exc:
+        raise LiveSessionError("live study report JSON is invalid") from exc
 
 
 def _write_report(directory: Path, report: LiveSessionRunReport) -> Path:

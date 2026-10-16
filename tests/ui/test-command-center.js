@@ -2,7 +2,10 @@
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 const vm = require('node:vm');
+
+const ASSET_ROOT = path.join(__dirname, '../../src/orion/presentation/static');
 
 class ClassList {
   constructor(owner) { this.owner = owner; }
@@ -63,7 +66,7 @@ class Element {
 function buildHarness({ speech = true, response, statusResponse } = {}) {
   const ids = [
     'ack', 'alertVoice', 'brief', 'demo', 'feed', 'form', 'historySummary',
-    'connectReport', 'connectionStatus', 'metadata', 'metadataDetail', 'mic', 'micStatus', 'mode',
+    'connectReport', 'connectionStatus', 'reportToken', 'metadata', 'metadataDetail', 'mic', 'micStatus', 'mode',
     'motion', 'observations', 'orb', 'query', 'quiet', 'reportStatus',
     'severity', 'source', 'speak', 'stop', 'studies', 'studyDetail', 'summary',
     'testAlert', 'testVoice', 'toast', 'unread', 'voices', 'voiceStatus', 'messages'
@@ -109,6 +112,7 @@ function buildHarness({ speech = true, response, statusResponse } = {}) {
     window.SpeechSynthesisUtterance = SpeechSynthesisUtterance;
   }
   let nextTimer = 1;
+  const requests = [];
   const context = vm.createContext({
     console,
     Date,
@@ -124,13 +128,16 @@ function buildHarness({ speech = true, response, statusResponse } = {}) {
     clearTimeout: () => {},
     setInterval: () => nextTimer++,
     clearInterval: () => {},
-    fetch: async path => path === '/api/v1/status'
-      ? statusResponse || { ok: false, status: 503 }
-      : response || { ok: true, status: 200, json: async () => validView() }
+    fetch: async (path, options) => {
+      requests.push({ path, options });
+      return path === '/api/v1/status'
+        ? statusResponse || { ok: false, status: 503 }
+        : response || { ok: true, status: 200, json: async () => validView() };
+    }
   });
-  vm.runInContext(fs.readFileSync('app.js', 'utf8'), context, { filename: 'app.js' });
-  vm.runInContext(fs.readFileSync('report-link.js', 'utf8'), context, { filename: 'report-link.js' });
-  return { context, elements, utterances, speechSynthesis, document };
+  vm.runInContext(fs.readFileSync(path.join(ASSET_ROOT, 'app.js'), 'utf8'), context, { filename: 'app.js' });
+  vm.runInContext(fs.readFileSync(path.join(ASSET_ROOT, 'report-link.js'), 'utf8'), context, { filename: 'report-link.js' });
+  return { context, elements, utterances, speechSynthesis, document, requests };
 }
 
 function validView() {
@@ -196,12 +203,17 @@ function validView() {
   let releaseLoading;
   const loadingResponse = new Promise(resolve => { releaseLoading = resolve; });
   const loading = buildHarness({ response: loadingResponse });
+  await loading.elements.connectReport.listeners.click();
+  assert.match(loading.elements.connectionStatus.textContent, /access token/);
+  loading.elements.reportToken.value = 'fixture-token';
   const loadingRequest = loading.elements.connectReport.listeners.click();
   assert.equal(loading.elements.connectReport.disabled, true);
-  assert.match(loading.elements.connectionStatus.textContent, /Loading/);
+  assert.match(loading.elements.connectionStatus.textContent, /loading/);
   releaseLoading({ ok: true, status: 200, json: async () => validView() });
   await loadingRequest;
   assert.equal(loading.elements.connectReport.disabled, false);
+  assert.equal(loading.elements.reportToken.value, '');
+  assert.equal(loading.requests.at(-1).options.headers.Authorization, 'Bearer fixture-token');
 
   context.window.ORIONPreview.applyReportView({
     ...validView(),
@@ -214,6 +226,7 @@ function validView() {
   assert.equal(elements.observations.textContent, '0');
   assert.match(elements.reportStatus.textContent, /no candidate/);
 
+  elements.reportToken.value = 'fixture-token';
   await elements.connectReport.listeners.click();
   assert.equal(elements.metadata.textContent, '7 / 7');
   assert.equal(elements.studies.textContent, '99 / 99');
@@ -230,8 +243,16 @@ function validView() {
   assert.equal(elements.observations.textContent, '303', 'invalid view must preserve prior result');
 
   const failed = buildHarness({ response: { ok: false, status: 503 } });
+  failed.elements.reportToken.value = 'fixture-token';
   await failed.elements.connectReport.listeners.click();
-  assert.match(failed.elements.connectionStatus.textContent, /no fallback data/);
+  assert.match(failed.elements.connectionStatus.textContent, /disconnected/);
+  assert.equal(failed.elements.observations.textContent, '—');
+
+  const denied = buildHarness({ response: { ok: false, status: 401 } });
+  denied.elements.reportToken.value = 'fixture-token';
+  await denied.elements.connectReport.listeners.click();
+  assert.match(denied.elements.connectionStatus.textContent, /Access denied/);
+  assert.equal(denied.elements.observations.textContent, '—');
 
   const stageA = buildHarness({
     statusResponse: {
@@ -275,8 +296,8 @@ function validView() {
   assert.equal(unsupported.elements.testVoice.disabled, true);
   assert.match(unsupported.elements.voiceStatus.textContent, /unavailable/);
 
-  const html = fs.readFileSync('index.html', 'utf8');
-  const css = `${fs.readFileSync('2036.css', 'utf8')}\n${fs.readFileSync('motion.css', 'utf8')}`;
+  const html = fs.readFileSync(path.join(ASSET_ROOT, 'index.html'), 'utf8');
+  const css = `${fs.readFileSync(path.join(ASSET_ROOT, '2036.css'), 'utf8')}\n${fs.readFileSync(path.join(ASSET_ROOT, 'motion.css'), 'utf8')}`;
   assert.match(html, /id="testVoice"/);
   assert.match(html, /id="connectReport"/);
   assert.match(html, /Disconnected\. No report loaded\./);
