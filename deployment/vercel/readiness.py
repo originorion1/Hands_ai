@@ -29,7 +29,10 @@ class ReadinessHandler(BaseHTTPRequestHandler):
         if target.path != "/api/ready" or target.query or target.fragment:
             self._reply(HTTPStatus.NOT_FOUND, b'{"error":"not_found"}\n', head=head)
             return
-        ready = probe_backend(os.environ.get("ORION_REPORT_BACKEND_URL"))
+        ready = probe_backend(
+            os.environ.get("ORION_REPORT_BACKEND_URL"),
+            service_token=os.environ.get("ORION_REPORT_SERVICE_TOKEN"),
+        )
         status = HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE
         body = b'{"ready":true,"execution_allowed":false}\n' if ready else (
             b'{"ready":false,"execution_allowed":false}\n'
