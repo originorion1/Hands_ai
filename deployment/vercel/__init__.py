@@ -1,0 +1,1 @@
+"""Vercel HTTP presentation adapter."""
