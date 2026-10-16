@@ -1,0 +1,30 @@
+name: Stage B report boundary verification
+
+on:
+  pull_request:
+    paths:
+      - "api/v1/report.py"
+      - "deployment/vercel/report.py"
+      - "tests/test_vercel_report_boundary.py"
+      - ".github/workflows/stage-b-report-boundary.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  report-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test requirements
+        run: python -m pip install "pytest>=8,<10"
+      - name: Verify public report route
+        run: python -m pytest -q tests/test_vercel_report_boundary.py
+      - name: Compile boundary modules
+        run: python -m py_compile api/v1/report.py deployment/vercel/report.py
