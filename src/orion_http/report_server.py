@@ -62,7 +62,11 @@ class AuthenticatedReportServer(HTTPServer):
         if self.service_token_path is None:
             return True
         expected = _read_service_token(self.service_token_path)
-        return len(presented) == 1 and secrets.compare_digest(presented[0], expected)
+        return (
+            len(presented) == 1
+            and _SERVICE_TOKEN.fullmatch(presented[0]) is not None
+            and secrets.compare_digest(presented[0], expected)
+        )
 
 
 class AuthenticatedReportHandler(BaseHTTPRequestHandler):
