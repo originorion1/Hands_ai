@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlsplit
 
 from .report import probe_backend
+from .request_target import is_api_target
 
 
 class ReadinessHandler(BaseHTTPRequestHandler):
@@ -25,8 +25,7 @@ class ReadinessHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _get(self, *, head: bool = False) -> None:
-        target = urlsplit(self.path)
-        if target.path != "/api/ready" or target.query or target.fragment:
+        if not is_api_target(self.path, "/api/ready"):
             self._reply(HTTPStatus.NOT_FOUND, b'{"error":"not_found"}\n', head=head)
             return
         ready = probe_backend(
