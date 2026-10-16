@@ -47,6 +47,7 @@ def relay(h, scope, *, confined, metadata_broker):
     root = Path(__file__).resolve().parents[1]
     script = root / 'tests' / 'isolated_semantic_consumer.py'
     command = namespace_command(script, readonly=((root / 'src', '/app/src'),
+        (root / 'packages' / 'pilot-compat' / 'src', '/app/compat'),
         (root / 'tests' / 'isolation_lab.py', '/work/isolation_lab.py'))) if confined else (
         [sys.executable, '-I', '-S', str(script), '--child'])
     with subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,

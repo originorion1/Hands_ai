@@ -21,5 +21,6 @@ jobs:
           python -m pip install -e packages/connector-sdk
           python -m pip install -e '.[dev]'
           python -m pip install -e packages/erpnext-discovery
+          python -m pip install -e packages/pilot-compat
       - name: Run tests
         run: python -m pytest -q
