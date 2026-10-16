@@ -7,6 +7,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from api.health import handler as HealthHandler
+from api.ready import handler as ReadinessHandler
 from api.v1.status import handler as StatusHandler
 
 
@@ -27,7 +28,8 @@ def _request(handler, path, *, method="GET"):
         server.server_close()
 
 
-def test_stage_a_status_reports_only_http_health_and_denied_authority():
+def test_stage_a_status_reports_only_http_health_and_denied_authority(monkeypatch):
+    monkeypatch.delenv("ORION_REPORT_BACKEND_URL", raising=False)
     for endpoint, handler in (
         ("/api/health", HealthHandler),
         ("/api/v1/status", StatusHandler),
@@ -58,3 +60,25 @@ def test_vercel_routes_only_named_application_assets_and_http_functions():
     assert config["rewrites"] == [{"source": "/", "destination": "/index.html"}]
     assert "services" not in config
     assert not (root / "public").is_symlink()
+
+
+def test_report_host_readiness_is_fail_closed_without_configuration(monkeypatch):
+    monkeypatch.delenv("ORION_REPORT_BACKEND_URL", raising=False)
+    status, headers, body = _request(ReadinessHandler, "/api/ready")
+    assert status == 503
+    assert headers["Cache-Control"] == "no-store"
+    assert json.loads(body) == {"ready": False, "execution_allowed": False}
+    assert _request(ReadinessHandler, "/api/ready", method="POST")[0] == 405
+    assert _request(ReadinessHandler, "/api/ready?tenant=other")[0] == 404
+
+
+def test_status_reports_configuration_without_claiming_backend_health(monkeypatch):
+    monkeypatch.setenv(
+        "ORION_REPORT_BACKEND_URL", "https://reports.example.test/api/v1/report"
+    )
+    status, _, body = _request(StatusHandler, "/api/v1/status")
+    assert status == 200
+    value = json.loads(body)
+    assert value["report_service"] == "requires_authentication"
+    assert value["persistent_storage"] == "not_connected"
+    assert value["execution_allowed"] is False

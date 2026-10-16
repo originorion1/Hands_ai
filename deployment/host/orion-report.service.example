@@ -1,0 +1,27 @@
+[Unit]
+Description=ORION read-only report service
+After=network.target
+
+[Service]
+Type=simple
+User=orion-report
+Group=orion-report
+EnvironmentFile=/etc/orion/report-server.env
+WorkingDirectory=/opt/orion-report
+ExecStart=/opt/orion-report/venv/bin/python -B -m orion_http.report_server --binding ${ORION_REPORT_BINDING_PATH} --access-policy ${ORION_REPORT_ACCESS_POLICY_PATH} --port ${ORION_REPORT_PORT}
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

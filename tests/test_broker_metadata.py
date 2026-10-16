@@ -1,8 +1,11 @@
 """Separate grants, real local broker workers, no customer/network access."""
 import hashlib
+import importlib
 import json
+import time
 from dataclasses import asdict, replace
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from test_supervised_broker import Harness
@@ -139,6 +142,51 @@ def test_metadata_stop_and_revocation_survive_restart(metadata, control):
     assert h.control('arm')['status'] == 'denied'
     result = h.send(h.message('new'))
     assert result['status'] == 'denied' and result['budget']['attempts'] == 3
+
+
+def test_metadata_deadline_covers_each_bounded_acquisition(metadata, monkeypatch):
+    h = metadata
+    monkeypatch.setenv('BROKER_AUTH_KEY', h.key.decode())
+    monkeypatch.setenv('BROKER_SOURCE_SECRET', h.secret)
+    broker = Broker(h.config, h.state)
+    broker.armed = True
+    original_worker = broker._worker
+    timeouts = []
+
+    def delayed_worker(bootstrap, *, timeout):
+        timeouts.append(timeout)
+        time.sleep(1.7)
+        return original_worker(bootstrap, timeout=timeout)
+
+    monkeypatch.setattr(broker, '_worker', delayed_worker)
+    result = broker.handle(h.message())
+    assert result['status'] == 'admitted'
+    assert result['budget']['attempts'] == 3
+    assert result['execution_allowed'] is False
+    assert len(timeouts) == 3 and all(0 < timeout <= 5 for timeout in timeouts)
+
+
+def test_metadata_rate_wait_rechecks_after_early_wakeup(metadata, monkeypatch):
+    h = metadata
+    monkeypatch.setenv('BROKER_AUTH_KEY', h.key.decode())
+    monkeypatch.setenv('BROKER_SOURCE_SECRET', h.secret)
+    broker = Broker(h.config, h.state)
+    broker.armed = True
+    sleeps = []
+
+    def early_first_sleep(seconds):
+        sleeps.append(seconds)
+        if len(sleeps) > 1:
+            time.sleep(seconds)
+
+    module = importlib.import_module('orion.pilot.broker')
+    monkeypatch.setattr(module, 'time', SimpleNamespace(monotonic=time.monotonic,
+                                                       sleep=early_first_sleep))
+    result = broker.handle(h.message())
+    assert result['status'] == 'admitted'
+    assert result['budget']['attempts'] == 3
+    assert result['execution_allowed'] is False
+    assert len(sleeps) >= 3
 
 
 def test_budget_exhaustion_counts_each_acquisition_and_survives_restart(metadata):
