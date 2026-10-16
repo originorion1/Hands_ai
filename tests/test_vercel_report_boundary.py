@@ -46,6 +46,8 @@ def test_public_route_denies_anonymous_and_unsupported_requests(monkeypatch) -> 
     for method in ("POST", "PUT", "PATCH", "DELETE", "OPTIONS"):
         assert _request("/api/v1/report", method=method)[0] == 405
     assert _request("/api/v1/report?tenant=other")[0] == 404
+    assert _request("/api/v1/report?utm_source=chatgpt.com")[0] == 401
+    assert _request("/api/v1/report?utm_source=chatgpt.com&tenant=other")[0] == 404
     status, _, body = _request(
         "/api/v1/report",
         headers={"Authorization": "Bearer forged", "X-Tenant-ID": "other-tenant"},
