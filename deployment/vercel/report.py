@@ -15,6 +15,8 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
 
+from .request_target import is_api_target
+
 _MAX_REPORT_BYTES = 64 * 1024
 _MAX_TOKEN_BYTES = 4096
 _SAFE_CATEGORY = re.compile(r"[a-z_]{1,64}\Z")
@@ -218,8 +220,7 @@ class ReportHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _get(self, *, head: bool = False) -> None:
-        target = urlsplit(self.path)
-        if target.path != "/api/v1/report" or target.query or target.fragment:
+        if not is_api_target(self.path, "/api/v1/report"):
             self._reply(HTTPStatus.NOT_FOUND, b'{"error":"not_found"}\n', head=head)
             return
         values = self.headers.get_all("Authorization") or []

@@ -6,9 +6,9 @@ import json
 import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlsplit
 
 from .report import _service_headers, _upstream_url
+from .request_target import is_api_target
 
 STATUS = {
     "interface_version": "orion.deployment-status.v1",
@@ -41,8 +41,7 @@ class StatusHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _get(self, *, head: bool = False) -> None:
-        target = urlsplit(self.path)
-        if target.path != self.route or target.query or target.fragment:
+        if not is_api_target(self.path, self.route):
             self._reply(HTTPStatus.NOT_FOUND, b'{"error":"not_found"}\n', head=head)
             return
         state = dict(STATUS)

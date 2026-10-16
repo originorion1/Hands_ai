@@ -47,7 +47,13 @@ def test_stage_a_status_reports_only_http_health_and_denied_authority(monkeypatc
         assert "tenant" not in body.decode()
         assert "credential" not in body.decode()
         assert _request(handler, endpoint, method="POST")[0] == 405
+        tracked_status, _, tracked_body = _request(
+            handler, endpoint + "?utm_source=chatgpt.com"
+        )
+        assert tracked_status == 200
+        assert tracked_body == body
         assert _request(handler, endpoint + "?tenant=other")[0] == 404
+        assert _request(handler, endpoint + "?utm_source=chatgpt.com&tenant=other")[0] == 404
 
 
 def test_vercel_routes_only_named_application_assets_and_http_functions():
@@ -69,7 +75,21 @@ def test_report_host_readiness_is_fail_closed_without_configuration(monkeypatch)
     assert headers["Cache-Control"] == "no-store"
     assert json.loads(body) == {"ready": False, "execution_allowed": False}
     assert _request(ReadinessHandler, "/api/ready", method="POST")[0] == 405
+    tracked_status, _, tracked_body = _request(
+        ReadinessHandler, "/api/ready?utm_source=chatgpt.com"
+    )
+    assert tracked_status == 503
+    assert tracked_body == body
     assert _request(ReadinessHandler, "/api/ready?tenant=other")[0] == 404
+
+
+def test_tracked_readiness_reports_real_backend_state(monkeypatch):
+    monkeypatch.setattr("deployment.vercel.readiness.probe_backend", lambda *args, **kwargs: True)
+    status, _, body = _request(
+        ReadinessHandler, "/api/ready?utm_source=chatgpt.com"
+    )
+    assert status == 200
+    assert json.loads(body) == {"ready": True, "execution_allowed": False}
 
 
 def test_status_reports_configuration_without_claiming_backend_health(monkeypatch):
