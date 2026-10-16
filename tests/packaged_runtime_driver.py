@@ -1869,7 +1869,13 @@ def controller(value):
                 result = command(runtime, {"command": "read",
                                            "message": message(operation, "instrument-read-" + str(index))})
                 response = result.get("response", result)
-                assert response["status"] == "admitted", response
+                if response["status"] != "admitted":
+                    emit(bounded_reasoning_denial(
+                        response,
+                        command(runtime, {"command": "health"}),
+                        command(server, {"command": "stats"}),
+                    ))
+                    return 1
                 assert response["interpretation"] == "UNKNOWN"
                 assessment = response["semantic_assessment"]
                 if value["case"] == "independent_failure" and index == 0:

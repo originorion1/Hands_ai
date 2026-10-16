@@ -18,7 +18,7 @@ orion-runtime = "orion.pilot.deployment:main"
 dev = ["pytest>=8.0", "ruff>=0.8", "hatchling>=1.27", "jsonschema>=4.0"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/orion"]
+packages = ["src/orion", "src/orion_http"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
