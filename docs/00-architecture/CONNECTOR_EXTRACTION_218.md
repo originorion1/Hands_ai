@@ -27,8 +27,10 @@ installed connector registry exists at this baseline.
 The first extraction slice makes `orion-connector-erpnext-discovery` the sole
 wheel owner of `orion.discovery.erpnext_adapter` while retaining its historical
 import path and behavior. The source tree retains that path for existing source
-tests. This is a packaging boundary only; it does not authorize customer reads
-or change the broker's fixed protocol rules.
+tests. The connector build hook includes that one source file in both its wheel
+and source archive; a wheel rebuilt from the source archive must contain the
+same bytes. This is a packaging boundary only; it does not authorize customer
+reads or change the broker's fixed protocol rules.
 
 ## Migration sequence
 
