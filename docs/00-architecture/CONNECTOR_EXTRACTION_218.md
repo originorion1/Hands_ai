@@ -77,3 +77,23 @@ gateway, deployment, custody, readiness, and policy modules. This artifact
 boundary does not complete reviewed capability dispatch or process isolation.
 The ERPNext connector package name also retains `discovery` for compatibility
 with the earlier stack until a separate reviewed rename is qualified.
+
+## Historical pilot compatibility distribution
+
+`orion-erpnext-pilot-compat` owns the historical supervised pilot modules and
+`orion.demo` under their old import paths, as well as the `orion-runtime`
+console script. The Kernel distribution contains none of those modules or the
+script. The compatibility package depends explicitly on the independently
+installable ERPNext connector and the Kernel; its installed RECORD is checked
+as the authority for historical pilot startup. Existing grants bound to a
+previous Kernel artifact remain invalid for this new distribution and must be
+reviewed afresh before any activation.
+
+This keeps the old fail-closed ERPNext pilot readable and testable without
+making its vendor-specific branches part of the Kernel. The Kernel-only
+installation starts through `OrionKernel` and its neutral ports. The SDK's
+registration record grants no runtime authority, and the synthetic connector
+can supply tenant-bound observations through those ports without Kernel source
+changes. A universal governed pilot dispatcher for future external connectors
+is a separate implementation gate; the historical pilot compatibility package
+must not be mistaken for that dispatcher or used to infer live readiness.

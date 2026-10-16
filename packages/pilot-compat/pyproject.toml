@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "orion-erpnext-pilot-compat"
+version = "0.1.0"
+description = "Historical ERPNext supervised pilot and demo compatibility for ORION"
+requires-python = ">=3.12"
+dependencies = [
+    "orion-core==0.1.0",
+    "orion-connector-erpnext-discovery==0.1.0",
+    "orion-connector-sdk==0.1.0",
+]
+
+[project.scripts]
+orion-runtime = "orion.pilot.deployment:main"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["src/orion/pilot", "src/orion/demo.py"]
+sources = ["src"]

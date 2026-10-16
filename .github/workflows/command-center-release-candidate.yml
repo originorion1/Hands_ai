@@ -38,6 +38,7 @@ jobs:
           python -m pip install -e packages/connector-sdk
           python -m pip install -e ".[dev]"
           python -m pip install -e packages/erpnext-discovery
+          python -m pip install -e packages/pilot-compat
       - name: Python syntax and deployment configuration
         run: |
           python -m compileall -q api deployment src/orion/presentation src/orion_http

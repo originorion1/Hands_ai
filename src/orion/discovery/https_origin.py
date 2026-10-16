@@ -18,7 +18,7 @@ def _normalize_base_url(base_url: str) -> str:
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("base_url must not contain credentials")
     if parsed.path not in {"", "/"}:
-        raise ValueError("base_url must contain only the ERPNext HTTPS origin")
+        raise ValueError("base_url must contain only the HTTPS origin")
     if parsed.query or parsed.fragment:
         raise ValueError("base_url must not contain query parameters or fragments")
     if any(character.isspace() for character in parsed.netloc):

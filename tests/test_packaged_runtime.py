@@ -42,6 +42,15 @@ def clean_artifact(tmp_path_factory):
     subprocess.run(
         [
             os.environ.get("ORION_BUILD_PYTHON", sys.executable),
+            "-m", "pip", "wheel", "--no-deps", "--no-build-isolation", "--no-index",
+            "--wheel-dir", str(wheels), str(ROOT / "packages/connector-sdk"),
+        ],
+        check=True, capture_output=True, text=True, timeout=60,
+    )
+    (sdk_wheel,) = wheels.glob("orion_connector_sdk-*.whl")
+    subprocess.run(
+        [
+            os.environ.get("ORION_BUILD_PYTHON", sys.executable),
             "-m",
             "pip",
             "wheel",
@@ -58,6 +67,15 @@ def clean_artifact(tmp_path_factory):
         timeout=60,
     )
     (connector_wheel,) = wheels.glob("orion_connector_erpnext_discovery-*.whl")
+    subprocess.run(
+        [
+            os.environ.get("ORION_BUILD_PYTHON", sys.executable),
+            "-m", "pip", "wheel", "--no-deps", "--no-build-isolation", "--no-index",
+            "--wheel-dir", str(wheels), str(ROOT / "packages/pilot-compat"),
+        ],
+        check=True, capture_output=True, text=True, timeout=60,
+    )
+    (compat_wheel,) = wheels.glob("orion_erpnext_pilot_compat-*.whl")
     environment = root / "installed"
     subprocess.run(
         [sys.executable, "-m", "venv", str(environment)],
@@ -66,6 +84,10 @@ def clean_artifact(tmp_path_factory):
         timeout=30,
     )
     python = environment / "bin/python"
+    subprocess.run(
+        [str(python), "-m", "pip", "install", "--no-deps", "--no-index", str(sdk_wheel)],
+        check=True, capture_output=True, text=True, timeout=30,
+    )
     subprocess.run(
         [str(python), "-m", "pip", "install", "--no-deps", "--no-index", str(wheel)],
         check=True,
@@ -78,9 +100,10 @@ def clean_artifact(tmp_path_factory):
             "-I",
             "-c",
             (
-                "import importlib.util; import orion.pilot.deployment; "
+                "import importlib.util; import orion.kernel; "
                 "assert importlib.util.find_spec('orion.discovery.erpnext_adapter') is None; "
-                "assert importlib.util.find_spec('orion.pilot.erpnext_candidate') is None; "
+                "assert importlib.util.find_spec('orion.pilot') is None; "
+                "assert importlib.util.find_spec('orion.demo') is None; "
                 "assert importlib.util.find_spec('orion.presentation.report_interface') is None; "
                 "assert importlib.util.find_spec('orion_http.report_server') is None"
             ),
@@ -98,6 +121,10 @@ def clean_artifact(tmp_path_factory):
         check=True,
         capture_output=True,
         timeout=30,
+    )
+    subprocess.run(
+        [str(python), "-m", "pip", "install", "--no-deps", "--no-index", str(compat_wheel)],
+        check=True, capture_output=True, text=True, timeout=30,
     )
     return root, wheel, python
 
@@ -143,10 +170,8 @@ def test_wheel_contains_runtime_without_checkout_or_fixture_dependencies(clean_a
     root, wheel, python = clean_artifact
     with zipfile.ZipFile(wheel) as archive:
         names = archive.namelist()
-        assert "orion/pilot/deployment.py" in names
-        assert "orion/pilot/production.py" in names
-        assert "orion/pilot/ipc.py" in names
-        assert "orion/pilot/isolation.py" in names
+        assert not any(name.startswith("orion/pilot/") for name in names)
+        assert "orion/demo.py" not in names
         assert not any(name.startswith("orion/discovery/erpnext_") for name in names)
         assert "orion/discovery/retained_investigation_session.py" not in names
         assert "orion/pilot/erpnext_candidate.py" not in names
@@ -194,7 +219,9 @@ def test_installed_identity_rejects_source_tree_substitution(clean_artifact):
     substituted = subprocess.run(
         [str(python), "-m", "orion.pilot.deployment", "--artifact"],
         cwd=root,
-        env={"PATH": os.defpath, "PYTHONPATH": str(ROOT / "src")},
+        env={"PATH": os.defpath, "PYTHONPATH": os.pathsep.join((
+            str(ROOT / "src"), str(ROOT / "packages/pilot-compat/src")
+        ))},
         capture_output=True,
         text=True,
         timeout=10,
@@ -215,11 +242,19 @@ def test_clean_installed_startup_fails_closed_without_valid_private_deployment(c
         assert value["execution_allowed"] is False
 
 
-def test_installed_artifact_tampering_denies_identity_and_startup(clean_artifact, tmp_path):
+@pytest.mark.parametrize("relative", (
+    "orion/pilot/runtime.py",
+    "orion/kernel.py",
+    "orion/discovery/erpnext_adapter.py",
+    "orion_connector_sdk/registry.py",
+))
+def test_installed_artifact_tampering_denies_identity_and_startup(
+    clean_artifact, tmp_path, relative,
+):
     _, _, python = clean_artifact
     damaged = tmp_path / "tampered-install"
     shutil.copytree(python.parent.parent, damaged, symlinks=True)
-    (runtime,) = damaged.glob("lib/python*/site-packages/orion/pilot/runtime.py")
+    (runtime,) = damaged.glob(f"lib/python*/site-packages/{relative}")
     runtime.write_bytes(runtime.read_bytes() + b"\n# synthetic artifact tamper\n")
     result = subprocess.run(
         [str(damaged / "bin/python"), "-I", "-m", "orion.pilot.deployment", "--artifact"],
