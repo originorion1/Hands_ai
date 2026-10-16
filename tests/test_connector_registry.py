@@ -6,6 +6,7 @@ from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import pytest
+
 from orion_connector_sdk import CONTRACT_VERSION, ReviewedConnector, discover, registry
 
 

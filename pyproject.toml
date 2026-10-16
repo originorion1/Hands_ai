@@ -46,3 +46,4 @@ pythonpath = ["src", "packages/connector-sdk/src", "packages/erpnext-discovery/s
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+src = [".", "src", "packages/connector-sdk/src", "packages/erpnext-discovery/src", "packages/synthetic-connector/src"]
