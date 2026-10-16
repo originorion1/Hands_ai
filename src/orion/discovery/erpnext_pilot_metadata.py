@@ -1,0 +1,1 @@
+../../../packages/erpnext-discovery/src/orion/discovery/erpnext_pilot_metadata.py

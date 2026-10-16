@@ -66,6 +66,12 @@ module paths remain available only after installing the connector package.
 The source test layout extends the package paths to exercise the same legacy
 imports without copying implementation files back into Kernel source.
 
+The frozen learning evaluation pins the historical source path and its exact
+SHA-256. A source-only symlink at that path resolves to the connector-owned
+unchanged file. The Kernel wheel and source archive exclude the symlink and
+file, so an installed Kernel has no ERPNext implementation. This preserves the
+frozen source identity without modifying the evaluation protocol.
+
 The generic pilot source still has ERPNext-specific branches in its broker,
 gateway, deployment, custody, readiness, and policy modules. This artifact
 boundary does not complete reviewed capability dispatch or process isolation.
