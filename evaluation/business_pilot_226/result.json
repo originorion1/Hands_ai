@@ -1,0 +1,101 @@
+{
+  "baseline_metrics": {
+    "false_negative": 0,
+    "false_positive": 2,
+    "false_positive_rate": 0.6666666666666666,
+    "precision": 0.3333333333333333,
+    "recall": 1.0,
+    "true_negative": 1,
+    "true_positive": 1
+  },
+  "canonical_source_sha": "eabda90593f00ddc9b6ace6a4b9b9301fb3a01dd",
+  "duplicate_sequence_denied": true,
+  "execution_allowed": false,
+  "fixture_sha256": "da848620c31ea06ad2b9ccf01df3db5576030f1367ba7c954c57c017ec525495",
+  "heldout_learning_improvement": null,
+  "incremental_orion_discoveries": 0,
+  "orion_metrics": {
+    "false_negative": 0,
+    "false_positive": 1,
+    "false_positive_rate": 0.3333333333333333,
+    "precision": 0.5,
+    "recall": 1.0,
+    "true_negative": 2,
+    "true_positive": 1
+  },
+  "periods": [
+    {
+      "baseline_candidate_fields": [
+        "cost_center",
+        "project"
+      ],
+      "metadata_provenance_count": 1,
+      "orion_aggregate": {
+        "absent_identities": 0,
+        "applicability": "unknown",
+        "business_defect_validated": false,
+        "changed_identities": 0,
+        "examined_fields": 2,
+        "execution_allowed": false,
+        "missing_identities": 2,
+        "observed_identities": 4,
+        "prediction_validated": false,
+        "promotion_allowed": false,
+        "recommendation_allowed": false,
+        "required_in_current_metadata": true,
+        "status": "review_candidate",
+        "valid_identities": 2
+      },
+      "orion_candidate_field": "cost_center",
+      "orion_evidence_count": 4,
+      "period": "calibration",
+      "records": 4,
+      "relevant_evidence_sha256": "f91f7ea5527ea8c90f3fa0db5a736546f9d0f4d36e58253e2ce875eae6828d19",
+      "review_positive_fields": 1,
+      "source_provenance_sha256": "0bc2b429d202c9be8a5be1f0ee9cd5533f09482b932f30d7890cd7c6cc67c35a",
+      "window": [
+        "2026-01-01",
+        "2026-01-31"
+      ]
+    },
+    {
+      "baseline_candidate_fields": [
+        "project"
+      ],
+      "metadata_provenance_count": 1,
+      "orion_aggregate": {
+        "absent_identities": 0,
+        "applicability": "unknown",
+        "business_defect_validated": false,
+        "changed_identities": 0,
+        "examined_fields": 2,
+        "execution_allowed": false,
+        "missing_identities": 2,
+        "observed_identities": 4,
+        "prediction_validated": false,
+        "promotion_allowed": false,
+        "recommendation_allowed": false,
+        "required_in_current_metadata": false,
+        "status": "review_candidate",
+        "valid_identities": 2
+      },
+      "orion_candidate_field": "project",
+      "orion_evidence_count": 4,
+      "period": "holdout",
+      "records": 4,
+      "relevant_evidence_sha256": "0119b9bdb9dd8a1c419b0d2633433562c44b9b8059d44a3e9f4b4b64a8c4cb20",
+      "review_positive_fields": 0,
+      "source_provenance_sha256": "e0568d000fee018dfe667782db7c345d783652d466cb888027ca5b6f5fb6279c",
+      "window": [
+        "2026-02-01",
+        "2026-02-28"
+      ]
+    }
+  ],
+  "stale_candidate_invalidated_after_correction": true,
+  "synthetic_only": true,
+  "unit": "period-field review candidate",
+  "verified_customer_findings": 0,
+  "verified_financial_impact": null,
+  "wrong_tenant_denied": true
+}
