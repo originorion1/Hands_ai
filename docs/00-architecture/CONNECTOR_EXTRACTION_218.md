@@ -53,3 +53,27 @@ authorize customer reads or change the broker's fixed protocol rules.
 
 Until steps 2–4 pass, the complete physical Kernel/connector separation remains
 open. A green build of this first slice alone cannot establish that property.
+
+## Stacked source and artifact ownership candidate
+
+The next draft slice moves all 21 `erpnext_*.py` discovery implementations,
+the ERPNext candidate transport, retained investigation composition, legacy
+aggregate report projection, and its report-host entry point to
+`packages/erpnext-discovery/src`. The connector wheel and source archive own
+these 25 modules. The Kernel wheel and source archive exclude them; its
+metadata no longer advertises an ERPNext optional dependency. The historical
+module paths remain available only after installing the connector package.
+The source test layout extends the package paths to exercise the same legacy
+imports without copying implementation files back into Kernel source.
+
+The frozen learning evaluation pins the historical source path and its exact
+SHA-256. A source-only symlink at that path resolves to the connector-owned
+unchanged file. The Kernel wheel and source archive exclude the symlink and
+file, so an installed Kernel has no ERPNext implementation. This preserves the
+frozen source identity without modifying the evaluation protocol.
+
+The generic pilot source still has ERPNext-specific branches in its broker,
+gateway, deployment, custody, readiness, and policy modules. This artifact
+boundary does not complete reviewed capability dispatch or process isolation.
+The ERPNext connector package name also retains `discovery` for compatibility
+with the earlier stack until a separate reviewed rename is qualified.

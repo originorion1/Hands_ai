@@ -79,7 +79,10 @@ def clean_artifact(tmp_path_factory):
             "-c",
             (
                 "import importlib.util; import orion.pilot.deployment; "
-                "assert importlib.util.find_spec('orion.discovery.erpnext_adapter') is None"
+                "assert importlib.util.find_spec('orion.discovery.erpnext_adapter') is None; "
+                "assert importlib.util.find_spec('orion.pilot.erpnext_candidate') is None; "
+                "assert importlib.util.find_spec('orion.presentation.report_interface') is None; "
+                "assert importlib.util.find_spec('orion_http.report_server') is None"
             ),
         ],
         cwd=root,
@@ -144,7 +147,11 @@ def test_wheel_contains_runtime_without_checkout_or_fixture_dependencies(clean_a
         assert "orion/pilot/production.py" in names
         assert "orion/pilot/ipc.py" in names
         assert "orion/pilot/isolation.py" in names
-        assert "orion/discovery/erpnext_adapter.py" not in names
+        assert not any(name.startswith("orion/discovery/erpnext_") for name in names)
+        assert "orion/discovery/retained_investigation_session.py" not in names
+        assert "orion/pilot/erpnext_candidate.py" not in names
+        assert "orion/presentation/report_interface.py" not in names
+        assert "orion_http/report_server.py" not in names
         assert not any(name.startswith(("tests/", "tools/")) for name in names)
     inspected = subprocess.run(
         [

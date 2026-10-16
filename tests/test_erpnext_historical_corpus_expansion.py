@@ -182,5 +182,7 @@ def test_safe_summary_and_capability_surface(tmp_path):
     summary = run(path, [f"NEW-{i}" for i in range(100)], [])
     rendered = repr(summary)
     assert COMPANY not in rendered and "synthetic-key" not in rendered and "NEW-" not in rendered
-    source = Path("src/orion/discovery/erpnext_historical_corpus_expansion.py").read_text().lower()
+    source = Path(
+        "packages/erpnext-discovery/src/orion/discovery/erpnext_historical_corpus_expansion.py"
+    ).read_text().lower()
     assert "post(" not in source and "put(" not in source and "delete(" not in source and "checkpoint" not in source
