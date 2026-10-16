@@ -17,8 +17,8 @@ from datetime import datetime
 from pathlib import Path
 
 from ..contracts import EvidenceKind, utc_now
-from ..discovery.erpnext_adapter import _normalize_base_url
-from ..discovery.erpnext_live_session import CredentialEnvironmentReferences
+from ..discovery.credential_references import CredentialEnvironmentReferences
+from ..discovery.https_origin import _normalize_base_url
 from ..discovery.pilot_metadata import launch_pilot_metadata
 from ..discovery.pilot_read import _text, launch_pilot_read
 from ..history.evidence import _observation_to_data

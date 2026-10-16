@@ -29,8 +29,11 @@ wheel owner of `orion.discovery.erpnext_adapter` while retaining its historical
 import path and behavior. The source tree retains that path for existing source
 tests. The connector build hook includes that one source file in both its wheel
 and source archive; a wheel rebuilt from the source archive must contain the
-same bytes. This is a packaging boundary only; it does not authorize customer
-reads or change the broker's fixed protocol rules.
+same bytes. Core-only installed startup uses shared HTTPS-origin and credential
+reference helpers without importing the ERPNext adapter. The installed-runtime
+suite checks this core-only state, then installs the connector wheel for the
+historical ERPNext scenarios. This is a packaging boundary only; it does not
+authorize customer reads or change the broker's fixed protocol rules.
 
 ## Migration sequence
 

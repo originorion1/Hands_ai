@@ -39,6 +39,25 @@ def clean_artifact(tmp_path_factory):
         timeout=60,
     )
     (wheel,) = wheels.glob("*.whl")
+    subprocess.run(
+        [
+            os.environ.get("ORION_BUILD_PYTHON", sys.executable),
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--no-build-isolation",
+            "--no-index",
+            "--wheel-dir",
+            str(wheels),
+            str(ROOT / "packages/erpnext-discovery"),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    (connector_wheel,) = wheels.glob("orion_connector_erpnext_discovery-*.whl")
     environment = root / "installed"
     subprocess.run(
         [sys.executable, "-m", "venv", str(environment)],
@@ -49,6 +68,30 @@ def clean_artifact(tmp_path_factory):
     python = environment / "bin/python"
     subprocess.run(
         [str(python), "-m", "pip", "install", "--no-deps", "--no-index", str(wheel)],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    core_only = subprocess.run(
+        [
+            str(python),
+            "-I",
+            "-c",
+            (
+                "import importlib.util; import orion.pilot.deployment; "
+                "assert importlib.util.find_spec('orion.discovery.erpnext_adapter') is None"
+            ),
+        ],
+        cwd=root,
+        env={"PATH": os.defpath},
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert core_only.returncode == 0, core_only.stderr
+    subprocess.run(
+        [str(python), "-m", "pip", "install", "--no-deps", "--no-index", str(connector_wheel)],
         check=True,
         capture_output=True,
         timeout=30,
@@ -101,6 +144,7 @@ def test_wheel_contains_runtime_without_checkout_or_fixture_dependencies(clean_a
         assert "orion/pilot/production.py" in names
         assert "orion/pilot/ipc.py" in names
         assert "orion/pilot/isolation.py" in names
+        assert "orion/discovery/erpnext_adapter.py" not in names
         assert not any(name.startswith(("tests/", "tools/")) for name in names)
     inspected = subprocess.run(
         [
