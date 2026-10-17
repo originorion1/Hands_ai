@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -41,6 +41,10 @@ jobs:
           for tool in unshare nsenter ip nft bwrap openssl curl setpriv; do
             command -v "$tool"
           done
+      - name: Verify rootless namespace capability
+        run: |
+          unshare --user --map-root-user --net /usr/bin/true
+          bwrap --unshare-all --die-with-parent --ro-bind /usr /usr --proc /proc --dev /dev /usr/bin/true
       - name: Install project
         run: |
           python -m pip install -e packages/connector-sdk
