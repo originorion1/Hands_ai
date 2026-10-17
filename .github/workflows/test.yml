@@ -44,7 +44,7 @@ jobs:
       - name: Verify rootless namespace capability
         run: |
           unshare --user --map-root-user --net /usr/bin/true
-          bwrap --unshare-all --die-with-parent --ro-bind /usr /usr --proc /proc --dev /dev /usr/bin/true
+          bwrap --unshare-all --die-with-parent --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --ro-bind /bin /bin --proc /proc --dev /dev /usr/bin/true
       - name: Install project
         run: |
           python -m pip install -e packages/connector-sdk
