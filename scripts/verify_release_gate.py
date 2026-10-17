@@ -131,12 +131,25 @@ def verify(
     artifacts = manifest.get("artifacts")
     if not isinstance(artifacts, dict) or not artifacts:
         raise ReleaseDenied("missing artifact inventory")
+    component_versions = manifest.get("component_versions")
+    if not isinstance(component_versions, dict) or set(component_versions) != REQUIRED_DISTS:
+        raise ReleaseDenied("missing component version inventory")
     for distribution in REQUIRED_DISTS:
-        stem = f"{distribution}-{version}"
-        if not any(name.startswith(stem) and name.endswith(".whl") for name in artifacts):
+        component_version = component_versions[distribution]
+        if not isinstance(component_version, str) or not re.fullmatch(
+            r"0\.2\.0rc[1-9][0-9]*", component_version
+        ):
+            raise ReleaseDenied("invalid component version")
+        stem = f"{distribution}-{component_version}"
+        wheels = [name for name in artifacts if name.startswith(stem + "-")
+                  and name.endswith(".whl")]
+        if len(wheels) != 1:
             raise ReleaseDenied("missing required wheel")
         if f"{stem}.tar.gz" not in artifacts:
             raise ReleaseDenied("missing required source archive")
+        if any(name.startswith(distribution + "-") and name not in
+               {wheels[0], f"{stem}.tar.gz"} for name in artifacts):
+            raise ReleaseDenied("unexpected component artifact version")
     _verify_inventory(artifacts_dir, artifacts, label="artifact")
     records = manifest.get("records")
     if not isinstance(records, dict) or set(records) != REQUIRED_CHECKS | {"known_risks"}:

@@ -76,6 +76,7 @@ def _fixture(tmp_path):
         "tree": tree,
         "source_author": "builder",
         "version": "0.2.0rc1",
+        "component_versions": dict.fromkeys(REQUIRED_DISTS, "0.2.0rc1"),
         "checks": dict.fromkeys(REQUIRED_CHECKS, "PASS"),
         "artifacts": inventory,
         "records": record_hashes,
@@ -181,4 +182,23 @@ def test_signature_or_evidence_record_tamper_denied(tmp_path):
     paths = _fixture(second)
     (paths[5] / "rollback.json").write_text('{"synthetic_evidence":"altered"}')
     with pytest.raises(ReleaseDenied, match="record hash mismatch"):
+        verify(*paths)
+
+
+def test_mixed_component_version_must_match_exact_artifacts(tmp_path):
+    paths = _fixture(tmp_path)
+    manifest = json.loads(paths[0].read_text())
+    erp = "originorion_connector_erpnext_discovery"
+    manifest["component_versions"][erp] = "0.2.0rc2"
+    _json(paths[0], manifest)
+    with pytest.raises(ReleaseDenied, match="required wheel"):
+        verify(*paths)
+
+
+def test_missing_or_extra_component_version_denied(tmp_path):
+    paths = _fixture(tmp_path)
+    manifest = json.loads(paths[0].read_text())
+    manifest["component_versions"].pop("originorion_connector_sdk")
+    _json(paths[0], manifest)
+    with pytest.raises(ReleaseDenied, match="component version inventory"):
         verify(*paths)
