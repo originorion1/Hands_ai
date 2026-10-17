@@ -1,0 +1,9 @@
+[Unit]
+Description=Prepare a private ORION loopback development TLS pair
+
+[Service]
+Type=oneshot
+UMask=0077
+NoNewPrivileges=yes
+ExecStart=/path/to/reviewed/python -m deployment.release_candidate.renew_loopback_tls --root /path/to/private/loopback-tls
+# After independent review, add a separately approved facade restart action.
