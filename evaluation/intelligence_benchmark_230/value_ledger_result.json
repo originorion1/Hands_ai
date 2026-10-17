@@ -1,0 +1,27 @@
+{
+  "benchmark_results_sha256": "c848eebe6ff5d166c8ddf9f24a59afbe92189cf6732c6bef89d262ecc19fdb6c",
+  "conventional_review_cost_usd_estimate": "40.5",
+  "data_class": "synthetic",
+  "execution_allowed": false,
+  "gross_margin": null,
+  "incremental_validated_discoveries": 0,
+  "investigation_cost_usd": null,
+  "net_incremental_value_usd": null,
+  "onboarding_cost_usd": null,
+  "orion_review_cost_usd_estimate": "4.5",
+  "orion_tenant_totals": {
+    "synthetic-hospitality-a": {
+      "estimated_exposure_usd": "0.00",
+      "findings": 1,
+      "realized_savings_usd": "0",
+      "verified_avoidable_usd": "0.00"
+    }
+  },
+  "realized_customer_savings_usd": "0.00",
+  "roi": null,
+  "schema": "orion.customer-value-ledger.v1",
+  "subscription_revenue_usd": null,
+  "support_cost_usd": null,
+  "verdict": "NOT_ESTABLISHED",
+  "verified_avoidable_usd": "0.00"
+}
