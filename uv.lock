@@ -222,12 +222,12 @@ wheels = [
 
 [[package]]
 name = "originorion-connector-sdk"
-version = "0.1.0"
+version = "0.2.0rc1"
 source = { directory = "packages/connector-sdk" }
 
 [[package]]
 name = "originorion-core"
-version = "0.1.0"
+version = "0.2.0rc1"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },

@@ -14,6 +14,7 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    sys.path.insert(0, "/pilot")
 
 from broker_namespace_lab import readonly
 from destination_network_lab import (
@@ -256,7 +257,10 @@ def broker_child(value):
 
 def command(paths, *, source=False, state=None):
     root = Path(__file__).resolve().parents[1]
-    mounts = [(root / "src", "/src")]
+    mounts = [
+        (root / "src", "/src"),
+        (root / "packages" / "pilot-compat" / "src", "/pilot"),
+    ]
     for name in (
         "isolation_lab",
         "broker_namespace_lab",

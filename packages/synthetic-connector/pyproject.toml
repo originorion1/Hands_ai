@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "originorion-connector-synthetic"
-version = "0.1.0"
+version = "0.2.0rc1"
 description = "Independent synthetic connector for ORION boundary verification"
 requires-python = ">=3.12"
-dependencies = ["originorion-core==0.1.0", "originorion-connector-sdk==0.1.0"]
+dependencies = ["originorion-core==0.2.0rc1", "originorion-connector-sdk==0.2.0rc1"]
 
 [project.entry-points."orion.connectors.v1"]
 synthetic = "orion_connector_synthetic:SyntheticConnector"

@@ -5,9 +5,9 @@ from __future__ import annotations
 import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlsplit
 
 from .report import probe_backend
+from .request_target import is_api_target
 
 
 class ReadinessHandler(BaseHTTPRequestHandler):
@@ -25,11 +25,13 @@ class ReadinessHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _get(self, *, head: bool = False) -> None:
-        target = urlsplit(self.path)
-        if target.path != "/api/ready" or target.query or target.fragment:
+        if not is_api_target(self.path, "/api/ready"):
             self._reply(HTTPStatus.NOT_FOUND, b'{"error":"not_found"}\n', head=head)
             return
-        ready = probe_backend(os.environ.get("ORION_REPORT_BACKEND_URL"))
+        ready = probe_backend(
+            os.environ.get("ORION_REPORT_BACKEND_URL"),
+            service_token=os.environ.get("ORION_REPORT_SERVICE_TOKEN"),
+        )
         status = HTTPStatus.OK if ready else HTTPStatus.SERVICE_UNAVAILABLE
         body = b'{"ready":true,"execution_allowed":false}\n' if ready else (
             b'{"ready":false,"execution_allowed":false}\n'

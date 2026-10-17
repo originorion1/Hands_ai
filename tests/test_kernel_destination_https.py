@@ -187,6 +187,10 @@ def test_jail_inherits_only_preconfigured_private_network_and_drops_capabilities
     broker = lab.command(paths, state=tmp_path / "state")
     source = lab.command(paths, source=True)
     for command in (broker, source):
+        pilot_source = str(Path(__file__).resolve().parents[1] / "packages" / "pilot-compat" / "src")
+        assert command[command.index(pilot_source) - 1:command.index(pilot_source) + 2] == [
+            "--ro-bind", pilot_source, "/pilot"
+        ]
         assert "--share-net" not in command and "--unshare-net" not in command
         assert "--unshare-user" in command and "--unshare-pid" in command
         assert command[command.index("--cap-drop") + 1] == "ALL" and "--clearenv" in command

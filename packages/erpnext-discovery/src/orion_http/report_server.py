@@ -9,6 +9,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
+import secrets
+import signal
+import socket
+import stat
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -16,12 +23,60 @@ from urllib.parse import urlsplit
 
 from orion.presentation.report_auth import ReportAccessPolicy, ReportAuthenticationError
 from orion.presentation.report_interface import BoundReportSource, ReportInterfaceError
+from orion.stores.private_files import PrivateFileError, read_private_file
+
+_SERVICE_TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+_IDLE_CONNECTION_TIMEOUT_SECONDS = 2.0
+_MAX_CONNECTION_SECONDS = 5.0
+
+
+def _read_service_token(path: Path) -> str:
+    if not path.is_absolute() or ".." in path.parts:
+        raise PrivateFileError("report service credential unavailable")
+    try:
+        current = Path(path.anchor)
+        for part in path.parts[1:]:
+            current /= part
+            if stat.S_ISLNK(os.lstat(current).st_mode):
+                raise PrivateFileError("report service credential unavailable")
+        token = read_private_file(
+            path, label="report service credential", maximum_bytes=128
+        ).decode("ascii")
+    except (OSError, UnicodeDecodeError) as exc:
+        raise PrivateFileError("report service credential unavailable") from exc
+    if _SERVICE_TOKEN.fullmatch(token) is None:
+        raise PrivateFileError("report service credential unavailable")
+    return token
 
 
 class AuthenticatedReportServer(HTTPServer):
+    # One request is handled at a time; bound idle sockets and pending accepts.
+    request_queue_size = 16
     source: BoundReportSource
     policy: ReportAccessPolicy
     policy_path: Path | None
+    service_token_path: Path | None
+
+    def get_request(self):
+        connection, address = super().get_request()
+        connection.settimeout(_IDLE_CONNECTION_TIMEOUT_SECONDS)
+        return connection, address
+
+    def process_request(self, request, client_address):
+        deadline = threading.Timer(_MAX_CONNECTION_SECONDS, self._close_overdue, args=(request,))
+        deadline.daemon = True
+        deadline.start()
+        try:
+            super().process_request(request, client_address)
+        finally:
+            deadline.cancel()
+
+    @staticmethod
+    def _close_overdue(request):
+        try:
+            request.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
     def current_policy(self) -> ReportAccessPolicy:
         if self.policy_path is None:
@@ -30,6 +85,16 @@ class AuthenticatedReportServer(HTTPServer):
         if policy.tenant_id != self.source.tenant_id:
             raise ReportAuthenticationError("report access policy unavailable")
         return policy
+
+    def service_authorized(self, presented: list[str]) -> bool:
+        if self.service_token_path is None:
+            return True
+        expected = _read_service_token(self.service_token_path)
+        return (
+            len(presented) == 1
+            and _SERVICE_TOKEN.fullmatch(presented[0]) is not None
+            and secrets.compare_digest(presented[0], expected)
+        )
 
 
 class AuthenticatedReportHandler(BaseHTTPRequestHandler):
@@ -56,6 +121,16 @@ class AuthenticatedReportHandler(BaseHTTPRequestHandler):
         hosts = self.headers.get_all("Host") or []
         if len(hosts) != 1 or hosts[0] not in {f"127.0.0.1:{port}", f"localhost:{port}"}:
             self._reply(HTTPStatus.FORBIDDEN, b'{"error":"access_denied"}\n', head=head)
+            return
+        try:
+            service_allowed = self.server.service_authorized(
+                self.headers.get_all("X-ORION-Service-Token") or []
+            )
+        except PrivateFileError:
+            self._reply(HTTPStatus.SERVICE_UNAVAILABLE, b'{"error":"report_unavailable"}\n', head=head)
+            return
+        if not service_allowed:
+            self._reply(HTTPStatus.UNAUTHORIZED, b'{"error":"access_denied"}\n', head=head)
             return
         target = urlsplit(self.path)
         if target.query or target.fragment:
@@ -116,7 +191,8 @@ class AuthenticatedReportHandler(BaseHTTPRequestHandler):
 
 
 def create_server(
-    source: BoundReportSource, policy: ReportAccessPolicy | Path, *, port: int
+    source: BoundReportSource, policy: ReportAccessPolicy | Path, *, port: int,
+    service_token_path: Path | None = None,
 ) -> AuthenticatedReportServer:
     if type(port) is not int or not 0 <= port <= 65535:
         raise ValueError("port must be between 0 and 65535")
@@ -125,10 +201,13 @@ def create_server(
     if source.tenant_id != active_policy.tenant_id:
         raise ReportAuthenticationError("report access policy unavailable")
     source.read_view()
+    if service_token_path is not None:
+        _read_service_token(service_token_path)
     server = AuthenticatedReportServer(("127.0.0.1", port), AuthenticatedReportHandler)
     server.source = source
     server.policy = active_policy
     server.policy_path = policy_path
+    server.service_token_path = service_token_path
     return server
 
 
@@ -137,14 +216,28 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--binding", required=True, type=Path)
     parser.add_argument("--access-policy", required=True, type=Path)
     parser.add_argument("--port", required=True, type=int)
+    parser.add_argument("--service-token-file", type=Path)
     arguments = parser.parse_args(argv)
     source = BoundReportSource.from_private_binding(arguments.binding)
-    server = create_server(source, arguments.access_policy, port=arguments.port)
+    server = create_server(
+        source, arguments.access_policy, port=arguments.port,
+        service_token_path=arguments.service_token_file,
+    )
+    prior_term_handler = signal.getsignal(signal.SIGTERM)
+    stopping = threading.Event()
+
+    def _stop_on_term(_signal_number: int, _frame: object) -> None:
+        if not stopping.is_set():
+            stopping.set()
+            threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _stop_on_term)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        signal.signal(signal.SIGTERM, prior_term_handler)
         server.server_close()
     return 0
 

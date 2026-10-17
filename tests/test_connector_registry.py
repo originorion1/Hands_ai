@@ -10,7 +10,7 @@ import pytest
 from orion_connector_sdk import CONTRACT_VERSION, ReviewedConnector, discover, registry
 
 
-def _entry(*, name="synthetic", version="0.1.0", value=None):
+def _entry(*, name="synthetic", version="0.2.0rc1", value=None):
     return SimpleNamespace(
         name=name,
         value=value or "orion_connector_synthetic:SyntheticConnector",
@@ -22,7 +22,7 @@ def _reviewed(**changes):
     fields = {
         "name": "synthetic",
         "distribution": "originorion-connector-synthetic",
-        "version": "0.1.0",
+        "version": "0.2.0rc1",
         "entry_point": "orion_connector_synthetic:SyntheticConnector",
     }
     fields.update(changes)
@@ -50,3 +50,9 @@ def test_unreviewed_version_missing_or_duplicate_denied(monkeypatch, entries):
 def test_incompatible_contract_denied_before_discovery():
     with pytest.raises(ValueError, match="invalid reviewed connector contract"):
         _reviewed(contract_version="orion.connector.v2")
+
+
+@pytest.mark.parametrize("version", ["0.2.0rc0", "0.2.0.dev1", "0.2.0+local", "0.2.0rc1/evil"])
+def test_unreviewable_version_denied(version):
+    with pytest.raises(ValueError, match="invalid reviewed connector contract"):
+        _reviewed(version=version)

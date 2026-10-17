@@ -266,8 +266,11 @@ class Broker:
         return response
 
     def _worker(self, bootstrap, *, timeout=5):
+        import orion
+
+        core = str(Path(orion.__file__).resolve().parents[1])
         source = str(Path(__file__).resolve().parents[2])
-        command = 'import sys;sys.path.insert(0,' + repr(source) + ');' + (
+        command = 'import sys;sys.path[:0]=' + repr([core, source]) + ';' + (
             'from orion.pilot.broker_worker import main;raise SystemExit(main())')
         worker_command = ([sys.executable, '-I', '-m', 'orion.pilot.broker_worker']
                           if getattr(self, 'installed_worker', False)

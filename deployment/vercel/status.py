@@ -6,12 +6,13 @@ import json
 import os
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlsplit
 
-from .report import _upstream_url
+from .report import _service_headers, _upstream_url
+from .request_target import is_api_target
 
 STATUS = {
     "interface_version": "orion.deployment-status.v1",
+    "release_version": "0.2.0rc1",
     "stage": "A",
     "http_api": "healthy",
     "report_service": "not_connected",
@@ -41,12 +42,14 @@ class StatusHandler(BaseHTTPRequestHandler):
             self.wfile.write(body)
 
     def _get(self, *, head: bool = False) -> None:
-        target = urlsplit(self.path)
-        if target.path != self.route or target.query or target.fragment:
+        if not is_api_target(self.path, self.route):
             self._reply(HTTPStatus.NOT_FOUND, b'{"error":"not_found"}\n', head=head)
             return
         state = dict(STATUS)
-        if _upstream_url(os.environ.get("ORION_REPORT_BACKEND_URL")) is not None:
+        upstream = _upstream_url(os.environ.get("ORION_REPORT_BACKEND_URL"))
+        if upstream is not None and _service_headers(
+            upstream[0], os.environ.get("ORION_REPORT_SERVICE_TOKEN")
+        ) is not None:
             state["report_service"] = "requires_authentication"
         body = (json.dumps(state, sort_keys=True, separators=(",", ":")) + "\n").encode()
         self._reply(HTTPStatus.OK, body, head=head)

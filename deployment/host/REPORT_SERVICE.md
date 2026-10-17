@@ -23,12 +23,24 @@ the `Authorization` header without logging it, set the upstream `Host` to
 `127.0.0.1:<port>`, and deny all other paths and methods. TLS certificates and
 the proxy are host operator responsibilities. Configure the Vercel project
 variable `ORION_REPORT_BACKEND_URL` to the exact HTTPS report URL in its
-hosting settings after the host and identity issuer are qualified. No private
+hosting settings after the host and identity issuer are qualified. For a
+non-loopback backend URL, Vercel also requires `ORION_REPORT_SERVICE_TOKEN`.
+Install the same independently generated 43-character base64url token in an
+owner-only `0600` file on the report host and start it with
+`--service-token-file /absolute/private/path`. The host reads this file on
+every request, including `/ready`; missing, duplicate, and wrong service
+credentials are denied. An unavailable credential file makes readiness and
+report reads return 503. Rotate by atomically replacing the host file and
+updating the server-side Vercel variable; the old value stops working as soon
+as the host file changes. Keep both values out of logs and source control.
+The local loopback deployment can continue without this external-service
+credential. No private
 paths, policy subjects, tokens, report contents, ERP credentials, or tenant IDs
 belong in Vercel or the frontend build.
 
 The Vercel `/api/health` route checks its own HTTP function. `/api/ready`
-checks the separate report host without a token or report body. A successful
+checks the separate report host with only the service credential and without a
+report token or report body. A successful
 readiness probe does not authorize a data request; the host verifies each
 short-lived signed token and private report digest on every report read.
 

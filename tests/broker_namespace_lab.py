@@ -9,6 +9,7 @@ from pathlib import Path
 
 if __name__ == '__main__':
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+    sys.path.insert(0, '/pilot')
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from isolation_lab import CHECKS, connectable, inspect_child, namespace_command, readable, run_lab
@@ -58,7 +59,9 @@ def broker_command(config, source, state):
         raise ValueError('unprivileged owner required')
     root = Path(__file__).resolve().parents[1]
     command = namespace_command(Path(__file__), readonly=(
-        (root / 'src', '/src'), (Path(__file__).parent / 'isolation_lab.py', '/work/isolation_lab.py')))
+        (root / 'src', '/src'),
+        (root / 'packages' / 'pilot-compat' / 'src', '/pilot'),
+        (Path(__file__).parent / 'isolation_lab.py', '/work/isolation_lab.py')))
     # Keep the owner's unprivileged mapped ID for the dedicated 0700 journal.
     # The semantic consumer's separate 65534 profile remains unchanged.
     command[command.index('--uid') + 1] = str(os.getuid())
