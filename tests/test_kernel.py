@@ -1,3 +1,5 @@
+from types import MappingProxyType
+
 import pytest
 
 from orion.contracts import Evidence, EvidenceKind, Observation
@@ -111,3 +113,67 @@ def test_in_memory_atomic_batch_retains_complete_existing_and_new_evidence() -> 
     assert kernel.discover(FakeAdapter("tenant-a"), tenant_id="tenant-a") == 1
     assert kernel.discover(FakeAdapter("tenant-a", "tenant-a"), tenant_id="tenant-a") == 2
     assert len(store.query(tenant_id="tenant-a")) == 3
+
+
+def test_connector_and_reader_cannot_mutate_stored_nested_evidence() -> None:
+    payload = {"record": {"status": "original"}}
+
+    class MutableAdapter:
+        def discover(self):
+            yield Observation(evidence=Evidence(
+                kind=EvidenceKind.METADATA, source="synthetic", payload=payload,
+                tenant_id="tenant-a",
+            ))
+
+    store = InMemoryEvidenceStore()
+    OrionKernel(evidence_store=store).discover(MutableAdapter(), tenant_id="tenant-a")
+    payload["record"]["status"] = "connector-changed"
+    assert store.query(tenant_id="tenant-a")[0].payload["record"]["status"] == "original"
+
+    visible = store.query(tenant_id="tenant-a")[0]
+    visible.payload["record"]["status"] = "reader-changed"
+    assert store.query(tenant_id="tenant-a")[0].payload["record"]["status"] == "original"
+
+
+def test_uncopyable_second_record_rejects_whole_batch_and_preserves_prior_evidence() -> None:
+    class Uncopyable:
+        def __deepcopy__(self, memo):
+            raise RuntimeError("private payload error")
+
+    store = InMemoryEvidenceStore()
+    prior = next(FakeAdapter("tenant-a").discover()).evidence
+    store.append(prior)
+    ordinary = next(FakeAdapter("tenant-a").discover()).evidence
+    bad = Evidence(
+        kind=EvidenceKind.METADATA, source="synthetic",
+        payload={"record": Uncopyable()}, tenant_id="tenant-a",
+    )
+    with pytest.raises(ValueError, match="evidence snapshot unavailable"):
+        store.append_batch_atomic((ordinary, bad))
+    assert store.query(tenant_id="tenant-a") == (prior,)
+
+
+def test_immutable_mapping_payload_is_preserved_without_aliasing() -> None:
+    record = {"value": "original"}
+    evidence = Evidence(
+        kind=EvidenceKind.METADATA, source="synthetic",
+        payload=MappingProxyType({"record": MappingProxyType(record)}),
+        tenant_id="tenant-a",
+    )
+    store = InMemoryEvidenceStore()
+    store.append(evidence)
+    record["value"] = "changed"
+    assert store.query(tenant_id="tenant-a")[0].payload["record"]["value"] == "original"
+
+
+def test_cyclic_payload_is_rejected_without_publishing_evidence() -> None:
+    cyclic = {}
+    cyclic["self"] = cyclic
+    evidence = Evidence(
+        kind=EvidenceKind.METADATA, source="synthetic", payload=cyclic,
+        tenant_id="tenant-a",
+    )
+    store = InMemoryEvidenceStore()
+    with pytest.raises(ValueError, match="evidence snapshot unavailable"):
+        store.append_batch_atomic((evidence,))
+    assert store.query() == ()
