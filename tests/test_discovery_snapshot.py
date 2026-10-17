@@ -32,7 +32,7 @@ def test_snapshot_rejects_naive_timestamp() -> None:
     snapshot = DiscoverySnapshot(
         tenant_id="customer-a",
         source_system="demo-system",
-        observed_at=datetime(2026, 8, 28, 10, 0),  # noqa: DTZ001 - must test naive rejection
+        observed_at=datetime.fromisoformat("2026-08-28T10:00:00"),
         objects=(),
     )
     with pytest.raises(ValueError, match="timezone-aware"):
