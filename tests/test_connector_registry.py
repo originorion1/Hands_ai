@@ -14,14 +14,14 @@ def _entry(*, name="synthetic", version="0.1.0", value=None):
     return SimpleNamespace(
         name=name,
         value=value or "orion_connector_synthetic:SyntheticConnector",
-        dist=SimpleNamespace(metadata={"Name": "orion-connector-synthetic"}, version=version),
+        dist=SimpleNamespace(metadata={"Name": "originorion-connector-synthetic"}, version=version),
     )
 
 
 def _reviewed(**changes):
     fields = {
         "name": "synthetic",
-        "distribution": "orion-connector-synthetic",
+        "distribution": "originorion-connector-synthetic",
         "version": "0.1.0",
         "entry_point": "orion_connector_synthetic:SyntheticConnector",
     }

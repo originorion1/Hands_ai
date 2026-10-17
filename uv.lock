@@ -221,17 +221,17 @@ wheels = [
 ]
 
 [[package]]
-name = "orion-connector-sdk"
+name = "originorion-connector-sdk"
 version = "0.1.0"
 source = { directory = "packages/connector-sdk" }
 
 [[package]]
-name = "orion-core"
+name = "originorion-core"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
-    { name = "orion-connector-sdk" },
+    { name = "originorion-connector-sdk" },
 ]
 
 [package.optional-dependencies]
@@ -247,7 +247,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=43.0" },
     { name = "hatchling", marker = "extra == 'dev'", specifier = ">=1.27" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.0" },
-    { name = "orion-connector-sdk", directory = "packages/connector-sdk" },
+    { name = "originorion-connector-sdk", directory = "packages/connector-sdk" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
 ]

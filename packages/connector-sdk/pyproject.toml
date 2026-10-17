@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "orion-connector-sdk"
+name = "originorion-connector-sdk"
 version = "0.1.0"
 description = "Vendor-neutral ORION connector registration contracts"
 requires-python = ">=3.12"

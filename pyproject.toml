@@ -3,26 +3,31 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "orion-core"
+name = "originorion-core"
 version = "0.1.0"
 description = "ORION — generic learning and governed automation kernel"
 requires-python = ">=3.12"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-dependencies = ["cryptography>=43.0", "orion-connector-sdk==0.1.0"]
+dependencies = ["cryptography>=43.0", "originorion-connector-sdk==0.1.0"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.8", "hatchling>=1.27", "jsonschema>=4.0"]
 
 [tool.uv.sources]
-orion-connector-sdk = { path = "packages/connector-sdk" }
+originorion-connector-sdk = { path = "packages/connector-sdk" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orion", "src/orion_http"]
 exclude = ["src/orion/discovery/erpnext_pilot_metadata.py"]
 
 [tool.hatch.build.targets.sdist]
-exclude = ["packages/**", "src/orion/discovery/erpnext_pilot_metadata.py"]
+exclude = [
+    "packages/**",
+    "src/orion/discovery/erpnext_pilot_metadata.py",
+    "orion/adapters/systems/erpnext/**",
+    "orion/hands/erpnext/**",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "packages/connector-sdk/src", "packages/erpnext-discovery/src", "packages/pilot-compat/src"]

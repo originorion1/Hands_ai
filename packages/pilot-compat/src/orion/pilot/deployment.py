@@ -125,8 +125,8 @@ def validate_launch_invocation(
 def artifact_identity():
     """Revalidate every ORION distribution used by the historical pilot."""
     names = (
-        "orion-core", "orion-connector-sdk",
-        "orion-connector-erpnext-discovery", "orion-erpnext-pilot-compat",
+        "originorion-core", "originorion-connector-sdk",
+        "originorion-connector-erpnext-discovery", "originorion-erpnext-pilot-compat",
     )
     prefix = Path(sys.prefix).absolute()
     resolved_prefix = prefix.resolve()
@@ -156,13 +156,13 @@ def artifact_identity():
             actual = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
             if actual != expected or len(raw) != int(size):
                 raise ValueError("installed artifact tampered")
-            if name == "orion-erpnext-pilot-compat":
+            if name == "originorion-erpnext-pilot-compat":
                 running_module_verified = running_module_verified or installed_file == running_module
             verified += 1
         records.append((name, distribution.version, hashlib.sha256(record.encode()).hexdigest()))
     if not running_module_verified:
         raise ValueError("executing module is not the verified artifact")
-    pilot = importlib.metadata.distribution("orion-erpnext-pilot-compat")
+    pilot = importlib.metadata.distribution("originorion-erpnext-pilot-compat")
     return {
         "name": pilot.metadata["Name"],
         "version": pilot.version,

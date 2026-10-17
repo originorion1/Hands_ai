@@ -47,7 +47,7 @@ def clean_artifact(tmp_path_factory):
         ],
         check=True, capture_output=True, text=True, timeout=60,
     )
-    (sdk_wheel,) = wheels.glob("orion_connector_sdk-*.whl")
+    (sdk_wheel,) = wheels.glob("originorion_connector_sdk-*.whl")
     subprocess.run(
         [
             os.environ.get("ORION_BUILD_PYTHON", sys.executable),
@@ -66,7 +66,7 @@ def clean_artifact(tmp_path_factory):
         text=True,
         timeout=60,
     )
-    (connector_wheel,) = wheels.glob("orion_connector_erpnext_discovery-*.whl")
+    (connector_wheel,) = wheels.glob("originorion_connector_erpnext_discovery-*.whl")
     subprocess.run(
         [
             os.environ.get("ORION_BUILD_PYTHON", sys.executable),
@@ -75,7 +75,7 @@ def clean_artifact(tmp_path_factory):
         ],
         check=True, capture_output=True, text=True, timeout=60,
     )
-    (compat_wheel,) = wheels.glob("orion_erpnext_pilot_compat-*.whl")
+    (compat_wheel,) = wheels.glob("originorion_erpnext_pilot_compat-*.whl")
     environment = root / "installed"
     subprocess.run(
         [sys.executable, "-m", "venv", str(environment)],
