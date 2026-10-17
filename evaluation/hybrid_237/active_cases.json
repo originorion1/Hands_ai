@@ -1,0 +1,235 @@
+{
+  "cases": [
+    {
+      "allowed_requests": [
+        "invoice_detail",
+        "stock_witness",
+        "document_status"
+      ],
+      "authorized": true,
+      "expected_reduction": {
+        "document_status": 9,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "id": "missing-a",
+      "max_requests": 2,
+      "period": 0,
+      "potential_value": 1,
+      "privacy_risk": {
+        "document_status": 0,
+        "invoice_detail": 0,
+        "stock_witness": 0
+      },
+      "request_cost": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "symptom": "missing_document",
+      "tenant": "synthetic-hospitality-a"
+    },
+    {
+      "allowed_requests": [
+        "invoice_detail",
+        "stock_witness",
+        "document_status"
+      ],
+      "authorized": true,
+      "expected_reduction": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 9
+      },
+      "id": "contradiction-a",
+      "max_requests": 2,
+      "period": 0,
+      "potential_value": 1,
+      "privacy_risk": {
+        "document_status": 0,
+        "invoice_detail": 0,
+        "stock_witness": 0
+      },
+      "request_cost": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "symptom": "contradictory_receipt",
+      "tenant": "synthetic-hospitality-a"
+    },
+    {
+      "allowed_requests": [
+        "invoice_detail",
+        "stock_witness",
+        "document_status"
+      ],
+      "authorized": true,
+      "expected_reduction": {
+        "document_status": 1,
+        "invoice_detail": 9,
+        "stock_witness": 1
+      },
+      "id": "price-b",
+      "max_requests": 2,
+      "period": 0,
+      "potential_value": 1,
+      "privacy_risk": {
+        "document_status": 0,
+        "invoice_detail": 0,
+        "stock_witness": 0
+      },
+      "request_cost": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "symptom": "price_variance",
+      "tenant": "synthetic-distributor-b"
+    },
+    {
+      "allowed_requests": [
+        "invoice_detail",
+        "stock_witness",
+        "document_status"
+      ],
+      "authorized": true,
+      "expected_reduction": {
+        "document_status": 9,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "id": "stale-b",
+      "max_requests": 2,
+      "period": 1,
+      "potential_value": 1,
+      "privacy_risk": {
+        "document_status": 0,
+        "invoice_detail": 0,
+        "stock_witness": 0
+      },
+      "request_cost": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "symptom": "stale_document",
+      "tenant": "synthetic-distributor-b"
+    },
+    {
+      "allowed_requests": [
+        "invoice_detail",
+        "stock_witness",
+        "document_status"
+      ],
+      "authorized": true,
+      "expected_reduction": {
+        "document_status": 1,
+        "invoice_detail": 9,
+        "stock_witness": 1
+      },
+      "id": "no-evidence-a",
+      "max_requests": 2,
+      "period": 1,
+      "potential_value": 1,
+      "privacy_risk": {
+        "document_status": 0,
+        "invoice_detail": 0,
+        "stock_witness": 0
+      },
+      "request_cost": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "symptom": "ambiguous",
+      "tenant": "synthetic-hospitality-a"
+    },
+    {
+      "allowed_requests": [
+        "invoice_detail",
+        "stock_witness",
+        "document_status"
+      ],
+      "authorized": true,
+      "expected_reduction": {
+        "document_status": 9,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "id": "fixed-wins-b",
+      "max_requests": 2,
+      "period": 1,
+      "potential_value": 1,
+      "privacy_risk": {
+        "document_status": 0,
+        "invoice_detail": 0,
+        "stock_witness": 0
+      },
+      "request_cost": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "symptom": "missing_document",
+      "tenant": "synthetic-distributor-b"
+    },
+    {
+      "allowed_requests": [
+        "stock_witness"
+      ],
+      "authorized": true,
+      "expected_reduction": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 9
+      },
+      "id": "scoped-stock-b",
+      "max_requests": 1,
+      "period": 2,
+      "potential_value": 1,
+      "privacy_risk": {
+        "document_status": 0,
+        "invoice_detail": 0,
+        "stock_witness": 0
+      },
+      "request_cost": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "symptom": "contradictory_receipt",
+      "tenant": "synthetic-distributor-b"
+    },
+    {
+      "allowed_requests": [
+        "invoice_detail",
+        "stock_witness",
+        "document_status"
+      ],
+      "authorized": false,
+      "expected_reduction": {
+        "document_status": 9,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "id": "revoked-a",
+      "max_requests": 0,
+      "period": 2,
+      "potential_value": 1,
+      "privacy_risk": {
+        "document_status": 0,
+        "invoice_detail": 0,
+        "stock_witness": 0
+      },
+      "request_cost": {
+        "document_status": 1,
+        "invoice_detail": 1,
+        "stock_witness": 1
+      },
+      "symptom": "missing_document",
+      "tenant": "synthetic-hospitality-a"
+    }
+  ],
+  "schema": "orion.synthetic-active-cases.v1"
+}

@@ -1,0 +1,37 @@
+{
+  "outcomes": {
+    "contradiction-a": {
+      "needed": "stock_witness",
+      "period": 1
+    },
+    "fixed-wins-b": {
+      "needed": "invoice_detail",
+      "period": 2
+    },
+    "missing-a": {
+      "needed": "document_status",
+      "period": 1
+    },
+    "no-evidence-a": {
+      "needed": null,
+      "period": 2
+    },
+    "price-b": {
+      "needed": "invoice_detail",
+      "period": 1
+    },
+    "revoked-a": {
+      "needed": null,
+      "period": 3
+    },
+    "scoped-stock-b": {
+      "needed": "stock_witness",
+      "period": 3
+    },
+    "stale-b": {
+      "needed": "document_status",
+      "period": 2
+    }
+  },
+  "schema": "orion.synthetic-active-outcomes.v1"
+}
