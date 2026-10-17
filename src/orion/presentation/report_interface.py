@@ -9,14 +9,10 @@ import os
 import re
 import stat
 from dataclasses import dataclass
+from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Any
 
-from ..discovery.erpnext_live_session import (
-    LiveSessionError,
-    LiveSessionRunReport,
-    live_session_run_report_from_json,
-)
 from ..stores.private_files import PrivateFileError, read_private_file
 from .lineage_report import (
     LINEAGE_REPORT_SCHEMA,
@@ -118,14 +114,17 @@ class BoundReportSource:
                 return project_lineage_report(
                     body, tenant_id=self.tenant_id, report_path=self.report_path
                 )
-            report = live_session_run_report_from_json(body)
-        except (LiveSessionError, LineageReportError, UnicodeError,
+            decoders = entry_points(group="orion.aggregate_reports.v1")
+            if len(decoders) != 1:
+                raise ReportInterfaceError("aggregate report decoder unavailable")
+            report = next(iter(decoders)).load()(body)
+            return project_report(report)
+        except (AttributeError, ImportError, LineageReportError, UnicodeError,
                 json.JSONDecodeError, TypeError, ValueError) as exc:
             raise ReportInterfaceError("bound report is invalid") from exc
-        return project_report(report)
 
 
-def project_report(report: LiveSessionRunReport) -> dict[str, object]:
+def project_report(report: object) -> dict[str, object]:
     """Project only aggregate facts needed by the read-only interface."""
 
     return {

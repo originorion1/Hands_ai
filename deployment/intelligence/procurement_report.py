@@ -230,9 +230,13 @@ class ProcurementReportSource:
                     invalidation["tenant_id"] != self.tenant_id or
                     invalidation["previous_run_id"] != base_view["lineage"]["run_id"] or
                     invalidation["previous_finding_sha256"] != self.finding_sha256 or
+                    successor_base.tenant_id != self.tenant_id or
                     invalidation["successor_run_id"] != successor["lineage"]["run_id"] or
+                    invalidation["successor_run_id"] == base_view["lineage"]["run_id"] or
                     invalidation["successor_source_sha256"] !=
                     successor["procurement"]["source_data_sha256"] or
+                    invalidation["successor_source_sha256"] == document["source_sha256"] or
+                    invalidation["reason"] != successor["procurement"]["confidence"] or
                     successor["procurement"]["status"] == "candidate_review" or
                     successor["procurement"]["company"] != finding["company"] or
                     successor["procurement"]["target_ref"] != finding["target_ref"]):

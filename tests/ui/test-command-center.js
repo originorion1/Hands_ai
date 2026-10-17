@@ -311,6 +311,8 @@ function validView() {
   procurementBrowser.elements.reportToken.value = 'synthetic-token';
   await procurementBrowser.elements.connectReport.listeners.click();
   assert.equal(procurementBrowser.elements.procurementPanel.hidden, false);
+  assert.match(procurementBrowser.elements.connectionStatus.textContent, /persisted procurement finding/);
+  assert.match(procurementBrowser.elements.source.textContent, /procurement finding/);
   assert.match(procurementBrowser.elements.procurementSummary.textContent, /60.00/);
   assert.match(procurementBrowser.elements.procurementEvidence.textContent, /holdout_a-H1/);
   procurementResponse.ok = false;

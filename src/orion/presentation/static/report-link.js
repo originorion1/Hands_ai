@@ -65,8 +65,13 @@
       const view = await response.json();
       window.ORIONPreview.applyReportView(view);
       reportConnected = true;
-      source.textContent = 'Source: authenticated, digest-bound aggregate report · read-only';
-      status.textContent = 'Connected. The completed aggregate is loaded read-only.';
+      const procurement = view.report_kind === 'procurement_price_leakage';
+      source.textContent = procurement
+        ? 'Source: authenticated, digest-bound procurement finding · read-only'
+        : 'Source: authenticated, digest-bound aggregate report · read-only';
+      status.textContent = procurement
+        ? 'Connected. The persisted procurement finding is loaded read-only.'
+        : 'Connected. The completed aggregate is loaded read-only.';
       button.textContent = 'Refresh report';
     } catch (error) {
       reportConnected = false;

@@ -100,12 +100,13 @@ def clean_artifact(tmp_path_factory):
             "-I",
             "-c",
             (
-                "import importlib.util; import orion.kernel; "
+                "import importlib.util,sys; import orion.kernel; "
+                "import orion.presentation.report_interface; "
+                "assert importlib.util.find_spec('orion_http.report_server') is not None; "
                 "assert importlib.util.find_spec('orion.discovery.erpnext_adapter') is None; "
                 "assert importlib.util.find_spec('orion.pilot') is None; "
                 "assert importlib.util.find_spec('orion.demo') is None; "
-                "assert importlib.util.find_spec('orion.presentation.report_interface') is None; "
-                "assert importlib.util.find_spec('orion_http.report_server') is None"
+                "assert 'orion.discovery.erpnext_live_session' not in sys.modules"
             ),
         ],
         cwd=root,
@@ -175,9 +176,10 @@ def test_wheel_contains_runtime_without_checkout_or_fixture_dependencies(clean_a
         assert not any(name.startswith("orion/discovery/erpnext_") for name in names)
         assert "orion/discovery/retained_investigation_session.py" not in names
         assert "orion/pilot/erpnext_candidate.py" not in names
-        assert "orion/presentation/report_interface.py" not in names
-        assert "orion_http/report_server.py" not in names
+        assert "orion/presentation/report_interface.py" in names
+        assert "orion_http/report_server.py" in names
         assert not any(name.startswith(("tests/", "tools/")) for name in names)
+
     inspected = subprocess.run(
         [
             str(python),
@@ -212,6 +214,17 @@ def test_wheel_contains_runtime_without_checkout_or_fixture_dependencies(clean_a
         check=True,
     )
     assert json.loads(entrypoint.stdout) == identity
+
+
+def test_vendor_wheel_does_not_own_generic_report_host(clean_artifact):
+    root, _, _ = clean_artifact
+    (vendor_wheel,) = (root / "wheels").glob(
+        "originorion_connector_erpnext_discovery-*.whl"
+    )
+    with zipfile.ZipFile(vendor_wheel) as archive:
+        names = archive.namelist()
+    assert "orion/presentation/report_interface.py" not in names
+    assert "orion_http/report_server.py" not in names
 
 
 def test_installed_identity_rejects_source_tree_substitution(clean_artifact):

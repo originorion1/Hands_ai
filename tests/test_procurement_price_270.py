@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
@@ -54,11 +55,19 @@ def test_holdout_arithmetic_traps_and_baseline_can_win():
 def test_invalid_conversion_correction_and_scope_abstain():
     original = rows("holdout_a")
     for field, bad in (("units_per_pack", "0"), ("fx_to_usd", "0"),
-                       ("fx_to_usd", "NaN")):
+                       ("fx_to_usd", "NaN"), ("fx_to_usd", "1.2"),
+                       ("currency", "XYZ"), ("units_per_pack", "1e-20"),
+                       ("unit_price", "1e30")):
         broken = (*original[:-1], original[-1] | {field: bad})
         with pytest.raises(ProcurementEvidenceError):
             investigate_purchases(broken, target_ref="holdout_a-T",
                                    company="Synthetic Procurement Co")
+    extreme = (*original[:-1], original[-1] | {
+        "units_per_pack": "1e-9", "unit_price": "1e12",
+    })
+    with pytest.raises(ProcurementEvidenceError, match="bound"):
+        investigate_purchases(extreme, target_ref="holdout_a-T",
+                               company="Synthetic Procurement Co")
     with pytest.raises(ProcurementEvidenceError, match="company"):
         investigate_purchases(original, target_ref="holdout_a-T", company="Other Co")
     corrected = (*original[:-1], original[-1] | {"corrected_by": "holdout_a-T2"})
@@ -184,6 +193,18 @@ def test_authorized_correction_invalidates_persisted_candidate(tmp_path):
         invalidated_view
     ).encode()
     invalidation_path = old_path.parent / "invalidation-1.json"
+    digest_path = invalidation_path.with_suffix(".sha256")
+    original_event = invalidation_path.read_bytes()
+    original_digest = digest_path.read_bytes()
+    invalidation = json.loads(original_event)
+    invalidation["reason"] = "forged reason"
+    forged = (json.dumps(invalidation, sort_keys=True) + "\n").encode()
+    invalidation_path.write_bytes(forged)
+    digest_path.write_bytes((sha256(forged).hexdigest() + "\n").encode())
+    with pytest.raises(ReportInterfaceError):
+        old.read_view()
+    invalidation_path.write_bytes(original_event)
+    digest_path.write_bytes(original_digest)
     invalidation_path.write_bytes(invalidation_path.read_bytes() + b" ")
     with pytest.raises(ReportInterfaceError):
         old.read_view()
