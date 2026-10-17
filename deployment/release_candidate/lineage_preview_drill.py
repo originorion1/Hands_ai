@@ -17,10 +17,13 @@ import ssl
 import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
+import jwt
 from cryptography import x509
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.asymmetric.rsa import generate_private_key
 from cryptography.hazmat.primitives.serialization import (
     Encoding,
     NoEncryption,
@@ -30,7 +33,11 @@ from cryptography.hazmat.primitives.serialization import (
 from cryptography.x509.oid import NameOID
 
 from deployment import local_preview
-from deployment.release_candidate.continuous_lineage import _write_private, run_synthetic_lineage
+from deployment.customer.journey import run_customer_synthetic_lineage
+from deployment.customer.login import CustomerLogin
+from deployment.customer.oidc import OIDCVerifier, VerifiedIdentity
+from deployment.customer.tenants import TenantRegistry
+from deployment.release_candidate.continuous_lineage import _write_private
 from deployment.vercel import build_static
 from orion.contracts import EvidenceKind
 from orion.discovery.pilot_read import PilotAuthorization, PilotRequest
@@ -73,6 +80,70 @@ def _certificate(private_dir: Path, now: datetime) -> tuple[Path, Path]:
     _write_private(key_path, key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8,
                                                NoEncryption()))
     return cert_path, key_path
+
+
+def _synthetic_customer_session(tenant: str, auth_dir: Path, now: datetime):
+    """Verify a one-use local OIDC code flow; never persist signing keys."""
+    if auth_dir.exists():
+        raise ValueError("synthetic identity directory already exists")
+    auth_dir.mkdir(mode=0o700)
+    signer = Ed25519PrivateKey.generate()
+    registry = TenantRegistry(
+        auth_dir / "registry.sqlite", approval_public_key=signer.public_key(),
+    )
+    issuer = "https://idp.synthetic.invalid/tenant"
+    subject = "synthetic-reader"
+    approval = {
+        "approval_id": f"synthetic-bootstrap-{tenant[-10:]}",
+        "tenant_id": tenant, "organization_name": "Synthetic Tenant",
+        "country": "US", "timezone": "UTC", "sector": "synthetic",
+        "data_residency": "synthetic-region", "retention_days": 1,
+        "admin_issuer": issuer, "admin_subject": subject,
+        "expires_at": int(now.timestamp()) + 240,
+    }
+    signature = base64.b64encode(signer.sign(
+        b"ORION CUSTOMER BOOTSTRAP V1\0" + json.dumps(
+            approval, sort_keys=True, separators=(",", ":"),
+        ).encode()
+    )).decode()
+    registry.provision(
+        VerifiedIdentity(issuer, subject, f"synthetic-bootstrap-{tenant[-10:]}",
+                         int(now.timestamp()) + 240),
+        approval=approval, signature=signature,
+    )
+    rsa_key = generate_private_key(public_exponent=65537, key_size=2048)
+    public_key = rsa_key.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+    verifier = OIDCVerifier(
+        issuer=issuer, audience="orion-synthetic-customer",
+        public_keys={"synthetic-key": public_key},
+    )
+    assertion = {}
+
+    def exchange(code: str, _verifier: str, _redirect: str) -> str:
+        if code != "synthetic-one-use-code":
+            raise ValueError("synthetic code rejected")
+        return assertion["token"]
+
+    login = CustomerLogin(
+        registry, verifier,
+        authorization_endpoint="https://idp.synthetic.invalid/authorize",
+        client_id="orion-synthetic-customer",
+        redirect_uri="https://command.synthetic.invalid/callback",
+        token_exchange=exchange,
+    )
+    start = login.start(tenant_id=tenant)
+    query = parse_qs(urlsplit(start.authorization_url).query)
+    assertion["token"] = jwt.encode({
+        "iss": issuer, "aud": "orion-synthetic-customer", "sub": subject,
+        "iat": int(now.timestamp()), "exp": int(now.timestamp()) + 240,
+        "nonce": query["nonce"][0],
+    }, rsa_key, algorithm="RS256", headers={"kid": "synthetic-key"})
+    session = login.finish(state=query["state"][0], code="synthetic-one-use-code")
+    secret = session.cookie.split(";", 1)[0].split("=", 1)[1]
+    access = login.authorize(secret)
+    if access.tenant_id != tenant:
+        raise ValueError("synthetic customer tenant binding failed")
+    return login, secret, session.csrf_token
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -125,7 +196,11 @@ def main(argv: list[str] | None = None) -> int:
         version="0.2.0rc2",
         entry_point="orion_connector_synthetic:SyntheticRecordConnector",
     ))
-    result = run_synthetic_lineage(
+    login, session_secret, csrf_token = _synthetic_customer_session(
+        tenant, private_dir.with_name(private_dir.name + "-auth"), now,
+    )
+    result = run_customer_synthetic_lineage(
+        login=login, session_secret=session_secret,
         registration=registration, connector=connector, request=request,
         authorization_id=authorization_id,
         lookup=lambda identity: grant if identity == authorization_id else None,
@@ -175,6 +250,7 @@ def main(argv: list[str] | None = None) -> int:
         "witness_sha256": result.witness_sha256,
         "evidence_ids": list(result.evidence_ids),
         "local_tls": True, "execution_allowed": False,
+        "customer_session_verified": True,
     }), flush=True)
     try:
         stop.wait()
@@ -187,6 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         report_thread.join(timeout=2)
         for name in ("token", "identity-key.pem", "local-key.pem", "service-token"):
             (private_dir / name).unlink(missing_ok=True)
+        login.logout(session_secret, csrf_token=csrf_token)
     return 0
 
 

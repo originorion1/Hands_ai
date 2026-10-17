@@ -1,7 +1,8 @@
 # Offline continuous synthetic lineage acceptance
 
 This acceptance path uses the installed synthetic connector `0.2.0rc2`, the
-existing one-use pilot read permit, Kernel evidence and investigation
+offline customer OIDC/session boundary, existing one-use pilot read permit,
+Kernel evidence and investigation
 contracts, and the `orion.readonly-report.v2` report projection. It never
 opens an ERP connection, grants execution, or changes the public staging host.
 
@@ -37,7 +38,10 @@ authorization ID, admitted evidence IDs and investigation/witness digests.
 The private witness also retains source records, upstream evidence/observation
 IDs, the read scope digest, observed time and investigation references. The
 read permit is issued only by the existing launcher after a separate exact
-`PilotAuthorization` lookup. Connector registration provides no grant.
+`PilotAuthorization` lookup. The drill verifies active customer membership and
+tenant scope before calling that launcher. Connector registration provides no
+grant. The synthetic OIDC signer is ephemeral; the session is logged out and
+revoked on shutdown.
 
 The protected Vercel Preview and its current healthy staging backend remain
 untouched by this drill. Showing the new report there requires a separately

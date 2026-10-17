@@ -7,7 +7,9 @@ import hashlib
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
+from uuid import uuid4
 
 import jwt
 import pytest
@@ -16,10 +18,15 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.rsa import generate_private_key
 
 from deployment.customer.enrollment import EnrollmentDenied, enroll_erpnext
+from deployment.customer.journey import run_customer_synthetic_lineage
 from deployment.customer.login import CustomerLogin, LoginDenied
 from deployment.customer.oidc import OIDCVerifier, VerifiedIdentity
 from deployment.customer.tenants import TenantDenied, TenantRegistry
-from orion_connector_sdk import ReviewedConnector
+from orion.contracts import EvidenceKind
+from orion.discovery.pilot_read import PilotAuthorization, PilotRequest
+from orion.discovery.read_window import ReviewedReadWindow
+from orion_connector_sdk import ReviewedConnector, discover
+from orion_connector_synthetic import SyntheticRecordConnector
 
 ISSUER = "https://idp.example.invalid/tenant"
 AUDIENCE = "orion-customer"
@@ -301,3 +308,72 @@ def test_erpnext_enrollment_stores_only_vault_ref_and_grants_no_authority(contex
     login.logout(_secret(session), csrf_token=session.csrf_token)
     with pytest.raises(LoginDenied):
         enroll_erpnext(**(arguments | {"label": "Other"}))
+
+
+def test_customer_session_gates_one_real_synthetic_lineage(context, tmp_path):
+    _registry, login, key, _alpha, _beta = context
+    session, _ = _complete(login, key, "alpha-admin")
+    secret = _secret(session)
+    now = datetime.now(UTC)
+    date = now.date()
+    tenant = "tenant-alpha"
+    connector = SyntheticRecordConnector(
+        tenant_id=tenant, source_id="synthetic-customer-source",
+        dataset_id="synthetic-customer-dataset", records=(
+            {"name": "SYN-CUSTOMER-1", "company": "Synthetic Co",
+             "posting_date": date.isoformat(), "amount": 37},
+        ),
+    )
+    fields = ("name", "company", "posting_date", "amount")
+    window = ReviewedReadWindow(
+        tenant_id=tenant, company="Synthetic Co", resource="Synthetic Invoice",
+        fields=fields, date_field="posting_date", start=date, end=date,
+        expires_at=now + timedelta(minutes=10),
+    )
+    grant = PilotAuthorization(
+        authorization_id="synthetic-customer-read", source_id=connector.source_id,
+        window=window, identity_field="name", company_field="company",
+        provenance_source="synthetic-record-v1", evidence_kind=EvidenceKind.SOURCE,
+        max_records=1,
+    )
+    request = PilotRequest(
+        tenant_id=tenant, company="Synthetic Co", source_id=connector.source_id,
+        resource="Synthetic Invoice", fields=fields, date_field="posting_date",
+        start=date, end=date, max_records=1,
+    )
+    registration = discover(ReviewedConnector(
+        "synthetic-records", "originorion-connector-synthetic", "0.2.0rc2",
+        "orion_connector_synthetic:SyntheticRecordConnector",
+    ))
+    options = {
+        "login": login, "session_secret": secret, "registration": registration,
+        "connector": connector, "request": request,
+        "authorization_id": grant.authorization_id,
+        "lookup": lambda identity: grant if identity == grant.authorization_id else None,
+        "run_id": uuid4(), "now": now,
+    }
+    wrong = tmp_path / "wrong"
+    wrong.mkdir(mode=0o700)
+    with pytest.raises(LoginDenied, match="tenant differs"):
+        run_customer_synthetic_lineage(**(options | {
+            "request": PilotRequest(
+                tenant_id="tenant-beta", company="Synthetic Co",
+                source_id=connector.source_id, resource="Synthetic Invoice",
+                fields=fields, date_field="posting_date", start=date, end=date,
+                max_records=1,
+            ), "private_dir": wrong,
+        }))
+    assert not any(wrong.iterdir())
+    actual = tmp_path / "actual"
+    actual.mkdir(mode=0o700)
+    result = run_customer_synthetic_lineage(**(options | {"private_dir": actual}))
+    assert result.tenant_id == tenant
+    assert result.view["observations_persisted"] == 1
+    assert result.view["authority"]["execution_allowed"] is False
+    assert (actual / "report.json").is_file()
+    login.logout(secret, csrf_token=session.csrf_token)
+    denied = tmp_path / "revoked"
+    denied.mkdir(mode=0o700)
+    with pytest.raises(LoginDenied, match="session"):
+        run_customer_synthetic_lineage(**(options | {"private_dir": denied}))
+    assert not any(denied.iterdir())

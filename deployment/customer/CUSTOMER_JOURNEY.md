@@ -38,12 +38,17 @@ or credential is used by the synthetic tests.
 
 ## Evidence and lifecycle
 
-The lineage drill uses one unique synthetic source and run, a reviewed
-synthetic connector, a one-use read authorization, Kernel evidence custody,
+The lineage drill first completes a one-use synthetic OIDC code flow and
+verifies the signed tenant bootstrap and active browser session. The
+`run_customer_synthetic_lineage` boundary rechecks that session and rejects a
+tenant mismatch before invoking the one-use governed read authorization. It
+then uses one unique synthetic source and run, a reviewed synthetic connector,
+Kernel evidence custody,
 investigation over the acquired observations, a persisted digest-bound report,
 an authenticated HTTPS report host, the Vercel API route modules and the
 Command Center browser UI. The private source, evidence, witness and report
-files remain in owner-only custody after the drill. The browser must remove
+files and the revoked synthetic session registry remain in owner-only custody
+after the drill. The browser must remove
 report data after an invalid token. Tenant lifecycle tests cover bootstrap,
 roles, suspension/reactivation, rotation/revocation of references, retention,
 backup/restore, offboarding and cross-tenant denial.
