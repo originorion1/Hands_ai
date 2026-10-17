@@ -21,6 +21,7 @@ from orion.discovery.pilot_read import (
     PilotRequest,
     launch_pilot_read,
 )
+from orion.kernel import OrionKernel
 from orion.presentation.lineage_report import (
     LINEAGE_INTERFACE_VERSION,
     LINEAGE_REPORT_SCHEMA,
@@ -28,6 +29,7 @@ from orion.presentation.lineage_report import (
 )
 from orion.presentation.report_interface import REPORT_INTERFACE_VERSION
 from orion.stores.memory import InMemoryEvidenceStore
+from orion.understanding.graph import GraphStore, project_observations
 from orion.understanding.hypotheses import generate_hypotheses
 from orion.validation.claims import Assurance, validate_hypothesis
 from orion_connector_sdk import CONTRACT_VERSION, ConnectorRegistration
@@ -56,7 +58,18 @@ def _write_private(path: Path, body: bytes) -> None:
         os.fsync(stream.fileno())
 
 
-def _investigate(observations: tuple) -> list[dict[str, object]]:
+@dataclass(frozen=True, slots=True)
+class _AdmittedSource:
+    observations: tuple
+
+    def discover(self) -> tuple:
+        return self.observations
+
+
+def _investigate(observations: tuple) -> dict[str, object]:
+    graph_nodes = project_observations(GraphStore(), observations)
+    if graph_nodes != len(observations):
+        raise ValueError("synthetic graph lacks acquired provenance")
     hypotheses = generate_hypotheses(observations)
     if len(hypotheses) != len(observations) or not hypotheses:
         raise ValueError("synthetic investigation lacks acquired provenance")
@@ -71,7 +84,7 @@ def _investigate(observations: tuple) -> list[dict[str, object]]:
             "status": decision.status,
             "supporting_evidence": [str(value) for value in hypothesis.supporting_evidence],
         })
-    return result
+    return {"graph_nodes": graph_nodes, "hypotheses": result}
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +149,9 @@ def run_synthetic_lineage(
     evidence_ids = tuple(str(item.evidence.evidence_id) for item in observations)
     if len(set(evidence_ids)) != len(evidence_ids):
         raise ValueError("duplicate synthetic evidence")
-    source_records = connector.source_records()
+    source_records = [dict(item.evidence.payload["record"]) for item in observations]
+    if _digest(_json(source_records).rstrip(b"\n")) != connector.source_sha256:
+        raise ValueError("admitted source digest mismatch")
     source_body = _json({
         "tenant_id": request.tenant_id, "run_id": str(run_id),
         "dataset_id": connector.dataset_id, "source_sha256": connector.source_sha256,
@@ -144,7 +159,9 @@ def run_synthetic_lineage(
     })
     _write_private(private_dir / "source.json", source_body)
     store = InMemoryEvidenceStore()
-    store.append_batch_atomic(tuple(item.evidence for item in observations))
+    OrionKernel(evidence_store=store).discover(
+        _AdmittedSource(observations), tenant_id=request.tenant_id
+    )
     snapshots = store.query(tenant_id=request.tenant_id)
     if tuple(item.evidence_id for item in snapshots) != tuple(
             item.evidence.evidence_id for item in observations):
@@ -178,7 +195,7 @@ def run_synthetic_lineage(
         "source_sha256": connector.source_sha256,
         "authorization_id": authorization_id,
         "evidence_ids": list(evidence_ids),
-        "hypotheses": _investigate(observations),
+        **_investigate(observations),
     }
     investigation_sha256 = _digest(_json(investigation).rstrip(b"\n"))
     witness = {

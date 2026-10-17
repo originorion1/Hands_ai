@@ -181,13 +181,15 @@ def project_lineage_report(body: bytes, *, tenant_id: str, report_path: Path) ->
             or hashlib.sha256(_canonical(source)).hexdigest() != lineage["source_sha256"]
             or type(investigation) is not dict or set(investigation) != {
                 "run_id", "tenant_id", "dataset_id", "source_sha256",
-                "authorization_id", "evidence_ids", "hypotheses"
+                "authorization_id", "evidence_ids", "graph_nodes", "hypotheses"
             } or investigation["run_id"] != lineage["run_id"]
             or investigation["tenant_id"] != tenant_id
             or investigation["dataset_id"] != lineage["dataset_id"]
             or investigation["source_sha256"] != lineage["source_sha256"]
             or investigation["authorization_id"] != lineage["authorization_id"]
             or investigation["evidence_ids"] != lineage["evidence_ids"]
+            or type(investigation["graph_nodes"]) is not int
+            or investigation["graph_nodes"] != len(evidence)
             or hashlib.sha256(_canonical(investigation)).hexdigest()
             != lineage["investigation_sha256"]):
         raise LineageReportError("lineage evidence or investigation mismatch")

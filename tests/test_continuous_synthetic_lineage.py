@@ -145,6 +145,7 @@ def test_one_source_is_preserved_and_exact_view_is_authenticated(tmp_path, monke
                and item["provenance"]["upstream_observation_id"]
                for item in admitted["evidence"])
     assert not hasattr(SyntheticRecordConnector, "write")
+    assert not hasattr(SyntheticRecordConnector, "source_records")
     expected = (json.dumps(result.view, sort_keys=True, separators=(",", ":")) + "\n").encode()
     assert _validated_view(expected) == expected
     for field, unsafe in (("erp_writes", False), ("execution_allowed", 0)):
@@ -207,7 +208,10 @@ def test_absent_grant_tenant_mismatch_stale_evidence_and_interruption_denied(
         _run(tmp_path / "tenant", monkeypatch, connector=other, request=request, grant=grant)
     stale = SyntheticRecordConnector(
         tenant_id=connector.tenant_id, source_id=connector.source_id,
-        dataset_id=connector.dataset_id, records=tuple(connector.source_records()),
+        dataset_id=connector.dataset_id, records=(
+            {"name": "SYN-001", "company": "Synthetic Co", "posting_date": "2036-01-02", "amount": 37},
+            {"name": "SYN-002", "company": "Synthetic Co", "posting_date": "2036-01-03", "amount": 50},
+        ),
         observed_at=now - timedelta(minutes=6),
     )
     with pytest.raises(ValueError, match="stale"):
