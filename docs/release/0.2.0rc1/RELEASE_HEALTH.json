@@ -33,7 +33,7 @@
     },
     "RUNTIME_HEALTH": {
       "status": "PARTIAL",
-      "evidence": "Existing canonical local staging services were active; local Command Center health and ready, and report-host health returned 200. Exact candidate has not passed supervised deployment or authenticated browser recovery."
+      "evidence": "Existing canonical local staging services were active; local Command Center health and ready, and report-host health returned 200. The live local TLS certificate verified for localhost and denied a wrong hostname, but its replacement file on disk is expired. Exact candidate has not passed supervised deployment or authenticated browser recovery."
     },
     "INTELLIGENCE_EVALUATION": {
       "status": "NOT_PROVEN",
@@ -103,6 +103,17 @@
       "remediation": "Use a separately authorized, independently adjudicated read-only pilot with conventional baseline and real cost evidence.",
       "owner": "owner, customer reviewer and product lead",
       "verification": "not established"
+    },
+    {
+      "id": "F-06",
+      "priority": "P1",
+      "status": "OPEN",
+      "component": "existing local TLS facade recovery",
+      "root_cause": "The certificate file loaded on the next proxy restart expired at 2026-10-17T00:15:23Z; the user timer restarts the proxy but does not renew that file, and the separate renewal script imports an absent /tmp worktree.",
+      "evidence": "Disk certificate fingerprint B5:37:87:A5:11:73:EF:1F:75:CE:BB:A5:E6:36:F4:E6:DC:49:A9:47:A9:A4:FE:DC:AF:6E:AB:32:FB:F8:23:30 is expired. Running proxy presents fingerprint 35:55:BD:30:07:8A:66:02:6A:21:A1:D8:30:3F:BF:85:41:11:1E:62:15:84:EB:89:F8:42:3E:B0:B3:83:00:87, valid until 2026-11-15T17:45:23Z; TLS /ready returned 200 with live cert explicitly trusted and wrong hostname failed. No service was changed.",
+      "remediation": "Prepare durable certificate renewal from stable source, atomically replace certificate and key, verify trust and hostname, then perform one controlled proxy restart after explicit staging-change authorization.",
+      "owner": "deployment operator and owner",
+      "verification": "read-only diagnosis; correction pending staging-change authority"
     }
   ],
   "execution_allowed": false,
