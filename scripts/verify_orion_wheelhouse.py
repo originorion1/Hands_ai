@@ -23,6 +23,7 @@ ORION_DISTRIBUTIONS = frozenset({
     "originorion-connector-synthetic",
     "originorion-erpnext-pilot-compat",
 })
+EXTERNAL_DISTRIBUTIONS = frozenset({"cryptography", "cffi", "pycparser"})
 SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -79,10 +80,10 @@ def verify(wheelhouse: Path, manifest: Path) -> list[str]:
         if name in seen:
             raise ValueError(f"duplicate distribution: {name}")
         seen.add(name)
-        if name.startswith("originorion-"):
-            if name not in ORION_DISTRIBUTIONS:
-                raise ValueError(f"unexpected ORION distribution: {name}")
+        if name in ORION_DISTRIBUTIONS:
             orion.add(name)
+        elif name not in EXTERNAL_DISTRIBUTIONS:
+            raise ValueError(f"unreviewed distribution: {name}")
         requirements.append(f"{name}=={version} --hash=sha256:{digest}")
     if "originorion-core" not in orion or "originorion-connector-sdk" not in orion:
         raise ValueError("Kernel and SDK wheels required")

@@ -24,7 +24,8 @@ wheel bytes and embedded metadata before invoking pip with `--no-index`,
 `--only-binary=:all:`, and `--require-hashes`, then runs `pip check`.
 
 The script rejects missing or extra files, duplicate names, unexpected
-`originorion-*` packages, changed wheel bytes, embedded name/version mismatch,
+distribution names (including the unrelated public `orion-core`), changed
+wheel bytes, embedded name/version mismatch,
 symlinks, and a wheel filename inconsistent with embedded identity. A new
 manifest made from unreviewed wheels is not authorization. Never install an
 ORION release with a name-only public-index command. Private registry or

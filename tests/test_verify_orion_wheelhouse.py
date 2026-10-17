@@ -36,7 +36,9 @@ def test_exact_wheelhouse_accepted(tmp_path):
     assert all("--hash=sha256:" in item for item in requirements)
 
 
-@pytest.mark.parametrize("failure", ["tamper", "extra", "substitute", "symlink"])
+@pytest.mark.parametrize("failure", [
+    "tamper", "extra", "substitute", "symlink", "manifest_lists_public_collision",
+])
 def test_wheelhouse_rejects_substitution(tmp_path, failure):
     wheels = tmp_path / "wheels"
     wheels.mkdir()
@@ -59,5 +61,8 @@ def test_wheelhouse_rejects_substitution(tmp_path, failure):
         target.write_bytes(original.read_bytes())
         original.unlink()
         original.symlink_to(target)
+    elif failure == "manifest_lists_public_collision":
+        records.append(wheel(wheels, "orion-core"))
+        reviewed = manifest(wheels, records)
     with pytest.raises(ValueError):
         verify(wheels, reviewed)
