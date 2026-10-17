@@ -49,8 +49,10 @@ jobs:
         run: |
           python -m pip install -e packages/connector-sdk
           python -m pip install -e '.[dev]'
+          python -m pip install -e packages/synthetic-connector
           python -m pip install -e packages/erpnext-discovery
           python -m pip install -e packages/pilot-compat
+          python -m pip install --require-hashes -r deployment/customer/requirements.lock
       - name: Run tests
         run: |
           set -o pipefail

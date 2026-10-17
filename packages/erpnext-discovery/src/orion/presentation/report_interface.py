@@ -18,6 +18,11 @@ from ..discovery.erpnext_live_session import (
     live_session_run_report_from_json,
 )
 from ..stores.private_files import PrivateFileError, read_private_file
+from .lineage_report import (
+    LINEAGE_REPORT_SCHEMA,
+    LineageReportError,
+    project_lineage_report,
+)
 
 REPORT_INTERFACE_VERSION = "orion.readonly-report.v1"
 MAX_BINDING_BYTES = 4 * 1024
@@ -108,8 +113,14 @@ class BoundReportSource:
         if not hmac.compare_digest(actual, self.report_sha256):
             raise ReportInterfaceError("bound report digest does not match")
         try:
+            envelope = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_object)
+            if type(envelope) is dict and envelope.get("schema") == LINEAGE_REPORT_SCHEMA:
+                return project_lineage_report(
+                    body, tenant_id=self.tenant_id, report_path=self.report_path
+                )
             report = live_session_run_report_from_json(body)
-        except LiveSessionError as exc:
+        except (LiveSessionError, LineageReportError, UnicodeError,
+                json.JSONDecodeError, TypeError, ValueError) as exc:
             raise ReportInterfaceError("bound report is invalid") from exc
         return project_report(report)
 

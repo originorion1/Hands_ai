@@ -1,6 +1,9 @@
 param(
     [string]$Url = 'http://localhost:8766/',
-    [string]$TokenFile = ''
+    [string]$TokenFile = '',
+    [switch]$TokenFromStdin,
+    [string]$ExpectedRunId = '',
+    [string]$ExpectedSourceSha256 = ''
 )
 $ErrorActionPreference = 'Stop'
 $tab = Invoke-RestMethod -Method Put -Uri 'http://localhost:9223/json/new?about:blank'
@@ -62,8 +65,9 @@ try {
     $emptyToken = Read-Until 6
     $authenticated = $null
     $denied = $null
-    if ($TokenFile) {
-        $token = [IO.File]::ReadAllText($TokenFile).Trim()
+    $cleared = $null
+    if ($TokenFile -or $TokenFromStdin) {
+        $token = if ($TokenFromStdin) { [Console]::ReadLine() } else { [IO.File]::ReadAllText($TokenFile).Trim() }
         $parts = $token.Split('.')
         $replacement = if ($parts[2][0] -eq 'A') { 'B' } else { 'A' }
         $parts[2] = $replacement + $parts[2].Substring(1)
@@ -73,7 +77,7 @@ try {
             returnByValue = $true
         }
         [void](Read-Until 7)
-        Start-Sleep -Milliseconds 800
+        Start-Sleep -Milliseconds 1500
         Send-Cdp 8 'Runtime.evaluate' @{
             expression = '({status:document.getElementById("connectionStatus").textContent,observations:document.getElementById("observations").textContent})'
             returnByValue = $true
@@ -85,12 +89,25 @@ try {
             returnByValue = $true
         }
         [void](Read-Until 9)
-        Start-Sleep -Milliseconds 1200
+        Start-Sleep -Milliseconds 1800
         Send-Cdp 10 'Runtime.evaluate' @{
-            expression = '({status:document.getElementById("connectionStatus").textContent,metadata:document.getElementById("metadata").textContent,observations:document.getElementById("observations").textContent,source:document.getElementById("source").textContent})'
+            expression = '({status:document.getElementById("connectionStatus").textContent,metadata:document.getElementById("metadata").textContent,observations:document.getElementById("observations").textContent,source:document.getElementById("source").textContent,history:document.getElementById("historySummary").textContent})'
             returnByValue = $true
         }
         $authenticated = (Read-Until 10).result.result.value
+        if ($ExpectedRunId -and -not $authenticated.history.Contains($ExpectedRunId)) { throw 'Run identity missing from browser report' }
+        if ($ExpectedSourceSha256 -and -not $authenticated.history.Contains($ExpectedSourceSha256)) { throw 'Source digest missing from browser report' }
+        Send-Cdp 12 'Runtime.evaluate' @{
+            expression = "document.getElementById('reportToken').value=$forgedJson; document.getElementById('connectReport').click();"
+            returnByValue = $true
+        }
+        [void](Read-Until 12)
+        Start-Sleep -Milliseconds 1500
+        Send-Cdp 13 'Runtime.evaluate' @{
+            expression = '({status:document.getElementById("connectionStatus").textContent,observations:document.getElementById("observations").textContent,history:document.getElementById("historySummary").textContent})'
+            returnByValue = $true
+        }
+        $cleared = (Read-Until 13).result.result.value
         $token = $null
     }
     Send-Cdp 11 'Runtime.evaluate' @{ expression = 'document.readyState'; returnByValue = $true }
@@ -103,6 +120,7 @@ try {
         empty_token_state = $emptyToken.result.result.value
         denied = $denied
         authenticated = $authenticated
+        cleared_after_denial = $cleared
         exceptions = $script:exceptions
         failed_requests = $script:failedRequests
     } | ConvertTo-Json -Compress

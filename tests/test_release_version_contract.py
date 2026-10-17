@@ -7,16 +7,16 @@ from deployment.vercel.status import STATUS
 from orion import __version__
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "0.2.0rc1"
+VERSION = "0.2.0rc2"
 
 
 def test_release_train_versions_and_internal_dependency_pins():
     projects = {
         ROOT / "pyproject.toml": ("originorion-core", VERSION),
-        ROOT / "packages/connector-sdk/pyproject.toml": ("originorion-connector-sdk", VERSION),
-        ROOT / "packages/erpnext-discovery/pyproject.toml": ("originorion-connector-erpnext-discovery", "0.2.0rc3"),
+        ROOT / "packages/connector-sdk/pyproject.toml": ("originorion-connector-sdk", "0.2.0rc1"),
+        ROOT / "packages/erpnext-discovery/pyproject.toml": ("originorion-connector-erpnext-discovery", "0.2.0rc4"),
         ROOT / "packages/synthetic-connector/pyproject.toml": ("originorion-connector-synthetic", VERSION),
-        ROOT / "packages/pilot-compat/pyproject.toml": ("originorion-erpnext-pilot-compat", "0.2.0rc3"),
+        ROOT / "packages/pilot-compat/pyproject.toml": ("originorion-erpnext-pilot-compat", "0.2.0rc4"),
     }
     versions = dict(projects.values())
     for path, (name, version) in projects.items():
