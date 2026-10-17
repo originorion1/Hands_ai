@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -29,15 +30,36 @@ def run_customer_synthetic_lineage(
     access = login.authorize(session_secret)
     if access.tenant_id != request.tenant_id:
         raise LoginDenied("customer session tenant differs from read scope")
+    first_grant: list[PilotAuthorization | None] = []
 
     def session_bound_lookup(identity: str) -> PilotAuthorization | None:
         current = login.authorize(session_secret)
         if current.tenant_id != request.tenant_id:
             raise LoginDenied("customer session tenant differs from read scope")
-        return lookup(identity)
+        grant = lookup(identity)
+        if first_grant and grant != first_grant[0]:
+            raise LoginDenied("customer read authorization changed")
+        if not first_grant:
+            first_grant.append(grant)
+        return grant
+
+    def persistence_guard() -> None:
+        if not isinstance(session_bound_lookup(authorization_id), PilotAuthorization):
+            raise LoginDenied("customer read authorization unavailable")
+
+    @contextmanager
+    def commit_scope():
+        with login.authorized_report_commit(session_secret, tenant_id=request.tenant_id):
+            # The session is locked against logout and tenant lifecycle changes.
+            # The grant remains an independent, trusted control-plane decision.
+            grant = lookup(authorization_id)
+            if not isinstance(grant, PilotAuthorization) or grant != first_grant[0]:
+                raise LoginDenied("customer read authorization changed")
+            yield
 
     return run_synthetic_lineage(
         registration=registration, connector=connector, request=request,
         authorization_id=authorization_id, lookup=session_bound_lookup, run_id=run_id,
         private_dir=private_dir, now=now,
+        persistence_guard=persistence_guard, commit_scope=commit_scope,
     )

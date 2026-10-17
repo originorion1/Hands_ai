@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -22,6 +23,7 @@ from deployment.customer.journey import run_customer_synthetic_lineage
 from deployment.customer.login import CustomerLogin, LoginDenied
 from deployment.customer.oidc import OIDCVerifier, VerifiedIdentity
 from deployment.customer.tenants import TenantDenied, TenantRegistry
+from deployment.release_candidate import continuous_lineage as lineage
 from orion.contracts import EvidenceKind
 from orion.discovery.pilot_read import PilotAuthorization, PilotRequest
 from orion.discovery.read_window import ReviewedReadWindow
@@ -310,7 +312,7 @@ def test_erpnext_enrollment_stores_only_vault_ref_and_grants_no_authority(contex
         enroll_erpnext(**(arguments | {"label": "Other"}))
 
 
-def test_customer_session_gates_one_real_synthetic_lineage(context, tmp_path):
+def test_customer_session_gates_one_real_synthetic_lineage(context, tmp_path, monkeypatch):
     _registry, login, key, _alpha, _beta = context
     session, _ = _complete(login, key, "alpha-admin")
     secret = _secret(session)
@@ -397,3 +399,84 @@ def test_customer_session_gates_one_real_synthetic_lineage(context, tmp_path):
     with pytest.raises(LoginDenied, match="session"):
         run_customer_synthetic_lineage(**(options | {"private_dir": denied}))
     assert not any(denied.iterdir())
+
+    original_write = lineage._write_private
+    for stage in ("source.json", "evidence.json", "witness.json", "report.json"):
+        fresh_session, _ = _complete(login, key, "alpha-admin")
+        fresh_secret = _secret(fresh_session)
+        staged = tmp_path / f"revoke-after-{stage}"
+        staged.mkdir(mode=0o700)
+
+        def revoke_after_write(path, body, *, checked_stage=stage,
+                               checked_secret=fresh_secret,
+                               checked_csrf=fresh_session.csrf_token):
+            original_write(path, body)
+            if path.name == checked_stage:
+                login.logout(checked_secret, csrf_token=checked_csrf)
+
+        monkeypatch.setattr(lineage, "_write_private", revoke_after_write)
+        with pytest.raises(LoginDenied, match="session"):
+            run_customer_synthetic_lineage(**(options | {
+                "session_secret": fresh_secret, "private_dir": staged,
+            }))
+        assert not any(staged.iterdir()), stage
+    monkeypatch.setattr(lineage, "_write_private", original_write)
+
+    grant_session, _ = _complete(login, key, "alpha-admin")
+    grant_secret = _secret(grant_session)
+    active_grant = True
+    grant_dir = tmp_path / "grant-revoked-after-source"
+    grant_dir.mkdir(mode=0o700)
+
+    def revoke_grant_after_source(path, body):
+        nonlocal active_grant
+        original_write(path, body)
+        if path.name == "source.json":
+            active_grant = False
+
+    monkeypatch.setattr(lineage, "_write_private", revoke_grant_after_source)
+    with pytest.raises(LoginDenied, match="authorization changed"):
+        run_customer_synthetic_lineage(**(options | {
+            "session_secret": grant_secret, "private_dir": grant_dir,
+            "lookup": lambda identity: grant if active_grant and identity == grant.authorization_id
+            else None,
+        }))
+    assert not any(grant_dir.iterdir())
+    monkeypatch.setattr(lineage, "_write_private", original_write)
+
+    # A fresh, authorized restart after a denied run uses a new empty run dir.
+    restarted_session, _ = _complete(login, key, "alpha-admin")
+    restarted = tmp_path / "authorized-restart"
+    restarted.mkdir(mode=0o700)
+    restarted_result = run_customer_synthetic_lineage(**(options | {
+        "session_secret": _secret(restarted_session), "private_dir": restarted,
+    }))
+    assert restarted_result.binding_path.is_file()
+
+    binding_entered = threading.Event()
+    binding_release = threading.Event()
+    race_session, _ = _complete(login, key, "alpha-admin")
+    race_secret = _secret(race_session)
+    race_dir = tmp_path / "commit-race"
+    race_dir.mkdir(mode=0o700)
+
+    def pause_binding(path, body):
+        if path.name == "binding.json":
+            binding_entered.set()
+            assert binding_release.wait(5)
+        original_write(path, body)
+
+    monkeypatch.setattr(lineage, "_write_private", pause_binding)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        run = pool.submit(run_customer_synthetic_lineage, **(options | {
+            "session_secret": race_secret, "private_dir": race_dir,
+        }))
+        assert binding_entered.wait(5)
+        logout = pool.submit(login.logout, race_secret, csrf_token=race_session.csrf_token)
+        time.sleep(0.05)
+        assert not logout.done()
+        binding_release.set()
+        assert run.result(timeout=5).binding_path.is_file()
+        assert "Max-Age=0" in logout.result(timeout=5)
+    with pytest.raises(LoginDenied, match="session"):
+        login.authorize(race_secret)

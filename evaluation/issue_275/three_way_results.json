@@ -1,0 +1,163 @@
+{
+  "calibration": "not applicable: categorical confidence, no probability forecast",
+  "case_count": 12,
+  "case_statuses": {
+    "conventional_union": {
+      "holdout_a": "candidate_review",
+      "holdout_b": "candidate_review",
+      "holdout_c": "candidate_review",
+      "holdout_d": "no_anomaly",
+      "holdout_e": "candidate_review",
+      "holdout_f": "no_anomaly",
+      "holdout_g": "candidate_review",
+      "holdout_h": "candidate_review",
+      "holdout_i": "candidate_review",
+      "holdout_j": "candidate_review",
+      "holdout_k": "candidate_review",
+      "holdout_l": "no_anomaly"
+    },
+    "existing_orion": {
+      "holdout_a": "candidate_review",
+      "holdout_b": "candidate_review",
+      "holdout_c": "abstained",
+      "holdout_d": "no_anomaly",
+      "holdout_e": "no_anomaly",
+      "holdout_f": "no_anomaly",
+      "holdout_g": "abstained",
+      "holdout_h": "candidate_review",
+      "holdout_i": "abstained",
+      "holdout_j": "no_anomaly",
+      "holdout_k": "no_anomaly",
+      "holdout_l": "no_anomaly"
+    },
+    "hybrid_investigation": {
+      "holdout_a": "candidate_review",
+      "holdout_b": "candidate_review",
+      "holdout_c": "abstained",
+      "holdout_d": "not_selected",
+      "holdout_e": "no_anomaly",
+      "holdout_f": "not_selected",
+      "holdout_g": "abstained",
+      "holdout_h": "candidate_review",
+      "holdout_i": "abstained",
+      "holdout_j": "no_anomaly",
+      "holdout_k": "no_anomaly",
+      "holdout_l": "not_selected"
+    }
+  },
+  "designed_positive_count": 3,
+  "detection_latency": "offline complete-period batch; live latency unmeasured",
+  "equal_access": {
+    "cases": [
+      "holdout_a",
+      "holdout_b",
+      "holdout_c",
+      "holdout_d",
+      "holdout_e",
+      "holdout_f",
+      "holdout_g",
+      "holdout_h",
+      "holdout_i",
+      "holdout_j",
+      "holdout_k",
+      "holdout_l"
+    ],
+    "period": "2026-01-01 through 2026-03-01",
+    "permission": "same synthetic admitted read scope",
+    "rows": 48
+  },
+  "execution_allowed": false,
+  "financial_outcome": "estimated exposure only; avoidability and savings unverified",
+  "fixed_threshold_fraction": "0.15",
+  "incremental_designed_positive_conclusions": 0,
+  "independently_adjudicated_incremental_conclusions": null,
+  "labels_origin": "designed synthetic, not independently adjudicated",
+  "labels_sha256": "3f211d974dca5ed9ae56e0922069ddfd3291f88825e4cb00141b2b23ca85799f",
+  "schema": "orion.procurement-three-way.v1",
+  "scores": {
+    "conventional_union": {
+      "billed_acquisition_cost_usd": null,
+      "billed_compute_cost_usd": null,
+      "compute_elapsed_ms_diagnostic": 2.377,
+      "correct_negative_abstentions": 0,
+      "estimated_exposure_usd": null,
+      "false_findings": 6,
+      "fn": 0,
+      "fp": 6,
+      "logical_evidence_batches": 12,
+      "measured_analyst_review_minutes": null,
+      "net_economic_value_usd": null,
+      "next_evidence_questions": 0,
+      "precision": 0.3333333333333333,
+      "precision_wilson_95_interval": [
+        0.121,
+        0.646
+      ],
+      "recall": 1.0,
+      "review_minutes_assumed": 54,
+      "source_rows_available": 48,
+      "tp": 3
+    },
+    "existing_orion": {
+      "billed_acquisition_cost_usd": null,
+      "billed_compute_cost_usd": null,
+      "compute_elapsed_ms_diagnostic": 1.485,
+      "correct_negative_abstentions": 3,
+      "estimated_exposure_usd": "190.00",
+      "false_findings": 0,
+      "fn": 0,
+      "fp": 0,
+      "logical_evidence_batches": 12,
+      "measured_analyst_review_minutes": null,
+      "net_economic_value_usd": null,
+      "next_evidence_questions": 6,
+      "precision": 1.0,
+      "precision_wilson_95_interval": [
+        0.438,
+        1
+      ],
+      "recall": 1.0,
+      "review_minutes_assumed": 18,
+      "source_rows_available": 48,
+      "tp": 3
+    },
+    "hybrid_investigation": {
+      "billed_acquisition_cost_usd": null,
+      "billed_compute_cost_usd": null,
+      "compute_elapsed_ms_diagnostic": 0.673,
+      "correct_negative_abstentions": 3,
+      "estimated_exposure_usd": "190.00",
+      "false_findings": 0,
+      "fn": 0,
+      "fp": 0,
+      "logical_evidence_batches": 12,
+      "measured_analyst_review_minutes": null,
+      "net_economic_value_usd": null,
+      "next_evidence_questions": 6,
+      "precision": 1.0,
+      "precision_wilson_95_interval": [
+        0.438,
+        1
+      ],
+      "recall": 1.0,
+      "review_minutes_assumed": 18,
+      "source_rows_available": 48,
+      "tp": 3
+    }
+  },
+  "source_sha256_by_case": {
+    "holdout_a": "c7aa1cc76d59cd602cc9390f9f73b52753cb0c14b2ec56a227f8534781fd76fb",
+    "holdout_b": "273d1909e2101c067374111c6a7d50a33e3e29ae44eeedff8213fbbfd05fe3df",
+    "holdout_c": "43d8d0d1c543864c0c5f1b0a51c872e87c6903c58d9b31e1757ffb34a7277fa2",
+    "holdout_d": "699f13bc4adf3ddd656519b1a561adc4fa13c183cd3edcc1dce7c7db6bb3e912",
+    "holdout_e": "52a952636313710492e8308a98416018cdca10ce1e7982b0612d58e424c3ecf8",
+    "holdout_f": "0ba1f164d25b6dc915c27cb0757c5433a8d1ab919a893b414df9d7f4540b3734",
+    "holdout_g": "dc801ef46b67ca1963e1f351b58f32f73e812b34fdfe4580967c63176ee96908",
+    "holdout_h": "8ed7179ee8537ba9663817b3f6c3e4d6c56ede3f167ac479dd6292fc5e87af75",
+    "holdout_i": "62162088912494dadf6dc9f44eacad41b275975d0fbff107ea804565d3a63199",
+    "holdout_j": "eaccf8a74da7c0a2770599938f58dff2b09c78d89233aca80a1587129eb8bc50",
+    "holdout_k": "c21d6980f78e048eb63b5f9760276a7cc7c9eea693b09844341a50e2e2e52bf1",
+    "holdout_l": "002164c72ddbb53be9d0f17b4f964e5743d61608762fb77a402aa81c29c79245"
+  },
+  "traceability": "all 48 source rows and labels separately digest-bound"
+}
