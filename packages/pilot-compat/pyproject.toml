@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "originorion-erpnext-pilot-compat"
-version = "0.1.0"
+version = "0.2.0rc1"
 description = "Historical ERPNext supervised pilot and demo compatibility for ORION"
 requires-python = ">=3.12"
 dependencies = [
-    "originorion-core==0.1.0",
-    "originorion-connector-erpnext-discovery==0.1.0",
-    "originorion-connector-sdk==0.1.0",
+    "originorion-core==0.2.0rc1",
+    "originorion-connector-erpnext-discovery==0.2.0rc1",
+    "originorion-connector-sdk==0.2.0rc1",
 ]
 
 [project.scripts]
