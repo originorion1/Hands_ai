@@ -1,0 +1,19 @@
+{
+  "artifacts": {
+    "originorion_connector_erpnext_discovery-0.1.0-py3-none-any.whl": "4d5e5e98923f3853f404f26fbe6477949e9f8bff082793dcf71e6b828b34d26f",
+    "originorion_connector_erpnext_discovery-0.1.0.tar.gz": "948ef8698fa24cbbd34cb402df71f1c86a59562b1fae454d4b17acfba3909480",
+    "originorion_connector_sdk-0.1.0-py3-none-any.whl": "278788372a8a24a26c40ff1608892a2fb3615d9f84bf8d2d99b179eadaef92ce",
+    "originorion_connector_sdk-0.1.0.tar.gz": "fc22d24e54243cb8850ab8a6239f09b3f8efadd69d2039823738f5c4cbc45f8a",
+    "originorion_connector_synthetic-0.1.0-py3-none-any.whl": "41eeb282ed962a2bd4b87e6fb91fc5d15fe378304ed7eff9c97517d0ec075bd2",
+    "originorion_connector_synthetic-0.1.0.tar.gz": "6d9c10d9206c0c6d4f7813bce50be65f8cfb1ef3233a95d41109ca7e0244b801",
+    "originorion_core-0.1.0-py3-none-any.whl": "8bc88c21bbe9f2a43c2dd19c697170324c3adcbf3bc9cdfe02ba72be15ee41fb",
+    "originorion_core-0.1.0.tar.gz": "44985319a68804188b409c0378cdef82db605688bffb39813fa37ff5646749fe",
+    "originorion_erpnext_pilot_compat-0.1.0-py3-none-any.whl": "df293d12a6c563489742c405babd20f6fe3f2c616bd981b08269b345a3c7735c",
+    "originorion_erpnext_pilot_compat-0.1.0.tar.gz": "818dde0810ffc319c63fc0196051393e9896dc863922da52b2e0c9c12a5e5e73"
+  },
+  "build_command": "uv build --offline for five source packages",
+  "rebuild_byte_identical": true,
+  "schema": "orion.architecture-artifact-review.v1",
+  "source_sha": "1ae9baa696a14516a555b03ebeb00f8f4feb5ba5",
+  "tree": "e95ca19ba1630d4e42a8875d819819009a52dcac"
+}
