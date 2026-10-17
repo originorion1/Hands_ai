@@ -70,17 +70,13 @@ class SyntheticRecordConnector:
             raise ValueError("timezone-aware observation required")
         self._observed_at = observed_at
 
-    def source_records(self) -> list[dict[str, object]]:
-        """Return a detached copy of the original immutable dataset."""
-        return json.loads(self._body)
-
     def read(self, permit: PilotReadPermit) -> tuple[Observation, ...]:
         if not isinstance(permit, PilotReadPermit):
             raise TypeError("governed pilot permit required")
         request, _ = permit.claim_io(self.source_id)
         if request.tenant_id != self.tenant_id:
             raise ValueError("synthetic source tenant mismatch")
-        records = self.source_records()
+        records = json.loads(self._body)
         if len(records) > request.max_records:
             raise ValueError("synthetic source exceeds read bound")
         observed_at = self._observed_at or permit.current_time()
