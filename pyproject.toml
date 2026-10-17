@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "originorion-core"
-version = "0.2.0rc1"
+version = "0.2.0rc2"
 description = "ORION — generic learning and governed automation kernel"
 requires-python = ">=3.12"
 readme = "README.md"
@@ -30,7 +30,7 @@ exclude = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "packages/connector-sdk/src", "packages/erpnext-discovery/src", "packages/pilot-compat/src"]
+pythonpath = ["src", "packages/connector-sdk/src", "packages/erpnext-discovery/src", "packages/pilot-compat/src", "packages/synthetic-connector/src"]
 
 [tool.ruff]
 line-length = 100
