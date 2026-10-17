@@ -22,6 +22,9 @@ _MAX_TOKEN_BYTES = 4096
 _SAFE_CATEGORY = re.compile(r"[a-z_]{1,64}\Z")
 _SAFE_TIMESTAMP = re.compile(r"[0-9T:+.\-Z]{1,64}\Z")
 _SERVICE_TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+_LINEAGE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+_UUID = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}\Z")
 _LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
@@ -41,6 +44,8 @@ def _counter(value: object) -> bool:
 def _validated_view(body: bytes) -> bytes:
     """Validate the public transport envelope before returning upstream bytes."""
     value = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_object)
+    if type(value) is dict and value.get("interface_version") == "orion.readonly-report.v2":
+        return _validated_lineage_view(value, body)
     if type(value) is not dict or set(value) != {
         "authority", "cycles", "failures", "interface_version", "metadata",
         "observations_persisted", "report_kind", "session_ended_at",
@@ -93,6 +98,58 @@ def _validated_view(body: bytes) -> bytes:
             or not _counter(item["count"])
         ):
             raise ValueError("invalid report failure category")
+    return body
+
+
+def _validated_lineage_view(value: dict[str, object], body: bytes) -> bytes:
+    """Accept only the bounded synthetic provenance extension of the safe view."""
+    if set(value) != {
+        "authority", "cycles", "failures", "interface_version", "lineage", "metadata",
+        "observations_persisted", "report_kind", "session_ended_at", "session_started_at",
+        "stop_reason", "studies",
+    } or value["report_kind"] != "synthetic_lineage" or value["stop_reason"] != "cycle_limit":
+        raise ValueError("invalid lineage envelope")
+    authority = value["authority"]
+    cycles = value["cycles"]
+    if (type(authority) is not dict or set(authority) != {
+            "erp_writes", "execution_allowed", "promotion_allowed", "recommendation_allowed"
+    } or type(authority["erp_writes"]) is not int or authority["erp_writes"] != 0
+            or any(authority[name] is not False for name in (
+                "execution_allowed", "promotion_allowed", "recommendation_allowed"
+            )) or type(cycles) is not dict or set(cycles) != {"attempted", "completed"}
+            or any(type(cycles[name]) is not int or cycles[name] != 1 for name in cycles)
+            or type(value["failures"]) is not list or value["failures"]):
+        raise ValueError("unsafe lineage authority")
+    for name in ("metadata", "studies"):
+        item = value[name]
+        if (type(item) is not dict or set(item) != {"budget", "used"}
+                or not all(_counter(part) for part in item.values())
+                or item["used"] > item["budget"]):
+            raise ValueError("invalid lineage counters")
+    if not _counter(value["observations_persisted"]):
+        raise ValueError("invalid lineage count")
+    for name in ("session_started_at", "session_ended_at"):
+        stamp = value[name]
+        if type(stamp) is not str or _SAFE_TIMESTAMP.fullmatch(stamp) is None:
+            raise ValueError("invalid lineage timestamp")
+    lineage = value["lineage"]
+    if type(lineage) is not dict or set(lineage) != {
+        "run_id", "dataset_id", "source_sha256", "authorization_id", "evidence_ids",
+        "investigation_sha256", "witness_sha256",
+    }:
+        raise ValueError("invalid lineage fields")
+    if (type(lineage["run_id"]) is not str or _UUID.fullmatch(lineage["run_id"]) is None
+            or any(type(lineage[name]) is not str or _LINEAGE_ID.fullmatch(lineage[name]) is None
+                   for name in ("dataset_id", "authorization_id"))
+            or any(type(lineage[name]) is not str or _DIGEST.fullmatch(lineage[name]) is None
+                   for name in ("source_sha256", "investigation_sha256", "witness_sha256"))
+            or type(lineage["evidence_ids"]) is not list
+            or not 1 <= len(lineage["evidence_ids"]) <= 100
+            or len(set(lineage["evidence_ids"])) != len(lineage["evidence_ids"])
+            or any(type(item) is not str or _UUID.fullmatch(item) is None
+                   for item in lineage["evidence_ids"])
+            or len(lineage["evidence_ids"]) != value["observations_persisted"]):
+        raise ValueError("invalid lineage identity")
     return body
 
 

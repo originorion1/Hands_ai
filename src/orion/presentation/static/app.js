@@ -219,14 +219,18 @@ function renderReport() {
   $('studyDetail').textContent = 'Completed aggregate';
   $('observations').textContent = String(report.observations);
   $('reportStatus').textContent = `${report.cyclesCompleted} cycles · ${formatStopReason(report.stopReason)}`;
-  $('historySummary').textContent = `Completed aggregate: ${report.cyclesCompleted} cycles and ${report.observations} persisted observations. No record values or live events loaded.`;
+  $('historySummary').textContent = report.lineage
+    ? `Synthetic run ${report.lineage.run_id} · dataset ${report.lineage.dataset_id} · source SHA-256 ${report.lineage.source_sha256} · ${report.observations} persisted observations. No record values or live events loaded.`
+    : `Completed aggregate: ${report.cyclesCompleted} cycles and ${report.observations} persisted observations. No record values or live events loaded.`;
 }
 
 function applyReportView(value) {
   const counter = item => Number.isSafeInteger(item) && item >= 0 && item <= 1000000;
   if (
-    !value || value.interface_version !== 'orion.readonly-report.v1' ||
-    value.report_kind !== 'completed_aggregate' ||
+    !value || ![
+      ['orion.readonly-report.v1', 'completed_aggregate'],
+      ['orion.readonly-report.v2', 'synthetic_lineage']
+    ].some(([version, kind]) => value.interface_version === version && value.report_kind === kind) ||
     !value.metadata || !counter(value.metadata.used) || !counter(value.metadata.budget) ||
     !value.studies || !counter(value.studies.used) || !counter(value.studies.budget) ||
     !value.cycles || !counter(value.cycles.completed) ||
@@ -238,6 +242,15 @@ function applyReportView(value) {
   ) {
     throw Error('The report service returned an invalid safe view.');
   }
+  if (value.interface_version === 'orion.readonly-report.v2' && (
+    !value.lineage || !/^[0-9a-f-]{36}$/.test(value.lineage.run_id) ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.lineage.dataset_id) ||
+    !/^[0-9a-f]{64}$/.test(value.lineage.source_sha256) ||
+    !Array.isArray(value.lineage.evidence_ids) ||
+    value.lineage.evidence_ids.length !== value.observations_persisted
+  )) {
+    throw Error('The report service returned an invalid lineage.');
+  }
   report = {
     metadataUsed: value.metadata.used,
     metadataBudget: value.metadata.budget,
@@ -245,7 +258,8 @@ function applyReportView(value) {
     studyBudget: value.studies.budget,
     observations: value.observations_persisted,
     cyclesCompleted: value.cycles.completed,
-    stopReason: value.stop_reason
+    stopReason: value.stop_reason,
+    lineage: value.interface_version === 'orion.readonly-report.v2' ? value.lineage : null
   };
   source = 'authenticated aggregate report';
   renderReport();

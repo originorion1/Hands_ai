@@ -254,6 +254,38 @@ function validView() {
   assert.match(denied.elements.connectionStatus.textContent, /Access denied/);
   assert.equal(denied.elements.observations.textContent, '—');
 
+  const lineageView = {
+    ...validView(),
+    interface_version: 'orion.readonly-report.v2',
+    report_kind: 'synthetic_lineage',
+    observations_persisted: 2,
+    lineage: {
+      run_id: 'bb8f1c20-2735-4e9b-a2c9-a49f980a8010',
+      dataset_id: 'dataset-267-alpha',
+      source_sha256: 'a'.repeat(64),
+      authorization_id: 'synthetic-read-267',
+      evidence_ids: [
+        '6ba7b810-713f-4fc2-b38f-539b18fbdb77',
+        '1ec7e4e1-aa60-4c43-8759-345b995044ed'
+      ],
+      investigation_sha256: 'b'.repeat(64),
+      witness_sha256: 'c'.repeat(64)
+    }
+  };
+  const lineageResponse = { ok: true, status: 200, json: async () => lineageView };
+  const lineageBrowser = buildHarness({ response: lineageResponse });
+  lineageBrowser.elements.reportToken.value = 'synthetic-token';
+  await lineageBrowser.elements.connectReport.listeners.click();
+  assert.equal(lineageBrowser.elements.observations.textContent, '2');
+  assert.match(lineageBrowser.elements.historySummary.textContent, /dataset-267-alpha/);
+  assert.match(lineageBrowser.elements.historySummary.textContent, /bb8f1c20/);
+  lineageResponse.ok = false;
+  lineageResponse.status = 401;
+  lineageBrowser.elements.reportToken.value = 'forged-token';
+  await lineageBrowser.elements.connectReport.listeners.click();
+  assert.equal(lineageBrowser.elements.observations.textContent, '—');
+  assert.equal(lineageBrowser.elements.historySummary.textContent, 'No bound historical report loaded.');
+
   const stageA = buildHarness({
     statusResponse: {
       ok: true,
