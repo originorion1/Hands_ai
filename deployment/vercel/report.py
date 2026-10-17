@@ -125,13 +125,17 @@ def _validated_procurement_view(value: dict[str, object], body: bytes) -> bytes:
         "evidence_acquired_at", "evidence_ids", "authorization_id", "tenant_id",
         "run_id", "source_data_sha256", "invalidation_history",
         "review_event_sha256",
+        "connector_identity", "source_id",
     }
     optional = {"historical_median_unit_usd", "reference_unit_usd", "supplier_comparison"}
     if (type(finding) is not dict or not required <= set(finding) or
             set(finding) - required - optional):
         raise ValueError("invalid procurement fields")
-    if (finding["status"] not in {"candidate_review", "abstained", "no_anomaly"}
+    if (finding["status"] not in {"candidate_review", "abstained", "no_anomaly", "invalidated"}
             or finding["source_system"] != "synthetic-records"
+            or finding["connector_identity"] != "originorion-connector-synthetic@0.2.0rc2"
+            or type(finding["source_id"]) is not str or
+            _LINEAGE_ID.fullmatch(finding["source_id"]) is None
             or finding["authorization_status"] != "read_only_admitted"
             or finding["reviewer_decision"] not in {
                 "pending", "accepted_for_followup", "rejected", "needs_evidence"
@@ -141,7 +145,9 @@ def _validated_procurement_view(value: dict[str, object], body: bytes) -> bytes:
                 _DIGEST.fullmatch(finding["review_event_sha256"]) is None
             ))
             or finding["independently_verified_savings_usd"] is not None
-            or finding["invalidation_history"] != []
+            or type(finding["invalidation_history"]) is not list
+            or len(finding["invalidation_history"]) > 1
+            or (finding["status"] == "invalidated") != bool(finding["invalidation_history"])
             or finding["normalized_unit"] != "each" or finding["currency"] != "USD"
             or finding["run_id"] != value["lineage"]["run_id"]
             or finding["source_data_sha256"] != value["lineage"]["source_sha256"]
@@ -163,6 +169,15 @@ def _validated_procurement_view(value: dict[str, object], body: bytes) -> bytes:
                    for key in ("comparison_refs", "excluded_evidence", "missing_evidence",
                                "alternative_explanations"))):
         raise ValueError("unsafe procurement view")
+    for event in finding["invalidation_history"]:
+        if (type(event) is not dict or set(event) != {
+            "successor_run_id", "successor_source_sha256", "reason"
+        } or type(event["successor_run_id"]) is not str or
+                _UUID.fullmatch(event["successor_run_id"]) is None or
+                type(event["successor_source_sha256"]) is not str or
+                _DIGEST.fullmatch(event["successor_source_sha256"]) is None or
+                type(event["reason"]) is not str or len(event["reason"]) > 128):
+            raise ValueError("invalid procurement invalidation")
     if (finding["next_question"] is not None and len(finding["next_question"]) > 256 or
             "supplier_comparison" in finding and (
                 type(finding["supplier_comparison"]) is not list or

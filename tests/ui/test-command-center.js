@@ -295,10 +295,15 @@ function validView() {
       status: 'candidate_review', item: 'part-42', target_ref: 'holdout_a-T',
       estimated_exposure_usd: '60.00', reviewer_decision: 'pending',
       source_system: 'synthetic-records', finding_sha256: 'd'.repeat(64),
+      connector_identity: 'originorion-connector-synthetic@0.2.0rc2',
+      source_id: 'synthetic-source-a',
       comparison_refs: ['holdout_a-H1', 'holdout_a-H2'], target_unit_usd: '17.00',
       normalized_unit: 'each', confidence: 'limited_synthetic', missing_evidence: [],
       alternative_explanations: ['market change needs review'], next_question: 'Review market',
-      independently_verified_savings_usd: null
+      independently_verified_savings_usd: null, company: 'Synthetic Procurement Co',
+      evidence_ids: lineageView.lineage.evidence_ids, evidence_acquired_at: '2026-03-01T00:00:00Z',
+      base_report_sha256: 'e'.repeat(64), quantity_each: '10', reference_unit_usd: '11.00',
+      authorization_status: 'read_only_admitted', excluded_evidence: [], invalidation_history: []
     }
   };
   const procurementResponse = { ok: true, status: 200, json: async () => procurementView };

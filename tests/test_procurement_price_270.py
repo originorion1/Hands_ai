@@ -179,6 +179,10 @@ def test_authorized_correction_invalidates_persisted_candidate(tmp_path):
     updated = old.read_view()["procurement"]
     assert updated["status"] == "invalidated"
     assert updated["invalidation_history"][0]["successor_run_id"] == str(next_run.run_id)
+    invalidated_view = old.read_view()
+    assert _validated_view(json.dumps(invalidated_view).encode()) == json.dumps(
+        invalidated_view
+    ).encode()
     invalidation_path = old_path.parent / "invalidation-1.json"
     invalidation_path.write_bytes(invalidation_path.read_bytes() + b" ")
     with pytest.raises(ReportInterfaceError):

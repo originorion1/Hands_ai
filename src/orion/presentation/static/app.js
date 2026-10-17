@@ -226,8 +226,8 @@ function renderReport() {
   if (report.procurement) {
     const finding = report.procurement;
     $('procurementSummary').textContent = `${finding.item} · ${finding.status} · target ${finding.target_ref} · estimated exposure USD ${finding.estimated_exposure_usd} · reviewer ${finding.reviewer_decision}`;
-    $('procurementEvidence').textContent = `Run ${report.lineage.run_id} · ${finding.source_system} · source SHA-256 ${report.lineage.source_sha256} · finding SHA-256 ${finding.finding_sha256} · supporting transactions ${finding.comparison_refs.join(', ')} · normalized price USD ${finding.target_unit_usd} per ${finding.normalized_unit}`;
-    $('procurementLimits').textContent = `Confidence ${finding.confidence}. Missing: ${finding.missing_evidence.join('; ') || 'none recorded'}. Alternatives: ${finding.alternative_explanations.join('; ')}. Next question: ${finding.next_question || 'none'}.`;
+    $('procurementEvidence').textContent = `Company ${finding.company} · run ${report.lineage.run_id} · ${finding.source_system} / ${finding.connector_identity} / ${finding.source_id} · ${finding.evidence_ids.length}/${report.observations} admitted observations · acquired ${finding.evidence_acquired_at} · source SHA-256 ${report.lineage.source_sha256} · base report SHA-256 ${finding.base_report_sha256} · finding SHA-256 ${finding.finding_sha256} · supporting transactions ${finding.comparison_refs.join(', ')} · normalized target USD ${finding.target_unit_usd} per ${finding.normalized_unit} × ${finding.quantity_each} each · reference USD ${finding.reference_unit_usd || 'unavailable'} · authorization ${finding.authorization_status}`;
+    $('procurementLimits').textContent = `Confidence ${finding.confidence}. Missing: ${finding.missing_evidence.join('; ') || 'none recorded'}. Contradictions/exclusions: ${finding.excluded_evidence.join('; ') || 'none recorded'}. Alternatives: ${finding.alternative_explanations.join('; ')}. Next question: ${finding.next_question || 'none'}. Invalidation: ${finding.invalidation_history.map(event => event.successor_run_id).join(', ') || 'none'}.`;
   }
 }
 
@@ -264,9 +264,15 @@ function applyReportView(value) {
     typeof value.procurement.item !== 'string' || typeof value.procurement.target_ref !== 'string' ||
     typeof value.procurement.target_unit_usd !== 'string' ||
     typeof value.procurement.estimated_exposure_usd !== 'string' ||
+    value.procurement.connector_identity !== 'originorion-connector-synthetic@0.2.0rc2' ||
+    typeof value.procurement.source_id !== 'string' ||
     !Array.isArray(value.procurement.comparison_refs) ||
+    !Array.isArray(value.procurement.evidence_ids) ||
+    value.procurement.evidence_ids.length !== value.observations_persisted ||
     !Array.isArray(value.procurement.missing_evidence) ||
+    !Array.isArray(value.procurement.excluded_evidence) ||
     !Array.isArray(value.procurement.alternative_explanations) ||
+    !Array.isArray(value.procurement.invalidation_history) ||
     !/^[0-9a-f]{64}$/.test(value.procurement.finding_sha256) ||
     value.procurement.independently_verified_savings_usd !== null
   )) {

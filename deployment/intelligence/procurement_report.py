@@ -39,6 +39,9 @@ def persist_procurement_finding(
             source.get("source_sha256") != view["lineage"]["source_sha256"] or
             type(source.get("source")) is not list):
         raise ReportInterfaceError("source identity mismatch")
+    source_ids = {item["provenance"]["source_id"] for item in evidence["evidence"]}
+    if len(source_ids) != 1:
+        raise ReportInterfaceError("connector source identity mismatch")
     try:
         finding = investigate_purchases(tuple(source["source"]), target_ref=target_ref,
                                         company=company)
@@ -53,6 +56,8 @@ def persist_procurement_finding(
         "evidence_acquired_at": max(item["observed_at"] for item in evidence["evidence"]),
         "evidence_ids": view["lineage"]["evidence_ids"],
         "authorization_id": view["lineage"]["authorization_id"],
+        "connector_identity": "originorion-connector-synthetic@0.2.0rc2",
+        "source_id": next(iter(source_ids)),
         "finding": finding,
     }
     body = _json(document)
@@ -124,6 +129,7 @@ class ProcurementReportSource:
             if (type(document) is not dict or set(document) != {
                 "schema", "tenant_id", "run_id", "source_sha256", "base_report_sha256",
                 "evidence_acquired_at", "evidence_ids", "authorization_id", "finding",
+                "connector_identity", "source_id",
             } or document["schema"] != "orion.procurement-finding.v1" or
                     document["tenant_id"] != self.tenant_id or
                     document["run_id"] != base_view["lineage"]["run_id"] or
@@ -131,6 +137,10 @@ class ProcurementReportSource:
                     document["base_report_sha256"] != self.base.report_sha256 or
                     document["evidence_ids"] != base_view["lineage"]["evidence_ids"] or
                     document["authorization_id"] != base_view["lineage"]["authorization_id"] or
+                    document["connector_identity"] !=
+                    "originorion-connector-synthetic@0.2.0rc2" or
+                    {item["provenance"]["source_id"] for item in evidence["evidence"]} !=
+                    {document["source_id"]} or
                     document["evidence_acquired_at"] != max(
                         item["observed_at"] for item in evidence["evidence"]
                     )):
@@ -244,6 +254,8 @@ class ProcurementReportSource:
                 "finding_sha256": self.finding_sha256,
                 "base_report_sha256": self.base.report_sha256,
                 "source_system": "synthetic-records",
+                "connector_identity": document["connector_identity"],
+                "source_id": document["source_id"],
                 "authorization_status": "read_only_admitted",
                 "evidence_acquired_at": document["evidence_acquired_at"],
                 "evidence_ids": document["evidence_ids"],
