@@ -6,6 +6,7 @@ import sys
 
 if __name__ == "__main__":
     sys.path.insert(0, "/app/src")
+    sys.path.insert(0, "/app/pilot")
     sys.path.insert(0, "/work")
 
 from isolation_lab import CHECKS, connectable, inspect_child, readable

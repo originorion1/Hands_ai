@@ -53,6 +53,10 @@ def test_fixed_command_has_private_network_and_only_journal_state_writable(monke
     assert "--unshare-all" in command and "--share-net" not in command
     assert command[command.index("--cap-drop") + 1] == "ALL"
     assert "--clearenv" in command and command.count("--bind") == 1
+    pilot_source = str(Path(__file__).resolve().parents[1] / "packages" / "pilot-compat" / "src")
+    assert command[command.index(pilot_source) - 1:command.index(pilot_source) + 2] == [
+        "--ro-bind", pilot_source, "/pilot"
+    ]
     assert command[command.index("--bind") + 2] == "/state"
     for path in paths.values():
         index = command.index(str(path))

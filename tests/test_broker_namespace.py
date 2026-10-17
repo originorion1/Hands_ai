@@ -52,6 +52,10 @@ def test_fixed_profile_retains_network_namespace_and_only_state_is_writable(monk
     assert '--unshare-all' in command and '--share-net' not in command
     assert command[command.index('--cap-drop') + 1] == 'ALL'
     assert '--clearenv' in command
+    pilot_source = str(Path(__file__).resolve().parents[1] / 'packages' / 'pilot-compat' / 'src')
+    assert command[command.index(pilot_source) - 1:command.index(pilot_source) + 2] == [
+        '--ro-bind', pilot_source, '/pilot'
+    ]
     assert command.count('--bind') == 1
     assert command[command.index('--bind') + 1:command.index('--bind') + 3] == [str(state)] * 2
     for path in (config, source):
