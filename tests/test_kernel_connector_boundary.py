@@ -39,6 +39,6 @@ def test_historical_pilot_has_an_independent_distribution():
     project = tomllib.loads((ROOT / "packages/pilot-compat/pyproject.toml").read_text())[
         "project"
     ]
-    assert project["name"] == "orion-erpnext-pilot-compat"
+    assert project["name"] == "originorion-erpnext-pilot-compat"
     assert project["scripts"]["orion-runtime"] == "orion.pilot.deployment:main"
-    assert "orion-connector-erpnext-discovery==0.1.0" in project["dependencies"]
+    assert "originorion-connector-erpnext-discovery==0.1.0" in project["dependencies"]
