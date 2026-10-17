@@ -121,6 +121,29 @@ def test_three_independent_signatures_and_exact_artifact_pass(tmp_path):
     assert result["artifact_count"] == 10
 
 
+def test_one_signing_key_cannot_approve_three_distinct_roles(tmp_path):
+    paths = _fixture(tmp_path)
+    key = Ed25519PrivateKey.generate()
+    public = base64.b64encode(
+        key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode()
+    trust = json.loads(paths[2].read_text())
+    for role in ("security", "architecture", "release_owner"):
+        approval_path = paths[3] / f"{role}.json"
+        approval = json.loads(approval_path.read_text())
+        trust["keys"][approval["key_id"]]["public_key"] = public
+        signed = {name: approval[name] for name in (
+            "decision", "key_id", "manifest_sha256", "reviewer_identity", "role"
+        )}
+        approval["signature"] = base64.b64encode(
+            key.sign(json.dumps(signed, sort_keys=True, separators=(",", ":")).encode())
+        ).decode()
+        _json(approval_path, approval)
+    _json(paths[2], trust)
+    with pytest.raises(ReleaseDenied, match="signer key reused"):
+        verify(*paths)
+
+
 def test_missing_or_self_issued_approval_denied(tmp_path):
     paths = _fixture(tmp_path)
     (paths[3] / "security.json").unlink()

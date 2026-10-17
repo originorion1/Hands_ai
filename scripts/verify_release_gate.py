@@ -164,6 +164,7 @@ def verify(
         raise ReleaseDenied("missing independent trust store")
     manifest_digest = _sha256(manifest_path)
     seen_identities: set[str] = set()
+    seen_public_keys: set[bytes] = set()
     approvals: dict[str, str] = {}
     for role in sorted(REQUIRED_ROLES):
         approval = _object(approvals_dir / f"{role}.json")
@@ -193,9 +194,8 @@ def verify(
             "role": role,
         }
         try:
-            public_key = Ed25519PublicKey.from_public_bytes(
-                base64.b64decode(trusted["public_key"], validate=True)
-            )
+            public_bytes = base64.b64decode(trusted["public_key"], validate=True)
+            public_key = Ed25519PublicKey.from_public_bytes(public_bytes)
             signature = base64.b64decode(approval["signature"], validate=True)
             public_key.verify(
                 signature,
@@ -203,7 +203,10 @@ def verify(
             )
         except (KeyError, TypeError, ValueError, InvalidSignature) as exc:
             raise ReleaseDenied("approval signature invalid") from exc
+        if public_bytes in seen_public_keys:
+            raise ReleaseDenied("approval signer key reused")
         seen_identities.add(identity)
+        seen_public_keys.add(public_bytes)
         approvals[role] = identity
     return {
         "release_gate": "PASS",
