@@ -13,6 +13,8 @@ class OrionKernel:
     """Coordinates discovery while keeping adapters and storage replaceable."""
 
     def __init__(self, *, evidence_store: EvidenceStore) -> None:
+        if not callable(getattr(evidence_store, "append_batch_atomic", None)):
+            raise TypeError("evidence store must provide atomic batch append")
         self._evidence_store = evidence_store
 
     def discover(self, adapter: DiscoveryAdapter, *, tenant_id: str) -> int:
@@ -32,7 +34,8 @@ class OrionKernel:
                     f"expected {tenant_id!r}, got {observed_tenant_id!r}"
                 )
 
-        for observation in observations:
-            self._evidence_store.append(observation.evidence)
+        self._evidence_store.append_batch_atomic(
+            tuple(observation.evidence for observation in observations)
+        )
 
         return len(observations)

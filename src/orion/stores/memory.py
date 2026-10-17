@@ -14,6 +14,11 @@ class InMemoryEvidenceStore:
     def append(self, evidence: Evidence) -> None:
         self._items.append(evidence)
 
+    def append_batch_atomic(self, evidence: Sequence[Evidence]) -> None:
+        # Build the replacement before publishing it. Construction failure leaves
+        # the previously visible evidence untouched.
+        self._items = [*self._items, *evidence]
+
     def query(self, *, tenant_id: str | None = None) -> Sequence[Evidence]:
         if tenant_id is None:
             return tuple(self._items)
