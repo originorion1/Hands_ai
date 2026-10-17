@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
@@ -184,6 +185,18 @@ def test_authorized_correction_invalidates_persisted_candidate(tmp_path):
         invalidated_view
     ).encode()
     invalidation_path = old_path.parent / "invalidation-1.json"
+    digest_path = invalidation_path.with_suffix(".sha256")
+    original_event = invalidation_path.read_bytes()
+    original_digest = digest_path.read_bytes()
+    invalidation = json.loads(original_event)
+    invalidation["reason"] = "forged reason"
+    forged = (json.dumps(invalidation, sort_keys=True) + "\n").encode()
+    invalidation_path.write_bytes(forged)
+    digest_path.write_bytes((sha256(forged).hexdigest() + "\n").encode())
+    with pytest.raises(ReportInterfaceError):
+        old.read_view()
+    invalidation_path.write_bytes(original_event)
+    digest_path.write_bytes(original_digest)
     invalidation_path.write_bytes(invalidation_path.read_bytes() + b" ")
     with pytest.raises(ReportInterfaceError):
         old.read_view()
