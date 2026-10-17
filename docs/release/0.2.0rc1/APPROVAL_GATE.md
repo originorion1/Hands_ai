@@ -19,7 +19,7 @@ mapping must include exactly the Kernel, SDK, ERPNext connector, synthetic
 connector and pilot compatibility package. Each version selects exactly one
 wheel and one source archive; an additional package version is denied. This
 allows the report-host ERPNext package to advance independently to
-`0.2.0rc2` without relabeling unchanged Kernel and SDK bytes. A changed
+`0.2.0rc3` without relabeling unchanged Kernel and SDK bytes. A changed
 artifact still requires a new source SHA/tree, rebuilt hash inventory, checks
 and independent approvals.
 

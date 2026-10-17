@@ -1,5 +1,6 @@
 {
   "schema": "orion.release-health.v1",
+  "snapshot_scope": "PR #248 baseline before release-engineering integration; not the integrated candidate",
   "observed_utc": "2026-10-17T02:09:27Z",
   "candidate_source_sha": "c631d1fe109f89360a3292784b262086ad39a4d6",
   "candidate_tree": "4dd88a3affd62307d3c87214e82cf28c60371049",

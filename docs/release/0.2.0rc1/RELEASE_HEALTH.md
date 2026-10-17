@@ -4,6 +4,7 @@ Snapshot: `2026-10-17T02:09:27Z`. Candidate source:
 `c631d1fe109f89360a3292784b262086ad39a4d6`; tree `4dd88a3affd62307d3c87214e82cf28c60371049`.
 Canonical: `eabda90593f00ddc9b6ace6a4b9b9301fb3a01dd`. Decision:
 `RELEASE_CANDIDATE_BLOCKED`.
+Scope: PR #248 baseline before release-engineering integration; not the integrated candidate
 
 This snapshot is evidence about draft branches, not a release approval.
 

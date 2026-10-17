@@ -71,6 +71,7 @@ def render(record: dict) -> str:
         f"`{record['candidate_source_sha']}`; tree `{record['candidate_tree']}`.",
         f"Canonical: `{record['canonical_source_sha']}`. Decision:",
         f"`{record['release_decision']}`.",
+        f"Scope: {record.get('snapshot_scope', 'exact candidate')}",
         "",
         "This snapshot is evidence about draft branches, not a release approval.",
         "",
