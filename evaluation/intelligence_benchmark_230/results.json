@@ -1,0 +1,61 @@
+{
+  "analyst_hourly_usd_assumption": 45,
+  "baseline_review_cost_usd_estimate": 40.5,
+  "candidate_review_minutes_assumption": 6,
+  "conventional": {
+    "false_positive_rate": 0.029411764705882353,
+    "fn": 0,
+    "fp": 1,
+    "precision": 0.8888888888888888,
+    "recall": 1.0,
+    "tn": 33,
+    "tp": 8
+  },
+  "corrected_evidence_invalidates_candidate": true,
+  "cross_tenant_denied": true,
+  "evaluation_unit": "tenant-period-anomaly-class",
+  "events_sha256": "e063690c7ebd20658fee5983680ee6f80536646a95e8206adef662e87c4020a6",
+  "execution_allowed": false,
+  "ground_truth_sha256": "7d50d7ea096f2ad37b727b9bf3375cd3e0ac7822ffdbc6e45252fe2874b24b75",
+  "heldout_learning_improvement": null,
+  "incremental_orion_validated_discoveries": 0,
+  "independently_verified_avoidable_usd": 0,
+  "missing_authorization_denied": true,
+  "naive_forecast_evaluation_groups": 6,
+  "naive_previous_period_demand_mae": 4.0,
+  "orion_actual_missing_document_only": {
+    "false_positive_rate": 0.0,
+    "fn": 7,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 0.125,
+    "tn": 34,
+    "tp": 1
+  },
+  "orion_provenance": {
+    "synthetic-hospitality-a:0": {
+      "evidence_count": 12,
+      "relevant_evidence_sha256": "cbc8a7fafd26054e5d8a0d56b0eaad443a757d8cfa47a0064ff234c76b3f745c",
+      "source_provenance_sha256": "bb7fdceb087f7973d1e90435d4d1b88abad14e503e62950068b44733fae432f8"
+    }
+  },
+  "orion_review_cost_usd_estimate": 4.5,
+  "orion_supported_classes": [
+    "missing_document"
+  ],
+  "potential_price_exposure_usd_estimate": 83.4,
+  "realized_customer_savings_usd": 0,
+  "schema": "orion.intelligence-benchmark.v1",
+  "source_base_sha": "2c7fe3ea34cbb2258f03854b2002884214a76d9e",
+  "statistical_price_holdout": {
+    "false_positive_rate": 0.0,
+    "fn": 0,
+    "fp": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "tn": 1,
+    "tp": 1
+  },
+  "synthetic_events": 72,
+  "synthetic_positive_units": 8
+}

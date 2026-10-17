@@ -1,0 +1,61 @@
+{
+  "labels": [
+    {
+      "id": "t0-p0-c1-r3",
+      "kind": "duplicate_invoice",
+      "period": 0,
+      "review": "synthetic_design_label",
+      "tenant": "synthetic-hospitality-a"
+    },
+    {
+      "id": "t0-p0-c2-r1",
+      "kind": "missing_document",
+      "period": 0,
+      "review": "synthetic_design_label",
+      "tenant": "synthetic-hospitality-a"
+    },
+    {
+      "id": "t0-p1-c0-r1",
+      "kind": "price_variance",
+      "period": 1,
+      "review": "synthetic_design_label",
+      "tenant": "synthetic-hospitality-a"
+    },
+    {
+      "id": "t0-p2-c1-r1",
+      "kind": "inventory_mismatch",
+      "period": 2,
+      "review": "synthetic_design_label",
+      "tenant": "synthetic-hospitality-a"
+    },
+    {
+      "id": "t1-p1-c0-r2",
+      "kind": "incorrect_invoice",
+      "period": 1,
+      "review": "synthetic_design_label",
+      "tenant": "synthetic-distributor-b"
+    },
+    {
+      "id": "t1-p1-c2-r0",
+      "kind": "contradictory_receipt",
+      "period": 1,
+      "review": "synthetic_design_label",
+      "tenant": "synthetic-distributor-b"
+    },
+    {
+      "id": "t1-p2-c0-r3",
+      "kind": "margin_deterioration",
+      "period": 2,
+      "review": "synthetic_design_label",
+      "tenant": "synthetic-distributor-b"
+    },
+    {
+      "id": "t1-p2-c2-r2",
+      "kind": "price_variance",
+      "period": 2,
+      "review": "synthetic_design_label",
+      "tenant": "synthetic-distributor-b"
+    }
+  ],
+  "schema": "orion.synthetic-ground-truth.v1"
+}
