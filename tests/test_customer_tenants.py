@@ -125,6 +125,23 @@ def test_logout_and_expiry_deny_membership(registry):
         store.authorize(expired, tenant_id="tenant-alpha")
 
 
+def test_revoked_identity_cannot_bootstrap_or_enroll_member(registry):
+    store, signer = registry
+    admin = _identity("alpha-admin", "admin-session")
+    approval = _approval("tenant-alpha", admin.subject, 1012)
+    store.logout(admin)
+    with pytest.raises(TenantDenied, match="session revoked"):
+        store.provision(admin, approval=approval, signature=_signed(signer, approval))
+    fresh_admin = _identity(admin.subject, "fresh-session")
+    store.provision(fresh_admin, approval=approval, signature=_signed(signer, approval))
+    member = _identity("analyst", "member-session")
+    store.logout(member)
+    with pytest.raises(TenantDenied, match="session revoked"):
+        store.add_member(fresh_admin, tenant_id="tenant-alpha", member=member, role="analyst")
+    with pytest.raises(TenantDenied):
+        store.authorize(member, tenant_id="tenant-alpha")
+
+
 def test_registry_denies_clock_rollback_before_tenant_access(registry, monkeypatch):
     store, signer = registry
     admin = _identity("alpha-admin", "session")

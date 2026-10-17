@@ -231,6 +231,12 @@ class TenantRegistry:
         try:
             with self._connection() as db:
                 db.execute("BEGIN IMMEDIATE")
+                revoked = db.execute(
+                    "SELECT 1 FROM revoked_sessions WHERE issuer=? AND session_id=?",
+                    (identity.issuer, identity.session_id),
+                ).fetchone()
+                if revoked:
+                    raise TenantDenied("onboarding identity session revoked")
                 db.execute(
                     "INSERT INTO consumed_approvals(approval_id) VALUES (?)",
                     (approval["approval_id"],),
@@ -292,6 +298,12 @@ class TenantRegistry:
             with self._connection() as db:
                 db.execute("BEGIN IMMEDIATE")
                 self._require_admin(db, administrator, tenant_id)
+                revoked = db.execute(
+                    "SELECT 1 FROM revoked_sessions WHERE issuer=? AND session_id=?",
+                    (member.issuer, member.session_id),
+                ).fetchone()
+                if revoked:
+                    raise TenantDenied("member identity session revoked")
                 db.execute(
                     "INSERT INTO members VALUES (?,?,?,?,1)",
                     (tenant_id, member.issuer, member.subject, role),

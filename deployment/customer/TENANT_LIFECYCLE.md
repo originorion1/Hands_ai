@@ -9,7 +9,8 @@ session, approval and retention checks during rollback; an independently
 trusted clock source is still required for production qualification.
 
 - Initial administrator membership comes from a verified IdP identity and a
-  purpose-bound, one-use signed organization approval.
+  purpose-bound, one-use signed organization approval. Logged-out IdP sessions
+  cannot consume approvals or enroll new members.
 - Operator-signed, one-use lifecycle decisions suspend, reactivate and offboard
   a tenant. Suspension immediately denies membership checks. Offboarding is
   terminal in this contract.
