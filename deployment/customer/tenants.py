@@ -8,6 +8,7 @@ No HTTP enrollment route is exposed by this module.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -22,6 +23,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from orion_connector_sdk import ConnectorRegistration
+
+from .catalog import _unique_object
 from .oidc import VerifiedIdentity
 
 _TENANT = re.compile(r"[a-z][a-z0-9-]{2,62}\Z")
@@ -30,6 +34,12 @@ _COUNTRY = re.compile(r"[A-Z]{2}\Z")
 _APPROVAL_ID = re.compile(r"[A-Za-z0-9_-]{20,80}\Z")
 _ROLES = frozenset({"administrator", "analyst"})
 _APPROVAL_DOMAIN = b"ORION CUSTOMER BOOTSTRAP V1\0"
+_LIFECYCLE_DOMAIN = b"ORION TENANT LIFECYCLE V1\0"
+_LIFECYCLE_ACTIONS = frozenset({"suspend", "reactivate", "offboard"})
+_CREDENTIAL_REF = re.compile(r"vault:[A-Za-z0-9_-]{24,128}\Z")
+_LABEL = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{0,63}\Z")
+_EVIDENCE_ID = re.compile(r"[A-Za-z0-9_-]{12,80}\Z")
+_MAX_SYNTHETIC_EVIDENCE_BYTES = 64 * 1024
 
 
 class TenantDenied(ValueError):
@@ -93,7 +103,7 @@ class TenantRegistry:
                     tenant_id TEXT PRIMARY KEY, organization_name TEXT NOT NULL,
                     country TEXT NOT NULL, timezone TEXT NOT NULL, sector TEXT NOT NULL,
                     data_residency TEXT NOT NULL, retention_days INTEGER NOT NULL,
-                    status TEXT NOT NULL CHECK(status IN ('active','suspended'))
+                    status TEXT NOT NULL CHECK(status IN ('active','suspended','offboarded'))
                 );
                 CREATE TABLE IF NOT EXISTS members (
                     tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
@@ -108,6 +118,31 @@ class TenantRegistry:
                 CREATE TABLE IF NOT EXISTS revoked_sessions (
                     issuer TEXT NOT NULL, session_id TEXT NOT NULL,
                     PRIMARY KEY (issuer, session_id)
+                );
+                CREATE TABLE IF NOT EXISTS credential_refs (
+                    tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
+                    label TEXT NOT NULL, connector TEXT NOT NULL,
+                    credential_ref TEXT NOT NULL UNIQUE,
+                    generation INTEGER NOT NULL CHECK(generation > 0),
+                    status TEXT NOT NULL CHECK(status IN ('active','revoked')),
+                    PRIMARY KEY (tenant_id, label)
+                );
+                CREATE TABLE IF NOT EXISTS retired_credential_refs (
+                    credential_ref TEXT PRIMARY KEY,
+                    tenant_id TEXT NOT NULL, label TEXT NOT NULL,
+                    generation INTEGER NOT NULL, retired_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS synthetic_evidence (
+                    tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
+                    evidence_id TEXT NOT NULL, payload BLOB NOT NULL,
+                    digest TEXT NOT NULL, created_at INTEGER NOT NULL,
+                    PRIMARY KEY (tenant_id, evidence_id)
+                );
+                CREATE TABLE IF NOT EXISTS evidence_audit (
+                    tenant_id TEXT NOT NULL, evidence_id TEXT NOT NULL,
+                    digest TEXT NOT NULL, event TEXT NOT NULL,
+                    recorded_at INTEGER NOT NULL,
+                    PRIMARY KEY (tenant_id, evidence_id, event)
                 );
                 """
             )
@@ -136,6 +171,28 @@ class TenantRegistry:
             raise TenantDenied("tenant registry permissions unsafe")
         db = sqlite3.connect(self._path, timeout=5, isolation_level=None)
         db.execute("PRAGMA foreign_keys=ON")
+        try:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS registry_clock ("
+                "id INTEGER PRIMARY KEY CHECK(id=1), latest_second INTEGER NOT NULL)"
+            )
+            db.execute("BEGIN IMMEDIATE")
+            now = int(time.time())
+            previous = db.execute(
+                "SELECT latest_second FROM registry_clock WHERE id=1"
+            ).fetchone()
+            if previous is not None and now < previous[0]:
+                raise TenantDenied("tenant registry clock rollback denied")
+            db.execute(
+                "INSERT INTO registry_clock(id,latest_second) VALUES (1,?) "
+                "ON CONFLICT(id) DO UPDATE SET latest_second=excluded.latest_second",
+                (now,),
+            )
+            db.commit()
+        except BaseException:
+            db.rollback()
+            db.close()
+            raise
         return db
 
     @contextmanager
@@ -174,6 +231,12 @@ class TenantRegistry:
         try:
             with self._connection() as db:
                 db.execute("BEGIN IMMEDIATE")
+                revoked = db.execute(
+                    "SELECT 1 FROM revoked_sessions WHERE issuer=? AND session_id=?",
+                    (identity.issuer, identity.session_id),
+                ).fetchone()
+                if revoked:
+                    raise TenantDenied("onboarding identity session revoked")
                 db.execute(
                     "INSERT INTO consumed_approvals(approval_id) VALUES (?)",
                     (approval["approval_id"],),
@@ -234,18 +297,13 @@ class TenantRegistry:
         try:
             with self._connection() as db:
                 db.execute("BEGIN IMMEDIATE")
+                self._require_admin(db, administrator, tenant_id)
                 revoked = db.execute(
                     "SELECT 1 FROM revoked_sessions WHERE issuer=? AND session_id=?",
-                    (administrator.issuer, administrator.session_id),
+                    (member.issuer, member.session_id),
                 ).fetchone()
-                allowed = db.execute(
-                    """SELECT 1 FROM members m JOIN tenants t USING(tenant_id)
-                    WHERE m.tenant_id=? AND m.issuer=? AND m.subject=? AND m.active=1
-                      AND m.role='administrator' AND t.status='active'""",
-                    (tenant_id, administrator.issuer, administrator.subject),
-                ).fetchone()
-                if revoked or allowed is None:
-                    raise TenantDenied("administrator membership required")
+                if revoked:
+                    raise TenantDenied("member identity session revoked")
                 db.execute(
                     "INSERT INTO members VALUES (?,?,?,?,1)",
                     (tenant_id, member.issuer, member.subject, role),
@@ -253,6 +311,194 @@ class TenantRegistry:
                 db.commit()
         except sqlite3.IntegrityError as exc:
             raise TenantDenied("member already enrolled") from exc
+
+    @staticmethod
+    def _require_admin(db: sqlite3.Connection, identity: VerifiedIdentity, tenant_id: str) -> None:
+        if not isinstance(identity, VerifiedIdentity) or identity.expires_at <= time.time():
+            raise TenantDenied("administrator membership required")
+        revoked = db.execute(
+            "SELECT 1 FROM revoked_sessions WHERE issuer=? AND session_id=?",
+            (identity.issuer, identity.session_id),
+        ).fetchone()
+        allowed = db.execute(
+            """SELECT 1 FROM members m JOIN tenants t USING(tenant_id)
+            WHERE m.tenant_id=? AND m.issuer=? AND m.subject=? AND m.active=1
+              AND m.role='administrator' AND t.status='active'""",
+            (tenant_id, identity.issuer, identity.subject),
+        ).fetchone()
+        if revoked or allowed is None:
+            raise TenantDenied("administrator membership required")
+
+    def enroll_credential_reference(
+        self, administrator: VerifiedIdentity, *, tenant_id: str,
+        connector: ConnectorRegistration, label: str, credential_ref: str,
+    ) -> None:
+        """Record an external vault reference, never a submitted API secret."""
+        if (
+            not isinstance(connector, ConnectorRegistration)
+            or connector.execution_allowed is not False
+            or type(label) is not str
+            or not _LABEL.fullmatch(label)
+            or type(credential_ref) is not str
+            or not _CREDENTIAL_REF.fullmatch(credential_ref)
+        ):
+            raise TenantDenied("invalid reviewed credential reference")
+        try:
+            with self._connection() as db:
+                db.execute("BEGIN IMMEDIATE")
+                self._require_admin(db, administrator, tenant_id)
+                db.execute(
+                    "INSERT INTO credential_refs VALUES (?,?,?,?,1,'active')",
+                    (tenant_id, label, connector.name, credential_ref),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise TenantDenied("credential reference already enrolled") from exc
+
+    def rotate_credential_reference(
+        self, administrator: VerifiedIdentity, *, tenant_id: str,
+        label: str, new_credential_ref: str,
+    ) -> str:
+        if type(new_credential_ref) is not str or not _CREDENTIAL_REF.fullmatch(new_credential_ref):
+            raise TenantDenied("invalid reviewed credential reference")
+        try:
+            with self._connection() as db:
+                db.execute("BEGIN IMMEDIATE")
+                self._require_admin(db, administrator, tenant_id)
+                old = db.execute(
+                    """SELECT credential_ref,generation FROM credential_refs
+                    WHERE tenant_id=? AND label=? AND status='active'""",
+                    (tenant_id, label),
+                ).fetchone()
+                if old is None:
+                    raise TenantDenied("credential reference unavailable")
+                db.execute(
+                    "INSERT INTO retired_credential_refs VALUES (?,?,?,?,?)",
+                    (old[0], tenant_id, label, old[1], int(time.time())),
+                )
+                changed = db.execute(
+                    """UPDATE credential_refs SET credential_ref=?, generation=generation+1
+                    WHERE tenant_id=? AND label=? AND status='active'""",
+                    (new_credential_ref, tenant_id, label),
+                ).rowcount
+                if changed != 1:
+                    raise TenantDenied("credential reference unavailable")
+        except sqlite3.IntegrityError as exc:
+            raise TenantDenied("credential reference already enrolled") from exc
+        return old[0]
+
+    def revoke_credential_reference(
+        self, administrator: VerifiedIdentity, *, tenant_id: str, label: str,
+    ) -> str:
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_admin(db, administrator, tenant_id)
+            old = db.execute(
+                """SELECT credential_ref,generation FROM credential_refs
+                WHERE tenant_id=? AND label=? AND status='active'""",
+                (tenant_id, label),
+            ).fetchone()
+            if old is None:
+                raise TenantDenied("credential reference unavailable")
+            db.execute(
+                "INSERT INTO retired_credential_refs VALUES (?,?,?,?,?)",
+                (old[0], tenant_id, label, old[1], int(time.time())),
+            )
+            changed = db.execute(
+                "UPDATE credential_refs SET status='revoked' WHERE tenant_id=? AND label=? AND status='active'",
+                (tenant_id, label),
+            ).rowcount
+            if changed != 1:
+                raise TenantDenied("credential reference unavailable")
+        return old[0]
+
+    def put_synthetic_evidence(
+        self, identity: VerifiedIdentity, *, tenant_id: str,
+        evidence_id: str, payload: bytes,
+    ) -> str:
+        """Persist only explicitly marked synthetic evidence under current membership."""
+        if (
+            type(evidence_id) is not str
+            or not _EVIDENCE_ID.fullmatch(evidence_id)
+            or type(payload) is not bytes
+            or not 0 < len(payload) <= _MAX_SYNTHETIC_EVIDENCE_BYTES
+        ):
+            raise TenantDenied("invalid synthetic evidence")
+        try:
+            value = json.loads(payload, object_pairs_hook=_unique_object)
+        except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+            raise TenantDenied("invalid synthetic evidence") from exc
+        if type(value) is not dict or value.get("synthetic") is not True:
+            raise TenantDenied("synthetic evidence marker required")
+        digest = hashlib.sha256(payload).hexdigest()
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_member(db, identity, tenant_id)
+            try:
+                db.execute(
+                    "INSERT INTO synthetic_evidence VALUES (?,?,?,?,?)",
+                    (tenant_id, evidence_id, payload, digest, int(time.time())),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise TenantDenied("evidence identifier already used") from exc
+        return digest
+
+    def get_synthetic_evidence(
+        self, identity: VerifiedIdentity, *, tenant_id: str, evidence_id: str,
+    ) -> bytes:
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_member(db, identity, tenant_id)
+            row = db.execute(
+                "SELECT payload,digest FROM synthetic_evidence WHERE tenant_id=? AND evidence_id=?",
+                (tenant_id, evidence_id),
+            ).fetchone()
+        if row is None or hashlib.sha256(row[0]).hexdigest() != row[1]:
+            raise TenantDenied("evidence unavailable or corrupt")
+        return row[0]
+
+    def purge_expired_synthetic_evidence(self, *, tenant_id: str) -> int:
+        """Apply the signed onboarding retention period, preserving digest audit."""
+        now = int(time.time())
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT retention_days FROM tenants WHERE tenant_id=?",
+                (tenant_id,),
+            ).fetchone()
+            if row is None:
+                raise TenantDenied("tenant retention policy unavailable")
+            expired = db.execute(
+                """SELECT evidence_id,digest FROM synthetic_evidence
+                WHERE tenant_id=? AND created_at <= ?""",
+                (tenant_id, now - row[0] * 86400),
+            ).fetchall()
+            for evidence_id, digest in expired:
+                db.execute(
+                    "INSERT INTO evidence_audit VALUES (?,?,?,?,?)",
+                    (tenant_id, evidence_id, digest, "retention_deleted", now),
+                )
+                db.execute(
+                    "DELETE FROM synthetic_evidence WHERE tenant_id=? AND evidence_id=?",
+                    (tenant_id, evidence_id),
+                )
+        return len(expired)
+
+    @staticmethod
+    def _require_member(db: sqlite3.Connection, identity: VerifiedIdentity, tenant_id: str) -> None:
+        if not isinstance(identity, VerifiedIdentity) or identity.expires_at <= time.time():
+            raise TenantDenied("authenticated membership required")
+        revoked = db.execute(
+            "SELECT 1 FROM revoked_sessions WHERE issuer=? AND session_id=?",
+            (identity.issuer, identity.session_id),
+        ).fetchone()
+        allowed = db.execute(
+            """SELECT 1 FROM members m JOIN tenants t USING(tenant_id)
+            WHERE m.tenant_id=? AND m.issuer=? AND m.subject=? AND m.active=1
+              AND t.status='active'""",
+            (tenant_id, identity.issuer, identity.subject),
+        ).fetchone()
+        if revoked or allowed is None:
+            raise TenantDenied("authenticated membership required")
 
     def logout(self, identity: VerifiedIdentity) -> None:
         if not isinstance(identity, VerifiedIdentity):
@@ -262,3 +508,78 @@ class TenantRegistry:
                 "INSERT OR IGNORE INTO revoked_sessions VALUES (?,?)",
                 (identity.issuer, identity.session_id),
             )
+
+    def apply_lifecycle_decision(self, *, decision: dict, signature: str) -> str:
+        """Consume one operator-signed state transition, including emergency stop."""
+        if (
+            type(decision) is not dict
+            or set(decision) != {"approval_id", "tenant_id", "action", "expires_at"}
+            or type(decision["approval_id"]) is not str
+            or not _APPROVAL_ID.fullmatch(decision["approval_id"])
+            or type(decision["tenant_id"]) is not str
+            or not _TENANT.fullmatch(decision["tenant_id"])
+            or type(decision["action"]) is not str
+            or decision["action"] not in _LIFECYCLE_ACTIONS
+            or type(decision["expires_at"]) is not int
+            or decision["expires_at"] <= time.time()
+        ):
+            raise TenantDenied("invalid tenant lifecycle decision")
+        try:
+            self._approval_key.verify(
+                base64.b64decode(signature, validate=True),
+                _LIFECYCLE_DOMAIN
+                + json.dumps(decision, sort_keys=True, separators=(",", ":")).encode(),
+            )
+        except (TypeError, ValueError, InvalidSignature) as exc:
+            raise TenantDenied("tenant lifecycle signature invalid") from exc
+        expected, target = {
+            "suspend": ("active", "suspended"),
+            "reactivate": ("suspended", "active"),
+            "offboard": ("suspended", "offboarded"),
+        }[decision["action"]]
+        try:
+            with self._connection() as db:
+                db.execute("BEGIN IMMEDIATE")
+                db.execute(
+                    "INSERT INTO consumed_approvals VALUES (?)", (decision["approval_id"],)
+                )
+                changed = db.execute(
+                    "UPDATE tenants SET status=? WHERE tenant_id=? AND status=?",
+                    (target, decision["tenant_id"], expected),
+                ).rowcount
+                if changed != 1:
+                    raise TenantDenied("tenant lifecycle transition unavailable")
+                if decision["action"] == "offboard":
+                    now = int(time.time())
+                    for evidence_id, digest in db.execute(
+                        "SELECT evidence_id,digest FROM synthetic_evidence WHERE tenant_id=?",
+                        (decision["tenant_id"],),
+                    ).fetchall():
+                        db.execute(
+                            "INSERT INTO evidence_audit VALUES (?,?,?,?,?)",
+                            (decision["tenant_id"], evidence_id, digest, "offboard_deleted", now),
+                        )
+                    db.execute(
+                        "DELETE FROM synthetic_evidence WHERE tenant_id=?",
+                        (decision["tenant_id"],),
+                    )
+                    for label, reference, generation in db.execute(
+                        """SELECT label,credential_ref,generation FROM credential_refs
+                        WHERE tenant_id=? AND status='active'""",
+                        (decision["tenant_id"],),
+                    ).fetchall():
+                        db.execute(
+                            "INSERT INTO retired_credential_refs VALUES (?,?,?,?,?)",
+                            (reference, decision["tenant_id"], label, generation, now),
+                        )
+                    db.execute(
+                        "UPDATE credential_refs SET status='revoked' WHERE tenant_id=?",
+                        (decision["tenant_id"],),
+                    )
+                    db.execute(
+                        "UPDATE members SET active=0 WHERE tenant_id=?",
+                        (decision["tenant_id"],),
+                    )
+        except sqlite3.IntegrityError as exc:
+            raise TenantDenied("tenant lifecycle decision already used") from exc
+        return target
