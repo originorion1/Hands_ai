@@ -14,9 +14,9 @@ def test_release_train_versions_and_internal_dependency_pins():
     projects = {
         ROOT / "pyproject.toml": ("originorion-core", VERSION),
         ROOT / "packages/connector-sdk/pyproject.toml": ("originorion-connector-sdk", VERSION),
-        ROOT / "packages/erpnext-discovery/pyproject.toml": ("originorion-connector-erpnext-discovery", "0.2.0rc2"),
+        ROOT / "packages/erpnext-discovery/pyproject.toml": ("originorion-connector-erpnext-discovery", "0.2.0rc3"),
         ROOT / "packages/synthetic-connector/pyproject.toml": ("originorion-connector-synthetic", VERSION),
-        ROOT / "packages/pilot-compat/pyproject.toml": ("originorion-erpnext-pilot-compat", "0.2.0rc2"),
+        ROOT / "packages/pilot-compat/pyproject.toml": ("originorion-erpnext-pilot-compat", "0.2.0rc3"),
     }
     versions = dict(projects.values())
     for path, (name, version) in projects.items():

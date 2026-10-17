@@ -41,4 +41,4 @@ def test_historical_pilot_has_an_independent_distribution():
     ]
     assert project["name"] == "originorion-erpnext-pilot-compat"
     assert project["scripts"]["orion-runtime"] == "orion.pilot.deployment:main"
-    assert "originorion-connector-erpnext-discovery==0.2.0rc2" in project["dependencies"]
+    assert "originorion-connector-erpnext-discovery==0.2.0rc3" in project["dependencies"]
