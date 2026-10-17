@@ -54,11 +54,11 @@
       "priority": "P1",
       "status": "OPEN",
       "component": "release qualification",
-      "root_cause": "Exact #248 candidate lacks stable-Linux full pytest and repository-wide Ruff has 147 pre-existing findings at #241/#248.",
-      "evidence": "Focused tests and scoped Ruff passed; prior parent Ubuntu suite cannot qualify changed tree.",
-      "remediation": "Run full suite on exact head with owner-approved Actions; isolate and correct applicable Ruff findings on a separately scoped issue.",
+      "root_cause": "Exact #248 candidate lacks stable-Linux full pytest; repository-wide Ruff had 147 findings at the base.",
+      "evidence": "Draft #261 scopes 146 historical hash-bound review findings out of active lint and waives one intentionally naive negative test; Ruff check . passes there. Parent #241 Ubuntu suite cannot qualify the changed release tree.",
+      "remediation": "Integrate reviewed draft #261, then run the full suite and Ruff on the exact final head with owner-approved stable-Linux qualification.",
       "owner": "implementation engineer",
-      "verification": "pending"
+      "verification": "draft #261 Ruff and focused tests pass; exact integrated full suite pending"
     },
     {
       "id": "F-02",
