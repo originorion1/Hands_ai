@@ -385,3 +385,71 @@ def test_encrypted_tenant_backup_restore_and_wrong_tenant_denial(registry):
             store, alpha, tenant_id="tenant-alpha", encrypted_backup=encrypted,
             encryption_key=key,
         )
+
+
+def test_two_tenants_complete_independent_synthetic_lifecycles(registry):
+    store, signer = registry
+    connector = ConnectorRegistration(
+        "synthetic", "originorion-connector-synthetic", "0.2.0rc1",
+        "orion_connector_synthetic:SyntheticConnector", CONTRACT_VERSION,
+    )
+    tenants = (
+        ("tenant-alpha", _identity("alpha-admin", "alpha-lifecycle"), 2100, "a"),
+        ("tenant-beta", _identity("beta-admin", "beta-lifecycle"), 2200, "b"),
+    )
+    backups = {}
+    for tenant, admin, nonce, marker in tenants:
+        approval = _approval(tenant, admin.subject, nonce)
+        store.provision(admin, approval=approval, signature=_signed(signer, approval))
+        store.enroll_credential_reference(
+            admin, tenant_id=tenant, connector=connector, label="Main",
+            credential_ref="vault:" + marker * 32,
+        )
+        store.rotate_credential_reference(
+            admin, tenant_id=tenant, label="Main",
+            new_credential_ref="vault:" + marker.upper() * 32,
+        )
+        payload = json.dumps({"synthetic": True, "tenant_marker": marker}).encode()
+        evidence_id = f"evidence-{marker}-lifecycle"
+        store.put_synthetic_evidence(
+            admin, tenant_id=tenant, evidence_id=evidence_id, payload=payload,
+        )
+        key = Fernet.generate_key()
+        backups[tenant] = backup_synthetic_tenant(
+            store, admin, tenant_id=tenant, encryption_key=key,
+        ), key, payload, evidence_id
+    for tenant, admin, nonce, _marker in tenants:
+        other = "tenant-beta" if tenant == "tenant-alpha" else "tenant-alpha"
+        encrypted, key, payload, evidence_id = backups[tenant]
+        with pytest.raises(TenantDenied):
+            restore_synthetic_tenant(
+                store, admin, tenant_id=other, encrypted_backup=encrypted,
+                encryption_key=key,
+            )
+        with sqlite3.connect(store._path) as db:
+            db.execute("DELETE FROM synthetic_evidence WHERE tenant_id=?", (tenant,))
+        assert restore_synthetic_tenant(
+            store, admin, tenant_id=tenant, encrypted_backup=encrypted,
+            encryption_key=key,
+        ) == 1
+        decision, signature = _lifecycle(signer, tenant, "suspend", nonce + 1)
+        store.apply_lifecycle_decision(decision=decision, signature=signature)
+        with pytest.raises(TenantDenied):
+            store.get_synthetic_evidence(admin, tenant_id=tenant, evidence_id=evidence_id)
+        decision, signature = _lifecycle(signer, tenant, "reactivate", nonce + 2)
+        store.apply_lifecycle_decision(decision=decision, signature=signature)
+        assert store.get_synthetic_evidence(
+            admin, tenant_id=tenant, evidence_id=evidence_id,
+        ) == payload
+        assert store.revoke_credential_reference(
+            admin, tenant_id=tenant, label="Main"
+        ).startswith("vault:")
+        decision, signature = _lifecycle(signer, tenant, "suspend", nonce + 3)
+        store.apply_lifecycle_decision(decision=decision, signature=signature)
+        decision, signature = _lifecycle(signer, tenant, "offboard", nonce + 4)
+        store.apply_lifecycle_decision(decision=decision, signature=signature)
+    with sqlite3.connect(store._path) as db:
+        assert db.execute("SELECT COUNT(*) FROM synthetic_evidence").fetchone()[0] == 0
+        assert db.execute("SELECT COUNT(*) FROM evidence_audit").fetchone()[0] == 4
+        assert db.execute("SELECT COUNT(*) FROM retired_credential_refs").fetchone()[0] == 4
+        assert db.execute("SELECT DISTINCT status FROM tenants").fetchall() == [("offboarded",)]
