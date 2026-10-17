@@ -66,6 +66,7 @@ class Element {
 function buildHarness({ speech = true, response, statusResponse } = {}) {
   const ids = [
     'ack', 'alertVoice', 'brief', 'demo', 'feed', 'form', 'historySummary',
+    'procurementPanel', 'procurementSummary', 'procurementEvidence', 'procurementLimits',
     'connectReport', 'connectionStatus', 'reportToken', 'metadata', 'metadataDetail', 'mic', 'micStatus', 'mode',
     'motion', 'observations', 'orb', 'query', 'quiet', 'reportStatus',
     'severity', 'source', 'speak', 'stop', 'studies', 'studyDetail', 'summary',
@@ -285,6 +286,34 @@ function validView() {
   await lineageBrowser.elements.connectReport.listeners.click();
   assert.equal(lineageBrowser.elements.observations.textContent, '—');
   assert.equal(lineageBrowser.elements.historySummary.textContent, 'No bound historical report loaded.');
+
+  const procurementView = {
+    ...lineageView,
+    interface_version: 'orion.readonly-report.v3',
+    report_kind: 'procurement_price_leakage',
+    procurement: {
+      status: 'candidate_review', item: 'part-42', target_ref: 'holdout_a-T',
+      estimated_exposure_usd: '60.00', reviewer_decision: 'pending',
+      source_system: 'synthetic-records', finding_sha256: 'd'.repeat(64),
+      comparison_refs: ['holdout_a-H1', 'holdout_a-H2'], target_unit_usd: '17.00',
+      normalized_unit: 'each', confidence: 'limited_synthetic', missing_evidence: [],
+      alternative_explanations: ['market change needs review'], next_question: 'Review market',
+      independently_verified_savings_usd: null
+    }
+  };
+  const procurementResponse = { ok: true, status: 200, json: async () => procurementView };
+  const procurementBrowser = buildHarness({ response: procurementResponse });
+  procurementBrowser.elements.reportToken.value = 'synthetic-token';
+  await procurementBrowser.elements.connectReport.listeners.click();
+  assert.equal(procurementBrowser.elements.procurementPanel.hidden, false);
+  assert.match(procurementBrowser.elements.procurementSummary.textContent, /60.00/);
+  assert.match(procurementBrowser.elements.procurementEvidence.textContent, /holdout_a-H1/);
+  procurementResponse.ok = false;
+  procurementResponse.status = 401;
+  procurementBrowser.elements.reportToken.value = 'forged-token';
+  await procurementBrowser.elements.connectReport.listeners.click();
+  assert.equal(procurementBrowser.elements.procurementPanel.hidden, true);
+  assert.equal(procurementBrowser.elements.procurementSummary.textContent, '');
 
   const stageA = buildHarness({
     statusResponse: {

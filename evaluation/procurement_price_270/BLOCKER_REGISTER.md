@@ -1,0 +1,14 @@
+# Mission blocker register
+
+| ID | Severity | Type | Evidence / root cause | Status / required closure |
+| --- | --- | --- | --- | --- |
+| A-01 | P1 | Engineering | PR #269 checked the customer session only before synthetic acquisition; a session could be revoked during connector read. | Corrected on separate branch `codex/qualify-pr269-20261018`; regression revokes during read and denies before persistence. Exact-head full qualification pending. |
+| A-02 | P1 | Engineering architecture | The synthetic lineage operator imports `orion.presentation.report_interface` and `orion_http.report_server` from the ERPNext discovery distribution. Core-only import independence passes, but the synthetic report-host composition still requires that vendor package. | Open; independent report-host extraction and package regression needed before physical independence can be claimed. |
+| A-03 | Gate | Qualification environment | Local full suite is on WSL2; this kernel is not the required stable Linux qualification host. GitHub Actions is disabled. | Stable Linux exact-head run required; no green claim from local execution. |
+| A-04 | Gate | Security approval | PR #269 has offline OIDC, session and enrollment contracts but no reviewed IdP/client/MFA, protected vault, destination pinning or independent security decision. | Independent review and approved deployment configuration required before customer access. |
+| B-01 | P1 | Evaluation | Twelve designed synthetic holdout cases and three positives are too small and design-derived for a representative 80% high-priority precision claim. | Expand independently authored holdout and blind adjudication; report the wide interval meanwhile. |
+| B-02 | Gate | Value | Conventional union finds the same three designed positives; no independently adjudicated incremental discovery or verified avoidable cost exists. | `INCREMENTAL_INTELLIGENCE_VALUE=NOT_PROVEN`, `ECONOMIC_VALUE=ESTIMATED_ONLY` until matched customer baseline and independent review. |
+| C-01 | Gate | Owner authorization | Terrace Beirut / ERPNext–ERPMAX / `terrace-Beirut` was proposed for packet preparation, without access approval. Permitted entities/fields, period, limits, credential reference, retention, reviewer and fresh owner/customer authorization remain unapproved. The proposed tenant ID also violates the current lowercase registry rule. | Resolve exact tenant identity and all scoped approvals before access; `CUSTOMER_PILOT=NO_GO`. |
+| F-01 | P1 | Product workflow | The initial finding had no reviewer action or outcome ledger. | Corrected in issue #270 branch with one-use authenticated synthetic analyst review, private digest-bound review event and Command Center decision display. No independent customer adjudication has occurred. |
+
+No customer authorization, independent decision or economic proof is classified as a software defect. Canonical and existing staging are untouched.

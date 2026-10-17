@@ -1,0 +1,142 @@
+{
+  "case_statuses": {
+    "holdout_a": "candidate_review",
+    "holdout_b": "candidate_review",
+    "holdout_c": "abstained",
+    "holdout_d": "no_anomaly",
+    "holdout_e": "no_anomaly",
+    "holdout_f": "no_anomaly",
+    "holdout_g": "abstained",
+    "holdout_h": "candidate_review",
+    "holdout_i": "abstained",
+    "holdout_j": "no_anomaly",
+    "holdout_k": "no_anomaly",
+    "holdout_l": "no_anomaly"
+  },
+  "designed_positive_cases": 3,
+  "detection_latency": "one offline evaluation pass after target period; no live latency measured",
+  "estimated_financial_exposure_usd": "190.00",
+  "evidence_coverage": "48/48 synthetic source rows",
+  "evidence_request_cost_usd_assumed": "0.012",
+  "evidence_requests": 12,
+  "execution_allowed": false,
+  "independently_adjudicated_incremental_discoveries": null,
+  "independently_verified_avoidable_cost_usd": null,
+  "investigation_compute_cost_usd_assumed": "0.0012",
+  "labels_sha256": "3f211d974dca5ed9ae56e0922069ddfd3291f88825e4cb00141b2b23ca85799f",
+  "net_incremental_economic_value_usd": null,
+  "precision_target_80_representative_sample": false,
+  "provenance_completeness": "benchmark rows digest-bound; operational custody separately tested",
+  "review_effort_minutes_assumed": {
+    "contract_threshold": 30,
+    "conventional_union": 54,
+    "duplicate_unit_rule": 6,
+    "historical_mean": 54,
+    "historical_median": 54,
+    "orion": 18,
+    "supplier_comparison": 54
+  },
+  "sample_cases": 12,
+  "schema": "orion.procurement-price-holdout.v1",
+  "scores": {
+    "contract_threshold": {
+      "fn": 1,
+      "fp": 3,
+      "precision": 0.4,
+      "precision_wilson_95_interval": [
+        0.118,
+        0.769
+      ],
+      "recall": 0.6666666666666666,
+      "review_minutes_assumed": 30,
+      "tp": 2
+    },
+    "conventional_union": {
+      "fn": 0,
+      "fp": 6,
+      "precision": 0.3333333333333333,
+      "precision_wilson_95_interval": [
+        0.121,
+        0.646
+      ],
+      "recall": 1.0,
+      "review_minutes_assumed": 54,
+      "tp": 3
+    },
+    "duplicate_unit_rule": {
+      "fn": 3,
+      "fp": 1,
+      "precision": 0.0,
+      "precision_wilson_95_interval": [
+        0,
+        0.793
+      ],
+      "recall": 0.0,
+      "review_minutes_assumed": 6,
+      "tp": 0
+    },
+    "historical_mean": {
+      "fn": 0,
+      "fp": 6,
+      "precision": 0.3333333333333333,
+      "precision_wilson_95_interval": [
+        0.121,
+        0.646
+      ],
+      "recall": 1.0,
+      "review_minutes_assumed": 54,
+      "tp": 3
+    },
+    "historical_median": {
+      "fn": 0,
+      "fp": 6,
+      "precision": 0.3333333333333333,
+      "precision_wilson_95_interval": [
+        0.121,
+        0.646
+      ],
+      "recall": 1.0,
+      "review_minutes_assumed": 54,
+      "tp": 3
+    },
+    "orion": {
+      "fn": 0,
+      "fp": 0,
+      "precision": 1.0,
+      "precision_wilson_95_interval": [
+        0.438,
+        1
+      ],
+      "recall": 1.0,
+      "review_minutes_assumed": 18,
+      "tp": 3
+    },
+    "supplier_comparison": {
+      "fn": 0,
+      "fp": 6,
+      "precision": 0.3333333333333333,
+      "precision_wilson_95_interval": [
+        0.121,
+        0.646
+      ],
+      "recall": 1.0,
+      "review_minutes_assumed": 54,
+      "tp": 3
+    }
+  },
+  "source_sha256_by_case": {
+    "holdout_a": "c7aa1cc76d59cd602cc9390f9f73b52753cb0c14b2ec56a227f8534781fd76fb",
+    "holdout_b": "273d1909e2101c067374111c6a7d50a33e3e29ae44eeedff8213fbbfd05fe3df",
+    "holdout_c": "43d8d0d1c543864c0c5f1b0a51c872e87c6903c58d9b31e1757ffb34a7277fa2",
+    "holdout_d": "699f13bc4adf3ddd656519b1a561adc4fa13c183cd3edcc1dce7c7db6bb3e912",
+    "holdout_e": "52a952636313710492e8308a98416018cdca10ce1e7982b0612d58e424c3ecf8",
+    "holdout_f": "0ba1f164d25b6dc915c27cb0757c5433a8d1ab919a893b414df9d7f4540b3734",
+    "holdout_g": "dc801ef46b67ca1963e1f351b58f32f73e812b34fdfe4580967c63176ee96908",
+    "holdout_h": "8ed7179ee8537ba9663817b3f6c3e4d6c56ede3f167ac479dd6292fc5e87af75",
+    "holdout_i": "62162088912494dadf6dc9f44eacad41b275975d0fbff107ea804565d3a63199",
+    "holdout_j": "eaccf8a74da7c0a2770599938f58dff2b09c78d89233aca80a1587129eb8bc50",
+    "holdout_k": "c21d6980f78e048eb63b5f9760276a7cc7c9eea693b09844341a50e2e2e52bf1",
+    "holdout_l": "002164c72ddbb53be9d0f17b4f964e5743d61608762fb77a402aa81c29c79245"
+  },
+  "synthetic_labeled_incremental_discoveries": 0
+}
