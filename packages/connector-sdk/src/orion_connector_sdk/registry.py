@@ -14,7 +14,7 @@ CONTRACT_VERSION = "orion.connector.v1"
 ENTRY_POINT_GROUP = "orion.connectors.v1"
 _NAME = re.compile(r"[a-z][a-z0-9_-]{0,63}\Z")
 _DISTRIBUTION = re.compile(r"[a-z][a-z0-9-]{0,127}\Z")
-_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+){1,2}\Z")
+_VERSION = re.compile(r"[0-9]+(?:\.[0-9]+){1,2}(?:rc[1-9][0-9]*)?\Z")
 _VALUE = re.compile(r"[a-zA-Z_][a-zA-Z_0-9]*(?:\.[a-zA-Z_][a-zA-Z_0-9]*)*:[a-zA-Z_][a-zA-Z_0-9]*\Z")
 
 
