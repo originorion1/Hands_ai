@@ -74,7 +74,7 @@ def _fixture(tmp_path):
         "schema": "orion.release-candidate.v1",
         "source_sha": sha,
         "tree": tree,
-        "source_author": "builder",
+        "source_author": "Synthetic Builder <synthetic@example.invalid>",
         "version": "0.2.0rc1",
         "component_versions": dict.fromkeys(REQUIRED_DISTS, "0.2.0rc1"),
         "checks": dict.fromkeys(REQUIRED_CHECKS, "PASS"),
@@ -131,7 +131,7 @@ def test_missing_or_self_issued_approval_denied(tmp_path):
     paths = _fixture(second)
     approval_path = paths[3] / "release_owner.json"
     approval = json.loads(approval_path.read_text())
-    approval["reviewer_identity"] = "builder"
+    approval["reviewer_identity"] = "Synthetic Builder <synthetic@example.invalid>"
     _json(approval_path, approval)
     with pytest.raises(ReleaseDenied, match="non-independent approval"):
         verify(*paths)
@@ -166,6 +166,15 @@ def test_dirty_or_wrong_source_checkout_denied(tmp_path):
     paths = _fixture(tmp_path)
     (paths[4] / "extra.py").write_text("untracked source")
     with pytest.raises(ReleaseDenied, match="source checkout"):
+        verify(*paths)
+
+
+def test_manifest_cannot_invent_source_author_to_enable_self_review(tmp_path):
+    paths = _fixture(tmp_path)
+    manifest = json.loads(paths[0].read_text())
+    manifest["source_author"] = "a different builder"
+    _json(paths[0], manifest)
+    with pytest.raises(ReleaseDenied, match="source author"):
         verify(*paths)
 
 

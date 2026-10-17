@@ -8,6 +8,10 @@ mandatory check records and known-risk record must match. Three distinct
 trusted identities sign the same manifest: security, architecture and owner.
 The source author cannot sign any of those roles. No real approval has been
 issued for this draft.
+The manifest's `source_author` must exactly match Git's author name and email
+for the candidate head commit; changing this field cannot bypass the
+self-approval exclusion. Independent key custody and reviewer identity still
+require human governance outside this script.
 
 The manifest's `version` names the release train. Its `component_versions`
 maps each normalized distribution name to its exact package version. The

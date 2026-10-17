@@ -118,8 +118,9 @@ def verify(
     ):
         raise ReleaseDenied("source checkout does not match clean manifest identity")
     author = manifest.get("source_author")
-    if not isinstance(author, str) or not author.strip():
-        raise ReleaseDenied("missing source author")
+    if (not isinstance(author, str)
+            or author != _git(source_dir, "show", "-s", "--format=%an <%ae>", "HEAD")):
+        raise ReleaseDenied("source author does not match exact commit")
     version = manifest.get("version")
     if not isinstance(version, str) or not re.fullmatch(r"0\.2\.0rc[1-9][0-9]*", version):
         raise ReleaseDenied("unsupported candidate version")
