@@ -2,6 +2,7 @@
 
 import json
 from hashlib import sha256
+from importlib.metadata import version
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,7 @@ def test_installed_style_report_process_recovers_without_execution(tmp_path):
         "source_sha": "a" * 40,
         "tree": "b" * 40,
         "version": "0.2.0rc1",
+        "report_host_version": version("originorion-connector-erpnext-discovery"),
         "report_server_module_sha256": sha256(Path(report_server.__file__).read_bytes()).hexdigest(),
     }))
     result = run(manifest)
@@ -32,6 +34,7 @@ def test_different_installed_report_module_is_denied(tmp_path):
         "source_sha": "a" * 40,
         "tree": "b" * 40,
         "version": "0.2.0rc1",
+        "report_host_version": version("originorion-connector-erpnext-discovery"),
         "report_server_module_sha256": "0" * 64,
     }))
     with pytest.raises(RuntimeError, match="installed release identity"):

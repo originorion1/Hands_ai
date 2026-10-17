@@ -12,7 +12,8 @@ failure. An operator may attach its exit code to a monitored systemd timer or
 other alerting system after reviewing that destination. No token or tenant
 identifier is written to stdout.
 
-`report_drill.py` runs an installed `0.2.0rc1` report-host process in a private
+`report_drill.py` runs the ERPNext connector/report-host `0.2.0rc2` against
+Kernel and SDK `0.2.0rc1` in a private
 temporary directory. It generates synthetic evidence and a separate ephemeral
 issuer key, verifies service and report-token denials, subject revocation,
 tamper detection, recovery after a forced process stop, persistent report

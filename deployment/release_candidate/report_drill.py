@@ -20,6 +20,7 @@ import sys
 import tempfile
 import time
 from datetime import UTC, datetime, timedelta
+from importlib.metadata import version
 from pathlib import Path
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -153,6 +154,7 @@ def run(manifest_path: Path) -> dict:
         or type(manifest.get("tree")) is not str
         or re.fullmatch(r"[0-9a-f]{40}", manifest["tree"]) is None
         or manifest.get("version") != __version__
+        or manifest.get("report_host_version") != version("originorion-connector-erpnext-discovery")
         or manifest.get("report_server_module_sha256") != module_digest
     ):
         raise RuntimeError("installed release identity differs from manifest")
@@ -229,6 +231,7 @@ def run(manifest_path: Path) -> dict:
                 "source_sha": manifest["source_sha"],
                 "tree": manifest.get("tree"),
                 "version": __version__,
+                "report_host_version": manifest["report_host_version"],
                 "service_bind": "127.0.0.1",
                 "tests": "PASS",
                 "observations": 4,
