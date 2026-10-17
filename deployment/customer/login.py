@@ -12,6 +12,7 @@ import secrets
 import time
 from base64 import urlsafe_b64encode
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from urllib.parse import urlencode, urlsplit
 
@@ -180,6 +181,36 @@ class CustomerLogin:
                                             required_role=required_role)
         except TenantDenied as exc:
             raise LoginDenied("authenticated membership denied") from exc
+
+    @contextmanager
+    def authorized_report_commit(self, session_secret: str, *, tenant_id: str):
+        """Serialize report publication with logout and tenant revocation.
+
+        The registry write transaction is the linearization point. A logout or
+        lifecycle decision that commits first denies publication; one that
+        follows can only revoke a report that was already published.
+        """
+        if type(session_secret) is not str or not 30 <= len(session_secret) <= 128:
+            raise LoginDenied("authenticated session required")
+        with self._registry._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT tenant_id,issuer,subject,idp_session_id,expires_at "
+                "FROM browser_sessions WHERE session_sha256=?",
+                (_digest(session_secret),),
+            ).fetchone()
+            if row is None or row[4] <= time.time():
+                raise LoginDenied("authenticated session required")
+            if row[0] != tenant_id:
+                raise LoginDenied("customer session tenant differs from read scope")
+            identity = VerifiedIdentity(row[1], row[2], row[3], row[4])
+            try:
+                self._registry._require_member(db, identity, tenant_id)
+            except TenantDenied as exc:
+                raise LoginDenied("authenticated membership denied") from exc
+            yield
+            if row[4] <= time.time():
+                raise LoginDenied("authenticated session expired during commit")
 
     def _verified_session_identity(self, session_secret: str) -> VerifiedIdentity:
         with self._registry._connection() as db:

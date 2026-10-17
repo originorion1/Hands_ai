@@ -149,9 +149,14 @@ def investigate_purchases(
         comparable = [row for row in comparable if sum(
             other.invoice == row.invoice for other in comparable
         ) == 1]
-    missing = []
+    # A price typed on a purchase row is only a stated term. It is not an
+    # independently acquired contract, catalog or market-price observation.
+    missing = ["independent contract or supplier price-list record",
+               "contemporaneous market-price context"]
     if target.contract_unit_usd is None:
-        missing.append("independently verified contract terms")
+        missing.append("stated contract unit price")
+    if target.currency != "USD" or any(row.currency != "USD" for row in comparable):
+        missing.append("independent FX-rate evidence")
     if len(comparable) < 2:
         missing.append("two distinct comparable historical invoices")
     base = {

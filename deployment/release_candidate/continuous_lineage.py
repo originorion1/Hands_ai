@@ -11,6 +11,7 @@ import json
 import os
 import stat
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -110,6 +111,8 @@ def run_synthetic_lineage(
     run_id: UUID,
     private_dir: Path,
     now: datetime,
+    persistence_guard: Callable[[], None] | None = None,
+    commit_scope: Callable[[], AbstractContextManager[None]] | None = None,
 ) -> LineageResult:
     """Persist source/evidence before investigation; publish report only on success."""
     if (not isinstance(registration, ConnectorRegistration)
@@ -137,117 +140,137 @@ def run_synthetic_lineage(
     if any(private_dir.iterdir()):
         raise ValueError("private run directory must be empty")
 
-    observations = launch_pilot_read(
-        request, authorization_id=authorization_id, lookup=lookup,
-        adapter=connector, clock=lambda: now,
-    )
-    if not observations or any(
-            item.evidence.observed_at > now
-            or now - item.evidence.observed_at > timedelta(minutes=5)
-            for item in observations):
-        raise ValueError("stale or missing synthetic evidence")
-    evidence_ids = tuple(str(item.evidence.evidence_id) for item in observations)
-    if len(set(evidence_ids)) != len(evidence_ids):
-        raise ValueError("duplicate synthetic evidence")
-    source_records = [dict(item.evidence.payload["record"]) for item in observations]
-    if _digest(_json(source_records).rstrip(b"\n")) != connector.source_sha256:
-        raise ValueError("admitted source digest mismatch")
-    source_body = _json({
-        "tenant_id": request.tenant_id, "run_id": str(run_id),
-        "dataset_id": connector.dataset_id, "source_sha256": connector.source_sha256,
-        "source": source_records,
-    })
-    _write_private(private_dir / "source.json", source_body)
-    store = InMemoryEvidenceStore()
-    OrionKernel(evidence_store=store).discover(
-        _AdmittedSource(observations), tenant_id=request.tenant_id
-    )
-    snapshots = store.query(tenant_id=request.tenant_id)
-    if tuple(item.evidence_id for item in snapshots) != tuple(
-            item.evidence.evidence_id for item in observations):
-        raise ValueError("evidence custody mismatch")
-    evidence = []
-    for item in snapshots:
-        provenance = item.payload["provenance"]
-        if provenance["authorization_id"] != authorization_id:
-            raise ValueError("admitted evidence authorization mismatch")
-        evidence.append({
-            "evidence_id": str(item.evidence_id),
-            "record": dict(item.payload["record"]),
-            "authorization_id": provenance["authorization_id"],
-            "source_sha256": connector.source_sha256,
-            "observed_at": item.observed_at.isoformat(),
-            "kind": item.kind.value,
-            "source": item.source,
-            "mode": "read_only",
-            "provenance": dict(provenance),
-        })
-    evidence_body = _json({
-        "tenant_id": request.tenant_id, "run_id": str(run_id),
-        "dataset_id": connector.dataset_id, "source_sha256": connector.source_sha256,
-        "evidence": evidence,
-    })
-    _write_private(private_dir / "evidence.json", evidence_body)
+    if persistence_guard is not None and not callable(persistence_guard):
+        raise TypeError("persistence guard must be callable")
+    if commit_scope is not None and not callable(commit_scope):
+        raise TypeError("commit scope must be callable")
 
-    investigation = {
-        "run_id": str(run_id), "tenant_id": request.tenant_id,
-        "dataset_id": connector.dataset_id,
-        "source_sha256": connector.source_sha256,
-        "authorization_id": authorization_id,
-        "evidence_ids": list(evidence_ids),
-        **_investigate(observations),
-    }
-    investigation_sha256 = _digest(_json(investigation).rstrip(b"\n"))
-    witness = {
-        "schema": LINEAGE_WITNESS_SCHEMA,
-        "tenant_id": request.tenant_id, "run_id": str(run_id),
-        "dataset_id": connector.dataset_id, "source_sha256": connector.source_sha256,
-        "source_records": source_records,
-        "authorization_id": authorization_id,
-        "evidence": evidence,
-        "investigation": investigation,
-        "source_path": str(private_dir / "source.json"),
-        "source_file_sha256": _digest(source_body),
-        "evidence_path": str(private_dir / "evidence.json"),
-        "evidence_file_sha256": _digest(evidence_body),
-    }
-    witness_body = _json(witness)
-    witness_sha256 = _digest(witness_body)
-    _write_private(private_dir / "witness.json", witness_body)
-    view = {
-        "interface_version": LINEAGE_INTERFACE_VERSION,
-        "report_kind": "synthetic_lineage",
-        "authority": {"erp_writes": 0, "execution_allowed": False,
-                      "promotion_allowed": False, "recommendation_allowed": False},
-        "cycles": {"attempted": 1, "completed": 1},
-        "metadata": {"budget": 0, "used": 0},
-        "studies": {"budget": request.max_records, "used": len(observations)},
-        "observations_persisted": len(snapshots),
-        "failures": [], "stop_reason": "cycle_limit",
-        "session_started_at": now.isoformat(), "session_ended_at": now.isoformat(),
-        "lineage": {
-            "run_id": str(run_id), "dataset_id": connector.dataset_id,
+    def guarded_write(name: str, body: bytes) -> None:
+        if persistence_guard is not None:
+            persistence_guard()
+        _write_private(private_dir / name, body)
+
+    try:
+        observations = launch_pilot_read(
+            request, authorization_id=authorization_id, lookup=lookup,
+            adapter=connector, clock=lambda: now,
+        )
+        if not observations or any(
+                item.evidence.observed_at > now
+                or now - item.evidence.observed_at > timedelta(minutes=5)
+                for item in observations):
+            raise ValueError("stale or missing synthetic evidence")
+        evidence_ids = tuple(str(item.evidence.evidence_id) for item in observations)
+        if len(set(evidence_ids)) != len(evidence_ids):
+            raise ValueError("duplicate synthetic evidence")
+        source_records = [dict(item.evidence.payload["record"]) for item in observations]
+        if _digest(_json(source_records).rstrip(b"\n")) != connector.source_sha256:
+            raise ValueError("admitted source digest mismatch")
+        source_body = _json({
+            "tenant_id": request.tenant_id, "run_id": str(run_id),
+            "dataset_id": connector.dataset_id, "source_sha256": connector.source_sha256,
+            "source": source_records,
+        })
+        guarded_write("source.json", source_body)
+        store = InMemoryEvidenceStore()
+        OrionKernel(evidence_store=store).discover(
+            _AdmittedSource(observations), tenant_id=request.tenant_id
+        )
+        snapshots = store.query(tenant_id=request.tenant_id)
+        if tuple(item.evidence_id for item in snapshots) != tuple(
+                item.evidence.evidence_id for item in observations):
+            raise ValueError("evidence custody mismatch")
+        evidence = []
+        for item in snapshots:
+            provenance = item.payload["provenance"]
+            if provenance["authorization_id"] != authorization_id:
+                raise ValueError("admitted evidence authorization mismatch")
+            evidence.append({
+                "evidence_id": str(item.evidence_id),
+                "record": dict(item.payload["record"]),
+                "authorization_id": provenance["authorization_id"],
+                "source_sha256": connector.source_sha256,
+                "observed_at": item.observed_at.isoformat(),
+                "kind": item.kind.value,
+                "source": item.source,
+                "mode": "read_only",
+                "provenance": dict(provenance),
+            })
+        evidence_body = _json({
+            "tenant_id": request.tenant_id, "run_id": str(run_id),
+            "dataset_id": connector.dataset_id, "source_sha256": connector.source_sha256,
+            "evidence": evidence,
+        })
+        guarded_write("evidence.json", evidence_body)
+
+        investigation = {
+            "run_id": str(run_id), "tenant_id": request.tenant_id,
+            "dataset_id": connector.dataset_id,
             "source_sha256": connector.source_sha256,
             "authorization_id": authorization_id,
             "evidence_ids": list(evidence_ids),
-            "investigation_sha256": investigation_sha256,
-            "witness_sha256": witness_sha256,
-        },
-    }
-    report_body = _json({
-        "schema": LINEAGE_REPORT_SCHEMA, "tenant_id": request.tenant_id,
-        "witness_path": str(private_dir / "witness.json"),
-        "witness_sha256": witness_sha256, "view": view,
-    })
-    report_sha256 = _digest(report_body)
-    _write_private(private_dir / "report.json", report_body)
-    _write_private(private_dir / "binding.json", _json({
-        "binding_version": REPORT_INTERFACE_VERSION,
-        "tenant_id": request.tenant_id,
-        "report_path": str(private_dir / "report.json"),
-        "report_sha256": report_sha256,
-    }))
-    return LineageResult(
-        request.tenant_id, run_id, connector.dataset_id, connector.source_sha256,
-        evidence_ids, witness_sha256, report_sha256, private_dir / "binding.json", view,
-    )
+            **_investigate(observations),
+        }
+        investigation_sha256 = _digest(_json(investigation).rstrip(b"\n"))
+        witness = {
+            "schema": LINEAGE_WITNESS_SCHEMA,
+            "tenant_id": request.tenant_id, "run_id": str(run_id),
+            "dataset_id": connector.dataset_id, "source_sha256": connector.source_sha256,
+            "source_records": source_records,
+            "authorization_id": authorization_id,
+            "evidence": evidence,
+            "investigation": investigation,
+            "source_path": str(private_dir / "source.json"),
+            "source_file_sha256": _digest(source_body),
+            "evidence_path": str(private_dir / "evidence.json"),
+            "evidence_file_sha256": _digest(evidence_body),
+        }
+        witness_body = _json(witness)
+        witness_sha256 = _digest(witness_body)
+        guarded_write("witness.json", witness_body)
+        view = {
+            "interface_version": LINEAGE_INTERFACE_VERSION,
+            "report_kind": "synthetic_lineage",
+            "authority": {"erp_writes": 0, "execution_allowed": False,
+                          "promotion_allowed": False, "recommendation_allowed": False},
+            "cycles": {"attempted": 1, "completed": 1},
+            "metadata": {"budget": 0, "used": 0},
+            "studies": {"budget": request.max_records, "used": len(observations)},
+            "observations_persisted": len(snapshots),
+            "failures": [], "stop_reason": "cycle_limit",
+            "session_started_at": now.isoformat(), "session_ended_at": now.isoformat(),
+            "lineage": {
+                "run_id": str(run_id), "dataset_id": connector.dataset_id,
+                "source_sha256": connector.source_sha256,
+                "authorization_id": authorization_id,
+                "evidence_ids": list(evidence_ids),
+                "investigation_sha256": investigation_sha256,
+                "witness_sha256": witness_sha256,
+            },
+        }
+        report_body = _json({
+            "schema": LINEAGE_REPORT_SCHEMA, "tenant_id": request.tenant_id,
+            "witness_path": str(private_dir / "witness.json"),
+            "witness_sha256": witness_sha256, "view": view,
+        })
+        report_sha256 = _digest(report_body)
+        guarded_write("report.json", report_body)
+        with (commit_scope() if commit_scope is not None else nullcontext()):
+            _write_private(private_dir / "binding.json", _json({
+                "binding_version": REPORT_INTERFACE_VERSION,
+                "tenant_id": request.tenant_id,
+                "report_path": str(private_dir / "report.json"),
+                "report_sha256": report_sha256,
+            }))
+        return LineageResult(
+            request.tenant_id, run_id, connector.dataset_id, connector.source_sha256,
+            evidence_ids, witness_sha256, report_sha256, private_dir / "binding.json", view,
+        )
+    except BaseException:
+        # Customer-scoped publication is all-or-nothing. The generic offline
+        # lineage path retains partial custody after interruption by contract.
+        if persistence_guard is not None or commit_scope is not None:
+            for name in ("binding.json", "report.json", "witness.json",
+                         "evidence.json", "source.json"):
+                (private_dir / name).unlink(missing_ok=True)
+        raise
