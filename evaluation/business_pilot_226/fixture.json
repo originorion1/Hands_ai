@@ -1,0 +1,40 @@
+{
+  "synthetic": true,
+  "tenant_id": "synthetic-pilot-226",
+  "company": "synthetic-company",
+  "resource": "Purchase Invoice",
+  "fields": {
+    "cost_center": {"required": true},
+    "project": {"required": false}
+  },
+  "periods": [
+    {
+      "id": "calibration",
+      "start": "2026-01-01",
+      "end": "2026-01-31",
+      "independent_review_fields": ["cost_center"],
+      "records": [
+        {"name": "SYN-PI-001", "company": "synthetic-company", "cost_center": null, "project": ""},
+        {"name": "SYN-PI-002", "company": "synthetic-company", "cost_center": "", "project": "Assigned"},
+        {"name": "SYN-PI-003", "company": "synthetic-company", "cost_center": "Operations", "project": null},
+        {"name": "SYN-PI-004", "company": "synthetic-company", "cost_center": "Operations", "project": "Assigned"}
+      ]
+    },
+    {
+      "id": "holdout",
+      "start": "2026-02-01",
+      "end": "2026-02-28",
+      "independent_review_fields": [],
+      "records": [
+        {"name": "SYN-PI-005", "company": "synthetic-company", "cost_center": "Operations", "project": null},
+        {"name": "SYN-PI-006", "company": "synthetic-company", "cost_center": "Operations", "project": ""},
+        {"name": "SYN-PI-007", "company": "synthetic-company", "cost_center": "Operations", "project": "Assigned"},
+        {"name": "SYN-PI-008", "company": "synthetic-company", "cost_center": "Operations", "project": "Assigned"}
+      ]
+    }
+  ],
+  "holdout_correction": [
+    {"name": "SYN-PI-005", "company": "synthetic-company", "project": "Reviewed"},
+    {"name": "SYN-PI-006", "company": "synthetic-company", "project": "Reviewed"}
+  ]
+}
