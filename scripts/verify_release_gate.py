@@ -33,7 +33,7 @@ REQUIRED_DISTS = frozenset(
         "originorion_connector_sdk",
         "originorion_connector_erpnext_discovery",
         "originorion_connector_synthetic",
-        "originorion_pilot_compat",
+        "originorion_erpnext_pilot_compat",
     }
 )
 HEX64 = re.compile(r"[0-9a-f]{64}\Z")

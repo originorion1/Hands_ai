@@ -4,12 +4,30 @@ import base64
 import hashlib
 import json
 import subprocess
+import tomllib
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from scripts.verify_release_gate import REQUIRED_CHECKS, REQUIRED_DISTS, ReleaseDenied, verify
+
+
+def test_required_distribution_names_match_package_metadata():
+    root = Path(__file__).resolve().parents[1]
+    projects = (
+        root / "pyproject.toml",
+        root / "packages/connector-sdk/pyproject.toml",
+        root / "packages/erpnext-discovery/pyproject.toml",
+        root / "packages/synthetic-connector/pyproject.toml",
+        root / "packages/pilot-compat/pyproject.toml",
+    )
+    actual = {
+        tomllib.loads(path.read_text())["project"]["name"].replace("-", "_")
+        for path in projects
+    }
+    assert actual == REQUIRED_DISTS
 
 
 def _json(path, value):
