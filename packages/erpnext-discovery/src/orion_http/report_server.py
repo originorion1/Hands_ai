@@ -12,7 +12,10 @@ import json
 import os
 import re
 import secrets
+import signal
+import socket
 import stat
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -23,6 +26,8 @@ from orion.presentation.report_interface import BoundReportSource, ReportInterfa
 from orion.stores.private_files import PrivateFileError, read_private_file
 
 _SERVICE_TOKEN = re.compile(r"[A-Za-z0-9_-]{43}\Z")
+_IDLE_CONNECTION_TIMEOUT_SECONDS = 2.0
+_MAX_CONNECTION_SECONDS = 5.0
 
 
 def _read_service_token(path: Path) -> str:
@@ -45,10 +50,33 @@ def _read_service_token(path: Path) -> str:
 
 
 class AuthenticatedReportServer(HTTPServer):
+    # One request is handled at a time; bound idle sockets and pending accepts.
+    request_queue_size = 16
     source: BoundReportSource
     policy: ReportAccessPolicy
     policy_path: Path | None
     service_token_path: Path | None
+
+    def get_request(self):
+        connection, address = super().get_request()
+        connection.settimeout(_IDLE_CONNECTION_TIMEOUT_SECONDS)
+        return connection, address
+
+    def process_request(self, request, client_address):
+        deadline = threading.Timer(_MAX_CONNECTION_SECONDS, self._close_overdue, args=(request,))
+        deadline.daemon = True
+        deadline.start()
+        try:
+            super().process_request(request, client_address)
+        finally:
+            deadline.cancel()
+
+    @staticmethod
+    def _close_overdue(request):
+        try:
+            request.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
 
     def current_policy(self) -> ReportAccessPolicy:
         if self.policy_path is None:
@@ -195,11 +223,21 @@ def main(argv: list[str] | None = None) -> int:
         source, arguments.access_policy, port=arguments.port,
         service_token_path=arguments.service_token_file,
     )
+    prior_term_handler = signal.getsignal(signal.SIGTERM)
+    stopping = threading.Event()
+
+    def _stop_on_term(_signal_number: int, _frame: object) -> None:
+        if not stopping.is_set():
+            stopping.set()
+            threading.Thread(target=server.shutdown, daemon=True).start()
+
+    signal.signal(signal.SIGTERM, _stop_on_term)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        signal.signal(signal.SIGTERM, prior_term_handler)
         server.server_close()
     return 0
 

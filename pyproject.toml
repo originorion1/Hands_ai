@@ -36,3 +36,6 @@ pythonpath = ["src", "packages/connector-sdk/src", "packages/erpnext-discovery/s
 line-length = 100
 target-version = "py312"
 src = [".", "src", "packages/connector-sdk/src", "packages/erpnext-discovery/src", "packages/pilot-compat/src", "packages/synthetic-connector/src"]
+# Hash-bound predecessor review packets are archival evidence, not maintained
+# product source. Preserve their bytes and lint the active tree around them.
+extend-exclude = ["review/host-profile-v2"]

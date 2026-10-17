@@ -11,19 +11,22 @@ VERSION = "0.2.0rc1"
 
 
 def test_release_train_versions_and_internal_dependency_pins():
-    projects = (
-        ROOT / "pyproject.toml",
-        ROOT / "packages/connector-sdk/pyproject.toml",
-        ROOT / "packages/erpnext-discovery/pyproject.toml",
-        ROOT / "packages/synthetic-connector/pyproject.toml",
-        ROOT / "packages/pilot-compat/pyproject.toml",
-    )
-    for path in projects:
+    projects = {
+        ROOT / "pyproject.toml": ("originorion-core", VERSION),
+        ROOT / "packages/connector-sdk/pyproject.toml": ("originorion-connector-sdk", VERSION),
+        ROOT / "packages/erpnext-discovery/pyproject.toml": ("originorion-connector-erpnext-discovery", "0.2.0rc3"),
+        ROOT / "packages/synthetic-connector/pyproject.toml": ("originorion-connector-synthetic", VERSION),
+        ROOT / "packages/pilot-compat/pyproject.toml": ("originorion-erpnext-pilot-compat", "0.2.0rc3"),
+    }
+    versions = dict(projects.values())
+    for path, (name, version) in projects.items():
         project = tomllib.loads(path.read_text())["project"]
-        assert project["version"] == VERSION, path
+        assert project["name"] == name
+        assert project["version"] == version, path
         for dependency in project.get("dependencies", []):
             if dependency.startswith("originorion-"):
-                assert dependency.endswith(f"=={VERSION}"), (path, dependency)
+                dependency_name, dependency_version = dependency.split("==", 1)
+                assert dependency_version == versions[dependency_name], (path, dependency)
 
 
 def test_command_center_and_status_expose_same_release_version():

@@ -13,6 +13,7 @@ from pathlib import Path
 if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+    sys.path.insert(0, "/pilot")
 
 from broker_namespace_lab import readonly
 from https_broker_support import HOST, FixtureServer, HTTPSBroker, certificates
@@ -149,6 +150,7 @@ def confined_command(paths, state):
         Path(__file__),
         readonly=(
             (root / "src", "/src"),
+            (root / "packages" / "pilot-compat" / "src", "/pilot"),
             (root / "tests" / "isolation_lab.py", "/work/isolation_lab.py"),
             (root / "tests" / "broker_namespace_lab.py", "/work/broker_namespace_lab.py"),
             (root / "tests" / "https_broker_support.py", "/work/https_broker_support.py"),
@@ -247,6 +249,7 @@ def relay_reasoner(h, paths, isolation, *, approved_host=HOST):
         script,
         readonly=(
             (root / "src", "/app/src"),
+            (root / "packages" / "pilot-compat" / "src", "/app/pilot"),
             (root / "tests" / "isolation_lab.py", "/work/isolation_lab.py"),
         ),
     )
