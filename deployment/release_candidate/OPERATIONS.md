@@ -12,7 +12,7 @@ failure. An operator may attach its exit code to a monitored systemd timer or
 other alerting system after reviewing that destination. No token or tenant
 identifier is written to stdout.
 
-`report_drill.py` runs the ERPNext connector/report-host `0.2.0rc2` against
+`report_drill.py` runs the ERPNext connector/report-host `0.2.0rc3` against
 Kernel and SDK `0.2.0rc1` in a private
 temporary directory. It generates synthetic evidence and a separate ephemeral
 issuer key, verifies service and report-token denials, subject revocation,
@@ -21,6 +21,14 @@ digest, and clean SIGTERM shutdown. It records local p95 report latency over
 20 reads, crash-to-ready recovery time and data-loss bytes. These observations
 are measurements, not service-level objectives or proof of production
 capacity. TLS and browser checks remain separate exact-candidate gates.
+
+The report host handles one accepted request at a time. Its listen backlog
+is limited to 16, an idle accepted socket closes after two seconds, and an
+absolute accepted-connection deadline closes it after five seconds even if a
+peer trickles bytes. The server stays single-threaded, so a peer can consume
+the sole worker for at most that interval. These are availability bounds,
+not a throughput guarantee. A reviewed reverse proxy must enforce its own
+connection limit before any public ingress is qualified.
 
 Run only with a clean, hash-verified offline installation:
 
