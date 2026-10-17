@@ -125,6 +125,19 @@ def test_logout_and_expiry_deny_membership(registry):
         store.authorize(expired, tenant_id="tenant-alpha")
 
 
+def test_registry_denies_clock_rollback_before_tenant_access(registry, monkeypatch):
+    store, signer = registry
+    admin = _identity("alpha-admin", "session")
+    approval = _approval("tenant-alpha", admin.subject, 1011)
+    store.provision(admin, approval=approval, signature=_signed(signer, approval))
+    observed = int(time.time())
+    with monkeypatch.context() as patch:
+        patch.setattr("deployment.customer.tenants.time.time", lambda: observed - 120)
+        with pytest.raises(TenantDenied, match="clock rollback"):
+            store.authorize(admin, tenant_id="tenant-alpha")
+    assert store.authorize(admin, tenant_id="tenant-alpha").role == "administrator"
+
+
 def test_concurrent_bootstrap_consumes_approval_once(registry):
     store, signer = registry
     admin = _identity("alpha-admin", "session")

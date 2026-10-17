@@ -171,6 +171,28 @@ class TenantRegistry:
             raise TenantDenied("tenant registry permissions unsafe")
         db = sqlite3.connect(self._path, timeout=5, isolation_level=None)
         db.execute("PRAGMA foreign_keys=ON")
+        try:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS registry_clock ("
+                "id INTEGER PRIMARY KEY CHECK(id=1), latest_second INTEGER NOT NULL)"
+            )
+            db.execute("BEGIN IMMEDIATE")
+            now = int(time.time())
+            previous = db.execute(
+                "SELECT latest_second FROM registry_clock WHERE id=1"
+            ).fetchone()
+            if previous is not None and now < previous[0]:
+                raise TenantDenied("tenant registry clock rollback denied")
+            db.execute(
+                "INSERT INTO registry_clock(id,latest_second) VALUES (1,?) "
+                "ON CONFLICT(id) DO UPDATE SET latest_second=excluded.latest_second",
+                (now,),
+            )
+            db.commit()
+        except BaseException:
+            db.rollback()
+            db.close()
+            raise
         return db
 
     @contextmanager

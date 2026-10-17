@@ -3,6 +3,10 @@
 This offline control-plane slice exercises two synthetic tenants. It exposes no
 HTTP routes and does not access customer systems. The private SQLite registry
 is created with restricted file permissions in an owner-controlled directory.
+The registry persists its last observed wall-clock second and denies any
+later connection if the host clock moves backward. This protects local
+session, approval and retention checks during rollback; an independently
+trusted clock source is still required for production qualification.
 
 - Initial administrator membership comes from a verified IdP identity and a
   purpose-bound, one-use signed organization approval.
