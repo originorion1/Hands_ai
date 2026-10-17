@@ -52,3 +52,12 @@ def test_blind_packet_contains_exact_source_without_labels_or_predictions():
     )
     assert "positive_cases" not in json.dumps(review)
     assert "candidate_review" not in json.dumps(review)
+    first = next(case for case in review["cases"] if case["case_id"] == "holdout_a")
+    target = next(row for row in first["normalized_calculations"]
+                  if row["source_ref"] == "holdout_a-T")
+    assert target["net_unit_usd_display"] == "17.0000"
+    assert target["quantity_each"] == "10"
+    packed = next(case for case in review["cases"] if case["case_id"] == "holdout_d")
+    pack_target = next(row for row in packed["normalized_calculations"]
+                       if row["source_ref"] == "holdout_d-T")
+    assert pack_target["net_unit_usd_display"] == "10.0000"

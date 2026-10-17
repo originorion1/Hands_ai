@@ -46,6 +46,18 @@ def test_holdout_arithmetic_traps_and_baseline_can_win():
     assert investigate_purchases(rows("holdout_a"), target_ref="holdout_a-T",
                                  company="Synthetic Procurement Co")[
         "estimated_exposure_usd"] == "60.00"
+    stated_contract = investigate_purchases(
+        rows("holdout_a"), target_ref="holdout_a-T", company="Synthetic Procurement Co"
+    )
+    assert "independent contract or supplier price-list record" in stated_contract[
+        "missing_evidence"
+    ]
+    assert "contemporaneous market-price context" in stated_contract["missing_evidence"]
+    assert stated_contract["independently_verified_savings_usd"] is None
+    fx_case = investigate_purchases(
+        rows("holdout_e"), target_ref="holdout_e-T", company="Synthetic Procurement Co"
+    )
+    assert "independent FX-rate evidence" in fx_case["missing_evidence"]
     for case in ("holdout_c", "holdout_g", "holdout_i"):
         assert result["case_statuses"][case] == "abstained"
     for case in ("holdout_d", "holdout_e", "holdout_f", "holdout_k", "holdout_l"):

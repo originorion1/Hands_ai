@@ -78,7 +78,7 @@
     "conventional_union": {
       "billed_acquisition_cost_usd": null,
       "billed_compute_cost_usd": null,
-      "compute_elapsed_ms_diagnostic": 2.377,
+      "compute_elapsed_ms_diagnostic": 1.971,
       "correct_negative_abstentions": 0,
       "estimated_exposure_usd": null,
       "false_findings": 6,
@@ -101,7 +101,7 @@
     "existing_orion": {
       "billed_acquisition_cost_usd": null,
       "billed_compute_cost_usd": null,
-      "compute_elapsed_ms_diagnostic": 1.485,
+      "compute_elapsed_ms_diagnostic": 0.99,
       "correct_negative_abstentions": 3,
       "estimated_exposure_usd": "190.00",
       "false_findings": 0,
@@ -124,7 +124,7 @@
     "hybrid_investigation": {
       "billed_acquisition_cost_usd": null,
       "billed_compute_cost_usd": null,
-      "compute_elapsed_ms_diagnostic": 0.673,
+      "compute_elapsed_ms_diagnostic": 0.709,
       "correct_negative_abstentions": 3,
       "estimated_exposure_usd": "190.00",
       "false_findings": 0,
