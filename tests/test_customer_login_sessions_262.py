@@ -371,7 +371,27 @@ def test_customer_session_gates_one_real_synthetic_lineage(context, tmp_path):
     assert result.view["observations_persisted"] == 1
     assert result.view["authority"]["execution_allowed"] is False
     assert (actual / "report.json").is_file()
-    login.logout(secret, csrf_token=session.csrf_token)
+
+    class RevokingConnector(SyntheticRecordConnector):
+        def read(self, permit):
+            observations = super().read(permit)
+            login.logout(secret, csrf_token=session.csrf_token)
+            return observations
+
+    interrupted = tmp_path / "revoked-during-read"
+    interrupted.mkdir(mode=0o700)
+    revoking_connector = RevokingConnector(
+        tenant_id=tenant, source_id=connector.source_id,
+        dataset_id=connector.dataset_id, records=(
+            {"name": "SYN-CUSTOMER-1", "company": "Synthetic Co",
+             "posting_date": date.isoformat(), "amount": 37},
+        ),
+    )
+    with pytest.raises(LoginDenied, match="session"):
+        run_customer_synthetic_lineage(**(options | {
+            "connector": revoking_connector, "private_dir": interrupted,
+        }))
+    assert not any(interrupted.iterdir())
     denied = tmp_path / "revoked"
     denied.mkdir(mode=0o700)
     with pytest.raises(LoginDenied, match="session"):
