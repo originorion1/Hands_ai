@@ -24,13 +24,20 @@ def _decimal(value: object, *, positive: bool = False) -> Decimal:
         number = Decimal(value)
     except InvalidOperation as exc:
         raise ProcurementEvidenceError("invalid decimal source value") from exc
-    if not number.is_finite() or (positive and number <= 0) or (not positive and number < 0):
+    if (not number.is_finite() or number > Decimal("1e12") or
+            (positive and number < Decimal("1e-9")) or
+            (not positive and number < 0)):
         raise ProcurementEvidenceError("invalid nonnegative source value")
     return number
 
 
 def _money(value: Decimal) -> str:
-    return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    if not value.is_finite() or value < 0 or value > Decimal("1e15"):
+        raise ProcurementEvidenceError("financial exposure exceeds bound")
+    try:
+        return str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    except InvalidOperation as exc:
+        raise ProcurementEvidenceError("financial arithmetic unavailable") from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,13 +88,17 @@ class Purchase:
             raise ProcurementEvidenceError("invalid tax or discount")
         contract = (None if row["contract_unit_usd"] is None else
                     _decimal(row["contract_unit_usd"], positive=True))
+        currency = row["currency"]
+        fx = _decimal(row["fx_to_usd"], positive=True)
+        if currency not in {"USD", "EUR"} or (currency == "USD" and fx != 1):
+            raise ProcurementEvidenceError("unsupported currency conversion")
         return cls(
             row["name"], row["invoice"], row["company"], row["item"],
             row["supplier"], day, _decimal(row["quantity"], positive=True),
             _decimal(row["units_per_pack"], positive=True),
             _decimal(row["unit_price"], positive=True),
-            _decimal(row["fx_to_usd"], positive=True), tax, discount,
-            row["quality"], row["delivery"], row["currency"], contract,
+            fx, tax, discount,
+            row["quality"], row["delivery"], currency, contract,
             row["corrected_by"],
         )
 
