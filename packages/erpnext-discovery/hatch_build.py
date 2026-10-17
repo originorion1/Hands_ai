@@ -14,10 +14,8 @@ class CustomBuildHook(BuildHookInterface):
         sources.extend(source_root / name for name in (
             "orion/discovery/retained_investigation_session.py",
             "orion/pilot/erpnext_candidate.py",
-            "orion/presentation/report_interface.py",
-            "orion_http/report_server.py",
         ))
-        if len(sources) != 25 or any(not file.is_file() or file.is_symlink() for file in sources):
+        if len(sources) != 23 or any(not file.is_file() or file.is_symlink() for file in sources):
             raise RuntimeError("ERPNext connector sources are unavailable")
         for source in sources:
             relative = source.relative_to(source_root)

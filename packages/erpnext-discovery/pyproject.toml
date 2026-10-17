@@ -12,6 +12,9 @@ dependencies = ["originorion-core==0.2.0rc2", "originorion-connector-sdk==0.2.0r
 [project.entry-points."orion.connectors.v1"]
 erpnext = "orion.discovery.erpnext_adapter:ERPNextDiscoveryAdapter"
 
+[project.entry-points."orion.aggregate_reports.v1"]
+erpnext = "orion.discovery.erpnext_live_session:live_session_run_report_from_json"
+
 [tool.hatch.build.targets.wheel]
 only-include = []
 
