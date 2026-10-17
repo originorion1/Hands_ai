@@ -123,11 +123,11 @@ def validate_launch_invocation(
 
 
 def artifact_identity():
-    """Revalidate installed hashed RECORD files; not a signature or release grant."""
-    distribution = importlib.metadata.distribution("orion-core")
-    record = distribution.read_text("RECORD")
-    if not record:
-        raise ValueError("installed artifact RECORD required")
+    """Revalidate every ORION distribution used by the historical pilot."""
+    names = (
+        "originorion-core", "originorion-connector-sdk",
+        "originorion-connector-erpnext-discovery", "originorion-erpnext-pilot-compat",
+    )
     prefix = Path(sys.prefix).absolute()
     resolved_prefix = prefix.resolve()
     running_module = Path(__file__).resolve()
@@ -135,29 +135,38 @@ def artifact_identity():
         raise ValueError("non-editable installed artifact required")
     verified = 0
     running_module_verified = False
-    for filename, checksum, size in csv.reader(io.StringIO(record)):
-        if not checksum:
-            if not filename.endswith(("RECORD", ".pyc")):
-                raise ValueError("unhashed installed artifact file")
-            continue
-        algorithm, separator, expected = checksum.partition("=")
-        if not separator or algorithm != "sha256":
-            raise ValueError("artifact hash policy required")
-        installed_file = distribution.locate_file(filename).resolve()
-        if not installed_file.is_relative_to(resolved_prefix):
-            raise ValueError("installed artifact escaped its prefix")
-        raw = installed_file.read_bytes()
-        actual = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
-        if actual != expected or len(raw) != int(size):
-            raise ValueError("installed artifact tampered")
-        running_module_verified = running_module_verified or installed_file == running_module
-        verified += 1
+    records = []
+    for name in names:
+        distribution = importlib.metadata.distribution(name)
+        record = distribution.read_text("RECORD")
+        if not record:
+            raise ValueError("installed artifact RECORD required")
+        for filename, checksum, size in csv.reader(io.StringIO(record)):
+            if not checksum:
+                if not filename.endswith(("RECORD", ".pyc")):
+                    raise ValueError("unhashed installed artifact file")
+                continue
+            algorithm, separator, expected = checksum.partition("=")
+            if not separator or algorithm != "sha256":
+                raise ValueError("artifact hash policy required")
+            installed_file = distribution.locate_file(filename).resolve()
+            if not installed_file.is_relative_to(resolved_prefix):
+                raise ValueError("installed artifact escaped its prefix")
+            raw = installed_file.read_bytes()
+            actual = base64.urlsafe_b64encode(hashlib.sha256(raw).digest()).rstrip(b"=").decode()
+            if actual != expected or len(raw) != int(size):
+                raise ValueError("installed artifact tampered")
+            if name == "originorion-erpnext-pilot-compat":
+                running_module_verified = running_module_verified or installed_file == running_module
+            verified += 1
+        records.append((name, distribution.version, hashlib.sha256(record.encode()).hexdigest()))
     if not running_module_verified:
         raise ValueError("executing module is not the verified artifact")
+    pilot = importlib.metadata.distribution("originorion-erpnext-pilot-compat")
     return {
-        "name": distribution.metadata["Name"],
-        "version": distribution.version,
-        "record_sha256": hashlib.sha256(record.encode()).hexdigest(),
+        "name": pilot.metadata["Name"],
+        "version": pilot.version,
+        "record_sha256": hashlib.sha256(_json(records).encode()).hexdigest(),
         "verified_files": verified,
         "package_root": str(running_module.parents[1]),
         "installed_prefix": str(prefix),

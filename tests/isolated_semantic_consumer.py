@@ -7,7 +7,10 @@ from pathlib import Path
 # Only the repository's read-only mounted source, or its test checkout, is used.
 source = Path('/app/src') if Path(__file__).resolve() == Path('/work/probe.py') else (
     Path(__file__).resolve().parents[1] / 'src')
+compat_source = Path('/app/compat') if Path(__file__).resolve() == Path('/work/probe.py') else (
+    Path(__file__).resolve().parents[1] / 'packages' / 'pilot-compat' / 'src')
 sys.path.insert(0, str(source))
+sys.path.insert(0, str(compat_source))
 
 from orion.pilot.broker_contract import decode, observations_from, request_from
 from orion.shadow.semantic_review import review_semantic_study

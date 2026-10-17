@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from ..discovery.erpnext_adapter import _normalize_base_url
-from ..discovery.erpnext_live_session import CredentialEnvironmentReferences
+from ..discovery.credential_references import CredentialEnvironmentReferences
+from ..discovery.https_origin import _normalize_base_url
 from ..discovery.json_boundary import unique_json_object
 from ..discovery.pilot_read import _text
 from .broker_contract import digest

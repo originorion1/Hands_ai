@@ -17,6 +17,10 @@ class DiscoveryAdapter(Protocol):
 class EvidenceStore(Protocol):
     def append(self, evidence: Evidence) -> None: ...
 
+    def append_batch_atomic(self, evidence: Sequence[Evidence]) -> None:
+        """Commit the complete discovery batch or leave the store unchanged."""
+        ...
+
     def query(self, *, tenant_id: str | None = None) -> Sequence[Evidence]: ...
 
 

@@ -46,6 +46,7 @@ from ..understanding.metadata import (
     build_metadata_understanding,
     is_collection_relationship,
 )
+from .credential_references import CredentialEnvironmentReferences, LiveSessionError
 from .erpnext_adapter import _default_opener, _normalize_base_url
 from .erpnext_historical_capture import (
     _repository_root,
@@ -62,7 +63,6 @@ FULL_SOAK_CUMULATIVE_OBSERVATIONS = 500
 FULL_SOAK_CONSECUTIVE_NON_PROGRESS = 5
 FULL_SOAK_SECONDS = 6 * 60 * 60
 
-_ENVIRONMENT_NAME = re.compile(r"[A-Z][A-Z0-9_]{0,127}\Z")
 _SENSITIVE_TOKENS = frozenset(
     {
         "access",
@@ -123,10 +123,6 @@ _FAILED_RUN_STOP_REASONS = frozenset(
         ShadowSoakStopReason.TENANT_SCOPE_MISMATCH.value,
     }
 )
-
-
-class LiveSessionError(ValueError):
-    """Raised when live-session preparation violates a fixed boundary."""
 
 
 class LiveSessionStorageError(LiveSessionError):
@@ -219,43 +215,6 @@ class ReviewedMetadataScope:
             if name in _AUDIT_ONLY_FIELDS:
                 raise LiveSessionError("transport audit fields cannot be learning targets")
             _reject_sensitive_name(name, "reviewed field")
-
-
-@dataclass(frozen=True, slots=True)
-class CredentialEnvironmentReferences:
-    """Names of environment variables; resolved secret values are never retained here."""
-
-    api_key_variable: str
-    api_secret_variable: str
-
-    def __post_init__(self) -> None:
-        for value in (self.api_key_variable, self.api_secret_variable):
-            if not isinstance(value, str) or _ENVIRONMENT_NAME.fullmatch(value) is None:
-                raise LiveSessionError("credential reference must be a safe environment name")
-        if self.api_key_variable == self.api_secret_variable:
-            raise LiveSessionError("credential references must be distinct")
-
-    def resolve(self, environment: Mapping[str, str]) -> _ResolvedCredentials:
-        if not isinstance(environment, Mapping):
-            raise TypeError("environment must be a mapping")
-        try:
-            api_key = environment.get(self.api_key_variable)
-            api_secret = environment.get(self.api_secret_variable)
-        except Exception:  # noqa: BLE001 - untrusted mapping boundary is sanitized
-            raise LiveSessionError("credential references could not be resolved") from None
-        if not isinstance(api_key, str) or not api_key:
-            raise LiveSessionError("API key credential is unavailable")
-        if not isinstance(api_secret, str) or not api_secret:
-            raise LiveSessionError("API secret credential is unavailable")
-        if api_key == api_secret:
-            raise LiveSessionError("resolved credentials must be distinct")
-        return _ResolvedCredentials(api_key=api_key, api_secret=api_secret)
-
-
-@dataclass(frozen=True, slots=True)
-class _ResolvedCredentials:
-    api_key: str = field(repr=False)
-    api_secret: str = field(repr=False)
 
 
 @dataclass(frozen=True, slots=True)

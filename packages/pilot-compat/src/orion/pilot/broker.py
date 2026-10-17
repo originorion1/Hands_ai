@@ -17,8 +17,8 @@ from datetime import datetime
 from pathlib import Path
 
 from ..contracts import EvidenceKind, utc_now
-from ..discovery.erpnext_adapter import _normalize_base_url
-from ..discovery.erpnext_live_session import CredentialEnvironmentReferences
+from ..discovery.credential_references import CredentialEnvironmentReferences
+from ..discovery.https_origin import _normalize_base_url
 from ..discovery.pilot_metadata import launch_pilot_metadata
 from ..discovery.pilot_read import _text, launch_pilot_read
 from ..history.evidence import _observation_to_data
@@ -266,8 +266,11 @@ class Broker:
         return response
 
     def _worker(self, bootstrap, *, timeout=5):
+        import orion
+
+        core = str(Path(orion.__file__).resolve().parents[1])
         source = str(Path(__file__).resolve().parents[2])
-        command = 'import sys;sys.path.insert(0,' + repr(source) + ');' + (
+        command = 'import sys;sys.path[:0]=' + repr([core, source]) + ';' + (
             'from orion.pilot.broker_worker import main;raise SystemExit(main())')
         worker_command = ([sys.executable, '-I', '-m', 'orion.pilot.broker_worker']
                           if getattr(self, 'installed_worker', False)

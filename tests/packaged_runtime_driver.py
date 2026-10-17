@@ -486,7 +486,7 @@ def controller(value):
         "policy": {
             "max_entries": 20,
             "max_bytes": 1048576,
-            "ttl_seconds": 1 if value["case"] == "retention" else 3600,
+            "ttl_seconds": 30 if value["case"] == "retention" else 3600,
         },
     }
     production_case = value["case"] == "production_discovery"
@@ -2181,10 +2181,15 @@ def controller(value):
             )
             return report()
         if value["case"] == "retention":
+            # The deployment setup and kernel checks can take longer than a
+            # one-second TTL on a hosted runner. Prove that the witness is
+            # sampled while the payload is still retained, then let the
+            # configured TTL expire before checking its successor.
+            assert archive("load")["observations"] == admitted["observations"]
             before_retention = next(
                 row for row in witness_rows() if row["kind"] == "evidence"
             )
-            time.sleep(1.2)
+            time.sleep(30.2)
             health = command(runtime, {"command": "health"})
             expired = archive("load")
             checks["runtime_retention_erases_payload_keeps_provenance_index"] = (
@@ -2199,11 +2204,39 @@ def controller(value):
             after_retention = next(
                 row for row in witness_rows() if row["kind"] == "evidence"
             )
+            with sqlite3.connect(state / "evidence/evidence.db") as database:
+                retained_history = [
+                    (sequence, json.loads(body), head)
+                    for sequence, body, head in database.execute(
+                        "SELECT sequence, body, mac FROM events "
+                        "WHERE sequence > ? AND sequence <= ? ORDER BY sequence",
+                        (before_retention["sequence"], after_retention["sequence"]),
+                    )
+                ]
+            predecessor_sequence = before_retention["sequence"]
+            predecessor_head = before_retention["head"]
+            for sequence, event, head in retained_history:
+                if (
+                    sequence != predecessor_sequence + 1
+                    or event["event"] != "expire"
+                    or event["previous"] != predecessor_head
+                ):
+                    break
+                predecessor_sequence, predecessor_head = sequence, head
+            expected_predecessor_head = (
+                retained_history[-2][2]
+                if len(retained_history) > 1
+                else before_retention["head"]
+            )
             checks["retention_advances_without_erasing_witness_high_water_mark"] = (
                 after_retention["sequence"] > before_retention["sequence"]
+                and len(retained_history)
+                == after_retention["sequence"] - before_retention["sequence"]
+                and predecessor_sequence == after_retention["sequence"]
+                and predecessor_head == after_retention["head"]
                 and after_retention["predecessor_sequence"]
-                == before_retention["sequence"]
-                and after_retention["predecessor_head"] == before_retention["head"]
+                == after_retention["sequence"] - 1
+                and after_retention["predecessor_head"] == expected_predecessor_head
             )
             return report()
         if value["case"] == "revoke":

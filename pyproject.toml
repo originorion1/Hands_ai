@@ -3,26 +3,39 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "orion-core"
-version = "0.1.0"
+name = "originorion-core"
+version = "0.2.0rc1"
 description = "ORION — generic learning and governed automation kernel"
 requires-python = ">=3.12"
 readme = "README.md"
 license = {text = "Apache-2.0"}
-dependencies = ["cryptography>=43.0"]
-
-[project.scripts]
-orion-runtime = "orion.pilot.deployment:main"
+dependencies = ["cryptography>=43.0", "originorion-connector-sdk==0.2.0rc1"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.8", "hatchling>=1.27", "jsonschema>=4.0"]
 
+[tool.uv.sources]
+originorion-connector-sdk = { path = "packages/connector-sdk" }
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/orion", "src/orion_http"]
+exclude = ["src/orion/discovery/erpnext_pilot_metadata.py"]
+
+[tool.hatch.build.targets.sdist]
+exclude = [
+    "packages/**",
+    "src/orion/discovery/erpnext_pilot_metadata.py",
+    "orion/adapters/systems/erpnext/**",
+    "orion/hands/erpnext/**",
+]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "packages/connector-sdk/src", "packages/erpnext-discovery/src", "packages/pilot-compat/src"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+src = [".", "src", "packages/connector-sdk/src", "packages/erpnext-discovery/src", "packages/pilot-compat/src", "packages/synthetic-connector/src"]
+# Hash-bound predecessor review packets are archival evidence, not maintained
+# product source. Preserve their bytes and lint the active tree around them.
+extend-exclude = ["review/host-profile-v2"]
