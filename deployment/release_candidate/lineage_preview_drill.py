@@ -150,6 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run one offline synthetic lineage Preview")
     parser.add_argument("--private-dir", required=True, type=Path)
     parser.add_argument("--authorize-synthetic-read", action="store_true")
+    parser.add_argument("--procurement-case", choices=("holdout_a", "holdout_h"))
     args = parser.parse_args(argv)
     if not args.authorize_synthetic_read:
         parser.error("explicit synthetic read authorization is required")
@@ -162,21 +163,33 @@ def main(argv: list[str] | None = None) -> int:
     short = run_id.hex[:10]
     tenant = f"synthetic-tenant-{short}"
     source_id = f"synthetic-source-{short}"
-    date = now.date()
+    current_day = now.date()
     records = (
         {"name": f"SYN-{short}-1", "company": "Synthetic Co",
-         "posting_date": date.isoformat(), "amount": 37},
+         "posting_date": current_day.isoformat(), "amount": 37},
         {"name": f"SYN-{short}-2", "company": "Synthetic Co",
-         "posting_date": date.isoformat(), "amount": 50},
+         "posting_date": current_day.isoformat(), "amount": 50},
     )
+    company = "Synthetic Co"
+    resource = "Synthetic Invoice"
+    fields = ("name", "company", "posting_date", "amount")
+    start_day = end_day = current_day
+    if args.procurement_case:
+        from evaluation.procurement_price_270.fixture import FIELDS, rows
+
+        records = rows(args.procurement_case)
+        company = "Synthetic Procurement Co"
+        resource = "Synthetic Purchase"
+        fields = FIELDS
+        start_day = datetime.fromisoformat("2026-01-01").date()
+        end_day = datetime.fromisoformat("2026-03-01").date()
     connector = SyntheticRecordConnector(
         tenant_id=tenant, source_id=source_id, dataset_id=f"dataset-{short}",
         records=records,
     )
-    fields = ("name", "company", "posting_date", "amount")
     window = ReviewedReadWindow(
-        tenant_id=tenant, company="Synthetic Co", resource="Synthetic Invoice",
-        fields=fields, date_field="posting_date", start=date, end=date,
+        tenant_id=tenant, company=company, resource=resource,
+        fields=fields, date_field="posting_date", start=start_day, end=end_day,
         expires_at=now + timedelta(minutes=10),
     )
     authorization_id = f"synthetic-read-{short}"
@@ -184,12 +197,12 @@ def main(argv: list[str] | None = None) -> int:
         authorization_id=authorization_id, source_id=source_id, window=window,
         identity_field="name", company_field="company",
         provenance_source="synthetic-record-v1", evidence_kind=EvidenceKind.SOURCE,
-        max_records=2,
+        max_records=len(records),
     )
     request = PilotRequest(
-        tenant_id=tenant, company="Synthetic Co", source_id=source_id,
-        resource="Synthetic Invoice", fields=fields, date_field="posting_date",
-        start=date, end=date, max_records=2,
+        tenant_id=tenant, company=company, source_id=source_id,
+        resource=resource, fields=fields, date_field="posting_date",
+        start=start_day, end=end_day, max_records=len(records),
     )
     registration = discover(ReviewedConnector(
         name="synthetic-records", distribution="originorion-connector-synthetic",
@@ -222,6 +235,17 @@ def main(argv: list[str] | None = None) -> int:
     cert_path, key_path = _certificate(private_dir, now)
     os.environ["SSL_CERT_FILE"] = str(cert_path)
     source = BoundReportSource.from_private_binding(result.binding_path)
+    finding_sha256 = None
+    if args.procurement_case:
+        from deployment.intelligence.procurement_report import (
+            ProcurementReportSource,
+            persist_procurement_finding,
+        )
+
+        path, finding_sha256 = persist_procurement_finding(
+            base=source, target_ref=f"{args.procurement_case}-T", company=company,
+        )
+        source = ProcurementReportSource(source, path, finding_sha256)
     report_server = create_server(
         source, private_dir / "policy.json", port=0,
         service_token_path=private_dir / "service-token",
@@ -248,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         "tenant_id": tenant, "run_id": str(run_id), "dataset_id": result.dataset_id,
         "source_sha256": result.source_sha256, "report_sha256": result.report_sha256,
         "witness_sha256": result.witness_sha256,
+        "finding_sha256": finding_sha256,
         "evidence_ids": list(result.evidence_ids),
         "local_tls": True, "execution_allowed": False,
         "customer_session_verified": True,

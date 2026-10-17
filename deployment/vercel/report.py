@@ -44,6 +44,8 @@ def _counter(value: object) -> bool:
 def _validated_view(body: bytes) -> bytes:
     """Validate the public transport envelope before returning upstream bytes."""
     value = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_object)
+    if type(value) is dict and value.get("interface_version") == "orion.readonly-report.v3":
+        return _validated_procurement_view(value, body)
     if type(value) is dict and value.get("interface_version") == "orion.readonly-report.v2":
         return _validated_lineage_view(value, body)
     if type(value) is not dict or set(value) != {
@@ -98,6 +100,95 @@ def _validated_view(body: bytes) -> bytes:
             or not _counter(item["count"])
         ):
             raise ValueError("invalid report failure category")
+    return body
+
+
+def _validated_procurement_view(value: dict[str, object], body: bytes) -> bytes:
+    """Allow only a small reviewer view over a valid v2 lineage envelope."""
+    if set(value) != {
+        "authority", "cycles", "failures", "interface_version", "lineage", "metadata",
+        "observations_persisted", "report_kind", "session_ended_at", "session_started_at",
+        "stop_reason", "studies", "procurement",
+    } or value["report_kind"] != "procurement_price_leakage":
+        raise ValueError("invalid procurement envelope")
+    original = {key: part for key, part in value.items() if key != "procurement"}
+    original["interface_version"] = "orion.readonly-report.v2"
+    original["report_kind"] = "synthetic_lineage"
+    _validated_lineage_view(original, body)
+    finding = value["procurement"]
+    required = {
+        "target_ref", "company", "item", "normalized_unit", "currency", "quantity_each",
+        "target_unit_usd", "comparison_refs", "excluded_evidence", "missing_evidence",
+        "method", "alternative_explanations", "estimated_exposure_usd", "reviewer_decision",
+        "independently_verified_savings_usd", "status", "confidence", "next_question",
+        "finding_sha256", "base_report_sha256", "source_system", "authorization_status",
+        "evidence_acquired_at", "evidence_ids", "authorization_id", "tenant_id",
+        "run_id", "source_data_sha256", "invalidation_history",
+        "review_event_sha256",
+        "connector_identity", "source_id",
+    }
+    optional = {"historical_median_unit_usd", "reference_unit_usd", "supplier_comparison"}
+    if (type(finding) is not dict or not required <= set(finding) or
+            set(finding) - required - optional):
+        raise ValueError("invalid procurement fields")
+    if (finding["status"] not in {"candidate_review", "abstained", "no_anomaly", "invalidated"}
+            or finding["source_system"] != "synthetic-records"
+            or finding["connector_identity"] != "originorion-connector-synthetic@0.2.0rc2"
+            or type(finding["source_id"]) is not str or
+            _LINEAGE_ID.fullmatch(finding["source_id"]) is None
+            or finding["authorization_status"] != "read_only_admitted"
+            or finding["reviewer_decision"] not in {
+                "pending", "accepted_for_followup", "rejected", "needs_evidence"
+            }
+            or (finding["review_event_sha256"] is not None and (
+                type(finding["review_event_sha256"]) is not str or
+                _DIGEST.fullmatch(finding["review_event_sha256"]) is None
+            ))
+            or finding["independently_verified_savings_usd"] is not None
+            or type(finding["invalidation_history"]) is not list
+            or len(finding["invalidation_history"]) > 1
+            or (finding["status"] == "invalidated") != bool(finding["invalidation_history"])
+            or finding["normalized_unit"] != "each" or finding["currency"] != "USD"
+            or finding["run_id"] != value["lineage"]["run_id"]
+            or finding["source_data_sha256"] != value["lineage"]["source_sha256"]
+            or finding["authorization_id"] != value["lineage"]["authorization_id"]
+            or finding["evidence_ids"] != value["lineage"]["evidence_ids"]
+            or type(finding["next_question"]) not in (str, type(None))
+            or type(finding["tenant_id"]) is not str or
+            _LINEAGE_ID.fullmatch(finding["tenant_id"]) is None
+            or type(finding["evidence_acquired_at"]) is not str or
+            _SAFE_TIMESTAMP.fullmatch(finding["evidence_acquired_at"]) is None
+            or any(type(finding[key]) is not str or len(finding[key]) > 256 for key in (
+                "target_ref", "company", "item", "quantity_each", "target_unit_usd",
+                "estimated_exposure_usd", "method", "confidence"
+            ))
+            or any(type(finding[key]) is not str or _DIGEST.fullmatch(finding[key]) is None
+                   for key in ("finding_sha256", "base_report_sha256", "source_data_sha256"))
+            or any(type(finding[key]) is not list or len(finding[key]) > 100 or
+                   any(type(item) is not str or len(item) > 256 for item in finding[key])
+                   for key in ("comparison_refs", "excluded_evidence", "missing_evidence",
+                               "alternative_explanations"))):
+        raise ValueError("unsafe procurement view")
+    for event in finding["invalidation_history"]:
+        if (type(event) is not dict or set(event) != {
+            "successor_run_id", "successor_source_sha256", "reason"
+        } or type(event["successor_run_id"]) is not str or
+                _UUID.fullmatch(event["successor_run_id"]) is None or
+                type(event["successor_source_sha256"]) is not str or
+                _DIGEST.fullmatch(event["successor_source_sha256"]) is None or
+                type(event["reason"]) is not str or len(event["reason"]) > 128):
+            raise ValueError("invalid procurement invalidation")
+    if (finding["next_question"] is not None and len(finding["next_question"]) > 256 or
+            "supplier_comparison" in finding and (
+                type(finding["supplier_comparison"]) is not list or
+                len(finding["supplier_comparison"]) > 100 or
+                any(type(item) is not str or len(item) > 128
+                    for item in finding["supplier_comparison"])
+            ) or any(type(finding[key]) is not str or
+                     re.fullmatch(r"[0-9]{1,16}\.[0-9]{2}", finding[key]) is None
+                     for key in ("target_unit_usd", "estimated_exposure_usd")
+                     if key in finding)):
+        raise ValueError("invalid procurement arithmetic")
     return body
 
 
