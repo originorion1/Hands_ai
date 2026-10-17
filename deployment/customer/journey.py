@@ -29,8 +29,15 @@ def run_customer_synthetic_lineage(
     access = login.authorize(session_secret)
     if access.tenant_id != request.tenant_id:
         raise LoginDenied("customer session tenant differs from read scope")
+
+    def session_bound_lookup(identity: str) -> PilotAuthorization | None:
+        current = login.authorize(session_secret)
+        if current.tenant_id != request.tenant_id:
+            raise LoginDenied("customer session tenant differs from read scope")
+        return lookup(identity)
+
     return run_synthetic_lineage(
         registration=registration, connector=connector, request=request,
-        authorization_id=authorization_id, lookup=lookup, run_id=run_id,
+        authorization_id=authorization_id, lookup=session_bound_lookup, run_id=run_id,
         private_dir=private_dir, now=now,
     )
