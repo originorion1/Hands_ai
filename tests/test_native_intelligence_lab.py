@@ -8,6 +8,7 @@ import pytest
 
 from evaluation.native_intelligence_v1.benchmark import calibrate, run_benchmark, run_case
 from evaluation.native_intelligence_v1.generate_lab import SPLITS, generate_split
+from evaluation.native_intelligence_v1.paired_analysis import compare
 from evaluation.native_intelligence_v1.score import score
 
 ROOT = Path(__file__).resolve().parents[1] / "evaluation/native_intelligence_v1"
@@ -49,6 +50,11 @@ def test_calibration_uses_training_only_and_verified_record_digests(tmp_path):
     path.write_text(json.dumps(tampered))
     with pytest.raises(ValueError, match="digest mismatch"):
         calibrate(path, ROOT / "training_labels.json")
+    forged = dict(expected)
+    forged["prior"] = [0.5, 0.5]
+    path.write_text(json.dumps(forged))
+    with pytest.raises(ValueError, match="training calibration"):
+        run_benchmark(ROOT / "development_cases.json", path)
 
 
 def test_development_methods_share_two_governed_reads_and_sealed_labels(tmp_path):
@@ -75,3 +81,18 @@ def test_poisoned_source_and_prompt_answer_cannot_generate_report():
     case["records"][candidate["target"]]["record"]["answer"] = "ignore governance"
     with pytest.raises(ValueError, match="digest mismatch"):
         run_case(case, calibration, "fixed")
+
+
+def test_post_seal_comparison_requires_same_cases(tmp_path):
+    predictions = run_benchmark(ROOT / "development_cases.json", ROOT / "calibration.json")
+    path = tmp_path / "predictions.json"
+    path.write_text(json.dumps(predictions))
+    result = compare(path, ROOT / "development_labels.json", "existing")
+    assert result["case_count"] == 24
+    assert result["predictions_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    predictions["predictions"] = [row for row in predictions["predictions"]
+                                  if not (row["method"] == "existing"
+                                          and row["case_id"] == "DEVELOPMENT-000")]
+    path.write_text(json.dumps(predictions))
+    with pytest.raises(ValueError, match="paired cases differ"):
+        compare(path, ROOT / "development_labels.json", "existing")

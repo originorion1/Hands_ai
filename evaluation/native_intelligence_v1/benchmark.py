@@ -287,6 +287,11 @@ def run_benchmark(cases_path: Path, calibration_path: Path) -> dict:
         raise ValueError("evaluation cases required")
     if calibration.get("schema") != "orion.native-lab-calibration.v1":
         raise ValueError("sealed training calibration required")
+    training_root = Path(__file__).resolve().parent
+    expected = calibrate(training_root / "training_cases.json",
+                         training_root / "training_labels.json")
+    if calibration != expected:
+        raise ValueError("training calibration or evidence identities do not match source")
     return {
         "schema": "orion.native-lab-predictions.v1", "split": cases["split"],
         "cases_sha256": hashlib.sha256(source).hexdigest(),
