@@ -113,6 +113,7 @@ class CustomerPortalService:
         report = self.report(session_secret, expected_tenant=access.tenant_id)
         lineage = report.get("lineage", {}) if report is not None else {}
         finding = report.get("procurement") if report is not None else None
+        study = report.get("study") if report is not None else None
         return {
             "tenant_id": access.tenant_id, "role": access.role,
             "subject": access.subject, "session_expires_at": access.session_expires_at,
@@ -130,7 +131,10 @@ class CustomerPortalService:
                 "approved_read_only_report_bound" if report is not None
                 else "no_approved_grant_bound"
             ),
-            "autonomous_study_proposals": [],
+            "autonomous_study_proposals": (
+                [study["selected_question"]]
+                if isinstance(study, dict) and study.get("selected_question") else []
+            ),
             "evidence_coverage": len(lineage.get("evidence_ids", [])) if report else None,
             "investigation_progress": "persisted" if report else None,
             "findings": ([{"run_id": lineage.get("run_id"),

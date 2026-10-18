@@ -22,6 +22,10 @@ from deployment.customer.metadata_connection import (
     EnrolledMetadataConnection,
     run_enrolled_metadata_session,
 )
+from deployment.customer.metadata_study_report import (
+    MetadataStudyReportSource,
+    persist_metadata_study,
+)
 from deployment.customer.portal import AuthorizationProposal
 from deployment.customer.portal_http import CustomerPortalHTTP
 from deployment.customer.service import CustomerPortalService, CustomerReportBinding
@@ -382,6 +386,50 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
     )
     assert structural.studied_doctypes == ("Purchase Order", "Purchase Invoice")
     assert studied == list(structural.studied_doctypes)
+    study_path, study_digest = persist_metadata_study(
+        grant=metadata_grant, state_directory=metadata_dir / "session",
+    )
+    assert study_path.is_file()
+    study_source = MetadataStudyReportSource(
+        metadata_grant, metadata_dir / "session", study_digest,
+    )
+    study_active = {"value": True}
+
+    @contextmanager
+    def study_commit(_authorization_id):
+        yield
+
+    study_binding = CustomerReportBinding(
+        study_source, metadata_grant.authorization_id,
+        lambda _identity: study_active["value"], study_commit,
+    )
+    study_portal = CustomerPortalService(
+        login, login._registry,
+        report_lookup=lambda chosen: study_binding if chosen == tenant else None,
+    )
+    study_view = study_portal.report(secret)
+    assert study_view["lineage"]["evidence_ids"] == list(structural.evidence_digests)
+    assert study_view["study"]["observed_doctypes"] == list(structural.studied_doctypes)
+    assert study_portal.overview(secret)["autonomous_study_proposals"] == [
+        "Does Purchase Order.next relate to Purchase Invoice in permitted records?"
+    ]
+    study_app = CustomerPortalHTTP(
+        login=login, service=study_portal, origin="https://command.synthetic.invalid",
+    )
+    study_response = {}
+
+    def study_start(status, _headers):
+        study_response["status"] = status
+
+    study_body = b"".join(study_app({
+        "wsgi.url_scheme": "https", "HTTP_HOST": "command.synthetic.invalid",
+        "PATH_INFO": "/customer/api/report", "REQUEST_METHOD": "GET",
+        "HTTP_COOKIE": f"__Host-orion_session={secret}",
+    }, study_start))
+    assert study_response["status"] == "200 OK" and json.loads(study_body) == study_view
+    study_active["value"] = False
+    with pytest.raises(LoginDenied, match="revoked"):
+        study_portal.report(secret)
     assert ledger.lookup(metadata_grant.authorization_id) is None
     with pytest.raises(MetadataSessionDenied, match="already used"):
         run_enrolled_metadata_session(

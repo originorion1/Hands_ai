@@ -23,6 +23,7 @@ from .bounded_metadata import (
     run_bounded_metadata_session,
 )
 from .metadata_approval import ApprovedMetadataGrantLedger
+from .metadata_transport import ReviewedMetadataTransport
 from .tenants import TenantRegistry
 
 
@@ -135,3 +136,18 @@ def run_enrolled_metadata_session(
         return result
     finally:
         connection.ledger.finish(complete=complete)
+
+
+def run_confined_metadata_session(
+    connection: EnrolledMetadataConnection, *, state_directory: Path,
+    clock: Callable[[], datetime], ca_bundle: Path | None = None,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> MetadataSessionResult:
+    """Qualified network launch with direct TLS, no proxy and no redirects."""
+    if not isinstance(connection, EnrolledMetadataConnection):
+        raise MetadataSessionDenied("enrolled metadata connection required")
+    transport = ReviewedMetadataTransport(connection.ledger.grant.origin, ca_bundle)
+    return run_enrolled_metadata_session(
+        connection, transport=transport, state_directory=state_directory,
+        clock=clock, monotonic=monotonic,
+    )

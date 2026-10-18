@@ -97,6 +97,23 @@ vm.runInContext(script, context, {filename: 'portal.js'});
       persistedReport.procurement.finding_sha256))));
   servedReport = {
     authority: {execution_allowed: false, erp_writes: 0},
+    report_kind: 'metadata_study',
+    lineage: {tenant_id: 'tenant-alpha', authorization_id: 'metadata-grant',
+      run_id: 'metadata-run', evidence_ids: ['metadata-evidence']},
+    study: {observed_doctypes: ['Purchase Order', 'Purchase Invoice'],
+      observed_links: [{source: 'Purchase Order', field: 'next',
+        target: 'Purchase Invoice', evidence_sha256: 'metadata-evidence'}],
+      selected_question: 'Does Purchase Order.next relate to Purchase Invoice in permitted records?',
+      conclusion: 'Structural relationship observed; operational effect unverified',
+      reviewer_decision: 'pending'}
+  };
+  await vm.runInContext('refresh()', context);
+  assert(elements.reportDetails.children.some(line =>
+    line.children.some(child => child.textContent.includes('metadata-evidence'))));
+  assert(elements.reportDetails.children.some(line =>
+    line.children.some(child => child.textContent.includes('operational effect unverified'))));
+  servedReport = {
+    authority: {execution_allowed: false, erp_writes: 0},
     report_kind: 'synthetic_lineage',
     lineage: {run_id: 'generic-run', evidence_ids: ['evidence-1']}
   };

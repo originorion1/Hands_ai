@@ -39,6 +39,7 @@ def grant_scope(grant: MetadataGrant) -> dict[str, object]:
         "expires_at": grant.expires_at.isoformat(), "max_attempts": grant.max_attempts,
         "max_response_bytes": grant.max_response_bytes,
         "max_evidence_bytes": grant.max_evidence_bytes,
+        "retention_days": grant.retention_days,
         "read_only": True,
     }
 
@@ -63,7 +64,8 @@ def approval_packet(
             or grant.max_attempts > proposal.get("max_requests", 0)
             or (grant.expires_at - grant.starts_at).total_seconds() >
             proposal.get("max_duration_seconds", 0)
-            or grant.max_evidence_bytes > proposal.get("max_evidence_bytes", 0)):
+            or grant.max_evidence_bytes > proposal.get("max_evidence_bytes", 0)
+            or grant.retention_days > proposal.get("retention_days", 0)):
         raise MetadataSessionDenied("metadata grant exceeds reviewed proposal")
     return {
         "schema": "orion.metadata-approval.v1", "proposal_id": proposal_id,

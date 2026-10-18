@@ -12,11 +12,16 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from deployment.customer.bounded_metadata import (
     MetadataGrant,
     MetadataSessionDenied,
+    purge_expired_metadata_state,
     run_bounded_metadata_session,
 )
 from deployment.customer.metadata_approval import (
     ApprovedMetadataGrantLedger,
     approval_packet,
+)
+from deployment.customer.metadata_study_report import (
+    MetadataStudyReportSource,
+    persist_metadata_study,
 )
 from deployment.customer.portal import AuthorizationProposal
 from orion.discovery.credential_references import CredentialEnvironmentReferences
@@ -181,6 +186,9 @@ def test_signed_proposal_binding_and_durable_metadata_revocation(tmp_path, revok
     narrow["scope_sha256"] = authorization_scope_digest(scope)
     with pytest.raises(MetadataSessionDenied, match="exceeds reviewed proposal"):
         approval_packet(narrow, value, proposal_id="reviewed")
+    with pytest.raises(MetadataSessionDenied, match="exceeds reviewed proposal"):
+        approval_packet(proposal, replace(value, retention_days=2),
+                        proposal_id="reviewed")
 
 
 def test_exact_25_request_completion_and_projected_evidence(tmp_path):
@@ -193,6 +201,63 @@ def test_exact_25_request_completion_and_projected_evidence(tmp_path):
         tmp_path / "private/session/evidence-01.json"
     ).read_bytes()
     assert len(calls) == 25
+
+
+def test_approved_retention_denies_early_or_wrong_scope_and_purges_at_boundary(tmp_path):
+    value = grant(2)
+    run(tmp_path, value, transport_for(tuple(dict(value.fields_by_doctype)), []))
+    state = tmp_path / "private/session"
+    deadline = value.expires_at + timedelta(days=value.retention_days)
+    with pytest.raises(MetadataSessionDenied, match="retention period"):
+        purge_expired_metadata_state(value, state_directory=state,
+                                     now=deadline - timedelta(microseconds=1))
+    with pytest.raises(MetadataSessionDenied, match="scope mismatch"):
+        purge_expired_metadata_state(replace(value, authorization_id="foreign"),
+                                     state_directory=state, now=deadline)
+    extra = state / "unreviewed.json"
+    extra.write_text("do not delete")
+    with pytest.raises(MetadataSessionDenied, match="unreviewed"):
+        purge_expired_metadata_state(value, state_directory=state, now=deadline)
+    extra.unlink()
+    assert purge_expired_metadata_state(value, state_directory=state, now=deadline) == 6
+    assert not state.exists()
+
+
+def test_completed_metadata_study_is_same_source_and_invalidates_on_tamper(tmp_path):
+    value = grant(2)
+    run(tmp_path, value, transport_for(tuple(dict(value.fields_by_doctype)), []))
+    state = tmp_path / "private/session"
+    path, digest = persist_metadata_study(grant=value, state_directory=state)
+    source = MetadataStudyReportSource(value, state, digest)
+    view = source.read_view()
+    assert view["lineage"]["tenant_id"] == value.tenant_id
+    assert view["lineage"]["authorization_id"] == value.authorization_id
+    assert len(view["lineage"]["evidence_ids"]) == 2
+    assert view["study"]["observed_links"][0]["source"] == "Doc 00"
+    assert view["study"]["selected_question"] == (
+        "Does Doc 00.next relate to Doc 01 in permitted records?"
+    )
+    assert view["study"]["status"] == "proposal_only"
+    assert view["authority"] == {"execution_allowed": False, "erp_writes": 0}
+    assert path.read_bytes().endswith(b"\n")
+    evidence = state / "evidence-01.json"
+    evidence.write_bytes(evidence.read_bytes().replace(b"Doc 01", b"Doc 09"))
+    with pytest.raises(MetadataSessionDenied, match="digest mismatch"):
+        source.read_view()
+
+
+def test_metadata_study_abstains_without_permitted_link_and_retention_purges_it(tmp_path):
+    value = grant(1)
+    run(tmp_path, value, transport_for(("Doc 00",), []))
+    state = tmp_path / "private/session"
+    _, digest = persist_metadata_study(grant=value, state_directory=state)
+    view = MetadataStudyReportSource(value, state, digest).read_view()
+    assert view["study"]["selected_question"] is None
+    assert view["study"]["status"] == "abstained"
+    assert purge_expired_metadata_state(
+        value, state_directory=state,
+        now=value.expires_at + timedelta(days=value.retention_days),
+    ) == 5
 
 
 def test_revocation_after_first_response_denies_persistence_and_restart(tmp_path):

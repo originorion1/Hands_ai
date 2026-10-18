@@ -109,6 +109,27 @@ async function refresh() {
       container.append(line);
     }
     byId('reportPanel').hidden = false;
+  } else if (report?.study) {
+    const study = report.study;
+    const lines = [
+      ['OBSERVED FACT', study.observed_doctypes.join(', ')],
+      ['Structural links', study.observed_links.map(link => `${link.source}.${link.field} → ${link.target} · ${link.evidence_sha256}`).join('; ') || 'None observed'],
+      ['INFERRED STUDY QUESTION', study.selected_question || 'Abstained'],
+      ['Conclusion and limitation', study.conclusion],
+      ['Reviewer decision', study.reviewer_decision],
+      ['Source to report custody', `${report.lineage.run_id} · ${report.lineage.evidence_ids.join(', ')}`],
+      ['Authorization', `${report.lineage.authorization_id} · read-only · no ERP writes`]
+    ];
+    const container = byId('reportDetails');
+    container.replaceChildren();
+    for (const [label, value] of lines) {
+      const line = document.createElement('p');
+      const strong = document.createElement('strong');
+      strong.textContent = `${label}: `;
+      line.append(strong, document.createTextNode(value));
+      container.append(line);
+    }
+    byId('reportPanel').hidden = false;
   } else if (report) {
     const line = document.createElement('p');
     line.textContent = `${report.report_kind} · run ${report.lineage.run_id} · read-only · ${report.lineage.evidence_ids?.length ?? 0} evidence references`;

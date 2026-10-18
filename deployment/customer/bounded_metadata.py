@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import stat
 import time
 from collections.abc import Callable, Mapping
@@ -69,6 +70,7 @@ class MetadataGrant:
     max_attempts: int = MAX_ATTEMPTS
     max_response_bytes: int = MAX_RESPONSE_BYTES
     max_evidence_bytes: int = MAX_EVIDENCE_BYTES
+    retention_days: int = 1
 
     def __post_init__(self) -> None:
         if (
@@ -102,6 +104,8 @@ class MetadataGrant:
             or not 1 <= self.max_evidence_bytes <= MAX_EVIDENCE_BYTES
         ):
             raise MetadataSessionDenied("evidence volume exceeds allowance")
+        if type(self.retention_days) is not int or not 1 <= self.retention_days <= 30:
+            raise MetadataSessionDenied("metadata retention must be one to thirty days")
         if not self.fields_by_doctype or len(self.fields_by_doctype) != len({
             name for name, _ in self.fields_by_doctype
         }):
@@ -221,6 +225,7 @@ def run_bounded_metadata_session(
         "origin": grant.origin, "starts_at": grant.starts_at.isoformat(),
         "expires_at": grant.expires_at.isoformat(), "max_attempts": grant.max_attempts,
         "max_evidence_bytes": grant.max_evidence_bytes,
+        "retention_until": (grant.expires_at + timedelta(days=grant.retention_days)).isoformat(),
         "scopes": [[name, list(fields)] for name, fields in grant.fields_by_doctype],
     }))
     scopes = dict(grant.fields_by_doctype)
@@ -294,3 +299,51 @@ def run_bounded_metadata_session(
             "studied_doctypes": studied, "next_question": None,
         }))
     return result
+
+
+def purge_expired_metadata_state(
+    grant: MetadataGrant, *, state_directory: Path, now: datetime,
+) -> int:
+    """Delete only this grant's private evidence after its approved retention."""
+    if (not isinstance(grant, MetadataGrant) or not isinstance(now, datetime)
+            or now.utcoffset() is None
+            or now < grant.expires_at + timedelta(days=grant.retention_days)):
+        raise MetadataSessionDenied("metadata retention period remains active")
+    if not state_directory.is_absolute() or state_directory.is_symlink():
+        raise MetadataSessionDenied("private metadata state required")
+    info = state_directory.stat()
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid()
+            or stat.S_IMODE(info.st_mode) != 0o700):
+        raise MetadataSessionDenied("private metadata state custody denied")
+    files = tuple(state_directory.iterdir())
+    for path in files:
+        info = path.lstat()
+        name = path.name
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or name not in {"scope.json", "report.json", "study.json"}
+                and re.fullmatch(r"(?:attempt|evidence)-[0-9]{2}\.json", name) is None
+                or not name.endswith(".json")):
+            raise MetadataSessionDenied("unreviewed metadata state file denied")
+    scope_path = state_directory / "scope.json"
+    if not scope_path.is_file():
+        raise MetadataSessionDenied("metadata scope record missing")
+    scope = json.loads(scope_path.read_bytes())
+    if (scope.get("authorization_id") != grant.authorization_id
+            or scope.get("tenant_id") != grant.tenant_id
+            or scope.get("external_customer_reference") != grant.external_customer_reference
+            or scope.get("company") != grant.company
+            or scope.get("origin") != grant.origin
+            or scope.get("starts_at") != grant.starts_at.isoformat()
+            or scope.get("expires_at") != grant.expires_at.isoformat()
+            or scope.get("max_attempts") != grant.max_attempts
+            or scope.get("max_evidence_bytes") != grant.max_evidence_bytes
+            or scope.get("scopes") != [[name, list(fields)] for name, fields in grant.fields_by_doctype]
+            or scope.get("retention_until") != (
+                grant.expires_at + timedelta(days=grant.retention_days)
+            ).isoformat()):
+        raise MetadataSessionDenied("metadata retention scope mismatch")
+    for path in files:
+        path.unlink()
+    state_directory.rmdir()
+    return len(files)
