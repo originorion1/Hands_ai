@@ -2,6 +2,7 @@
 
 from email.message import Message
 from urllib.parse import parse_qs
+from urllib.request import ProxyHandler
 
 import pytest
 
@@ -84,3 +85,15 @@ def test_token_exchange_denies_redirect_duplicate_and_unreviewed_endpoint():
         )
         with pytest.raises(OIDCTokenExchangeDenied):
             client("one-use-code", "v" * 43, CALLBACK)
+
+
+def test_token_exchange_ignores_ambient_proxy_configuration(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "http://untrusted.synthetic.invalid:8080")
+    monkeypatch.setenv("ALL_PROXY", "http://untrusted.synthetic.invalid:8080")
+    client = ReviewedOIDCTokenExchange(
+        issuer=ISSUER, token_endpoint=TOKEN, client_id="orion-customer",
+        redirect_uri=CALLBACK,
+    )
+    opener = client._opener.__self__
+    proxies = [handler for handler in opener.handlers if isinstance(handler, ProxyHandler)]
+    assert not proxies or all(handler.proxies == {} for handler in proxies)

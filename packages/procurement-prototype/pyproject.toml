@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "originorion-procurement-prototype"
-version = "0.1.0rc2"
+version = "0.1.0rc3"
 description = "Evidence-linked synthetic procurement investigation and review for ORION"
 requires-python = ">=3.12"
-dependencies = ["originorion-customer-runtime==0.1.0rc5"]
+dependencies = ["originorion-customer-runtime==0.1.0rc6"]
 
 [tool.hatch.build.targets.wheel]
 only-include = []

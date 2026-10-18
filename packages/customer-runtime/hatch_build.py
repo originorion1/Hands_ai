@@ -13,7 +13,7 @@ class CustomBuildHook(BuildHookInterface):
         customer = source_root / "deployment/customer"
         expected = {
             "__init__.py", "backup.py", "bounded_metadata.py", "catalog.py",
-            "enrollment.py", "journey.py", "login.py", "metadata_approval.py",
+            "enrollment.py", "hosted.py", "journey.py", "login.py", "metadata_approval.py",
             "metadata_connection.py", "metadata_transport.py", "metadata_study_report.py",
             "oidc.py", "oidc_client.py", "portal.py",
             "portal_http.py", "service.py", "tenants.py",
