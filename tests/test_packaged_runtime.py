@@ -227,6 +227,29 @@ def test_vendor_wheel_does_not_own_generic_report_host(clean_artifact):
     assert "orion_http/report_server.py" not in names
 
 
+def test_procurement_rule_has_one_distribution_owner(clean_artifact):
+    root, core_wheel, _ = clean_artifact
+    subprocess.run(
+        [
+            os.environ.get("ORION_BUILD_PYTHON", sys.executable),
+            "-m", "pip", "wheel", "--no-deps", "--no-build-isolation", "--no-index",
+            "--wheel-dir", str(root / "wheels"),
+            str(ROOT / "packages/procurement-prototype"),
+        ],
+        check=True, capture_output=True, text=True, timeout=60,
+    )
+    (prototype_wheel,) = (root / "wheels").glob(
+        "originorion_procurement_prototype-*.whl"
+    )
+    rule = "orion/business/procurement.py"
+    with zipfile.ZipFile(core_wheel) as core, zipfile.ZipFile(prototype_wheel) as prototype:
+        assert rule not in core.namelist()
+        assert rule in prototype.namelist()
+        assert hashlib.sha256(prototype.read(rule)).hexdigest() == hashlib.sha256(
+            (ROOT / "src" / rule).read_bytes()
+        ).hexdigest()
+
+
 def test_installed_identity_rejects_source_tree_substitution(clean_artifact):
     root, _, python = clean_artifact
     substituted = subprocess.run(
