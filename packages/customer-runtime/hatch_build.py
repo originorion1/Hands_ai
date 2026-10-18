@@ -12,8 +12,8 @@ class CustomBuildHook(BuildHookInterface):
         source_root = root / "src" if (root / "src/deployment/customer").is_dir() else root.parent.parent
         customer = source_root / "deployment/customer"
         expected = {
-            "__init__.py", "backup.py", "bounded_metadata.py", "catalog.py",
-            "enrollment.py", "hosted.py", "journey.py", "login.py", "metadata_approval.py",
+            "__init__.py", "auth0_provider.py", "backup.py", "bounded_metadata.py", "catalog.py",
+            "enrollment.py", "google_secret_vault.py", "hosted.py", "journey.py", "login.py", "metadata_approval.py",
             "metadata_connection.py", "metadata_transport.py", "metadata_study_report.py",
             "oidc.py", "oidc_client.py", "portal.py",
             "portal_http.py", "service.py", "tenants.py",

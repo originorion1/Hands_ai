@@ -1,5 +1,9 @@
 # Hosted customer portal adapter
 
+The approved offline Auth0 and Google Secret Manager provider preparation is
+specified in `HOSTED_PROVIDER_PREVIEW.md`; no external provider is provisioned
+by the source tree.
+
 `create_hosted_customer_portal` composes the existing OIDC verifier, one-use
 code/PKCE exchange, five-minute server session, tenant registry, report service,
 connector enrollment and HTTPS WSGI portal. The returned callable is mounted by
