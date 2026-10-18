@@ -2,6 +2,9 @@
 
 import hashlib
 import json
+import subprocess
+import sys
+import tarfile
 from pathlib import Path
 
 import pytest
@@ -96,3 +99,19 @@ def test_post_seal_comparison_requires_same_cases(tmp_path):
     path.write_text(json.dumps(predictions))
     with pytest.raises(ValueError, match="paired cases differ"):
         compare(path, ROOT / "development_labels.json", "existing")
+
+
+def test_holdout_labels_are_absent_from_core_source_distribution(tmp_path):
+    builder = Path(sys.executable).with_name("hatchling")
+    if not builder.is_file():
+        pytest.skip("hatchling is required for package-boundary qualification")
+    subprocess.run(
+        [str(builder), "build", "-t", "sdist", "-d", str(tmp_path)],
+        cwd=ROOT.parents[1], check=True, capture_output=True, text=True,
+    )
+    archives = list(tmp_path.glob("originorion_core-*.tar.gz"))
+    assert len(archives) == 1
+    with tarfile.open(archives[0], "r:gz") as archive:
+        names = archive.getnames()
+    assert any(name.endswith("/src/orion/learning/epistemic_selection.py") for name in names)
+    assert not any("/evaluation/native_intelligence_v1/" in name for name in names)

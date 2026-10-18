@@ -6,6 +6,8 @@ This draft stacks on PR #281 (`fb4faab905554476a8bce253eb1cc6dc0e5882fb`), which
 
 New production code is limited to a domain-neutral, proposal-only finite information-gain scorer. The evaluator-only lab and all reports are under `evaluation/native_intelligence_v1`. The existing nine-positive study-selection benchmark and its labels are unchanged. No selector is wired into production grant, connector, report, knowledge promotion, or execution paths. No frontend code changed.
 
+The core sdist now excludes the evaluator-only native lab, including holdout labels. The wheel includes the proposal module but no ERPNext runtime modules; the package-boundary regression builds and inspects an sdist. Exact final artifact hashes follow the corrected commit in the external manifest.
+
 ## Sealed evaluation artifacts
 
 Holdout predictions SHA-256 `79af65905c20fea4fef45af3e28b8c453ddb519abca958e09e78e3984d2d68ee`; transfer predictions SHA-256 `074180cae4261c42119523fd255132994467bd08961992125409a4f4451fe2e7`. Predictions were sealed before label scoring. The corrected evaluator integrity gate recomputes unchanged training calibration; it must reproduce the same predictions apart from host-dependent `compute_ns`. Paired analysis is post-seal only. The designed holdout and transfer case outcomes are not independent customer results.
