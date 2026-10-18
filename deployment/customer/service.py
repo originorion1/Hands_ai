@@ -39,10 +39,12 @@ class CustomerReportBinding:
     authorization_id: str
     is_active: Callable[[str], bool]
     commit_scope: Callable[[str], AbstractContextManager[None]]
+    registry_check: Callable[[object], None] | None = None
 
     def __post_init__(self) -> None:
         if (not self.authorization_id or not callable(self.is_active)
-                or not callable(self.commit_scope) or not callable(self.source.read_view)):
+                or not callable(self.commit_scope) or not callable(self.source.read_view)
+                or (self.registry_check is not None and not callable(self.registry_check))):
             raise ValueError("trusted report and grant binding required")
 
 
@@ -67,8 +69,10 @@ class CustomerPortalService:
         if (not isinstance(binding, CustomerReportBinding)
                 or binding.source.tenant_id != access.tenant_id):
             raise LoginDenied("report tenant binding denied")
-        with (self.login.authorized_report_commit(session_secret, tenant_id=access.tenant_id),
+        with (self.login.authorized_report_commit(session_secret, tenant_id=access.tenant_id) as db,
               binding.commit_scope(binding.authorization_id)):
+            if binding.registry_check is not None:
+                binding.registry_check(db)
             if binding.is_active(binding.authorization_id) is not True:
                 raise LoginDenied("report grant revoked")
             view = binding.source.read_view()

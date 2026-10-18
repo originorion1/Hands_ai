@@ -42,6 +42,11 @@ evaluation, so this customer candidate does not include that policy.
   immutable, custody-checked structural report derived from the same acquired
   metadata files; one permitted link becomes a review-only next question, with
   abstention if no link is observed. Evidence mutation invalidates the view.
+- `metadata_connection.py` and the signed approval ledger keep acquisition
+  one-use while allowing only a completed, unrevoked report read before grant
+  expiry. Report commit rechecks connector enrollment and ledger status under
+  locks; the qualified confined launch persists the study before consuming
+  the acquisition grant.
 - `packages/customer-runtime` and `packages/procurement-prototype`:
   packaging and dependency versions move together; no package publication.
 - New focused synthetic TLS, retention and boundary regressions; exact-head

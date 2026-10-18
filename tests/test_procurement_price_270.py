@@ -20,11 +20,8 @@ from deployment.customer.login import LoginDenied
 from deployment.customer.metadata_approval import ApprovedMetadataGrantLedger, approval_packet
 from deployment.customer.metadata_connection import (
     EnrolledMetadataConnection,
+    run_confined_metadata_session,
     run_enrolled_metadata_session,
-)
-from deployment.customer.metadata_study_report import (
-    MetadataStudyReportSource,
-    persist_metadata_study,
 )
 from deployment.customer.portal import AuthorizationProposal
 from deployment.customer.portal_http import CustomerPortalHTTP
@@ -267,7 +264,7 @@ def test_customer_portal_reads_exact_persisted_finding_and_denies_revocation(tmp
                for name, value in headers)
 
 
-def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path):
+def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path, monkeypatch):
     """One synthetic tenant and session traverse both governed acquisition stages."""
     now = datetime.now(UTC)
     tenant = "synthetic-procurement-tenant"
@@ -379,29 +376,23 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
 
     metadata_dir = tmp_path / "metadata"
     metadata_dir.mkdir(mode=0o700)
-    structural = run_enrolled_metadata_session(
-        enrolled, transport=transport,
+    monkeypatch.setattr(
+        "deployment.customer.metadata_connection.ReviewedMetadataTransport",
+        lambda origin, ca_bundle: transport if origin == metadata_grant.origin
+        and ca_bundle is None else None,
+    )
+    structural, study_source = run_confined_metadata_session(
+        enrolled,
         state_directory=metadata_dir / "session",
         clock=lambda: now, monotonic=lambda: 0.0,
     )
     assert structural.studied_doctypes == ("Purchase Order", "Purchase Invoice")
     assert studied == list(structural.studied_doctypes)
-    study_path, study_digest = persist_metadata_study(
-        grant=metadata_grant, state_directory=metadata_dir / "session",
-    )
-    assert study_path.is_file()
-    study_source = MetadataStudyReportSource(
-        metadata_grant, metadata_dir / "session", study_digest,
-    )
-    study_active = {"value": True}
-
-    @contextmanager
-    def study_commit(_authorization_id):
-        yield
-
     study_binding = CustomerReportBinding(
         study_source, metadata_grant.authorization_id,
-        lambda _identity: study_active["value"], study_commit,
+        lambda identity: enrolled.report_active(identity, now=now),
+        lambda identity: enrolled.report_commit_scope(identity, now=now),
+        enrolled.require_current_for_report,
     )
     study_portal = CustomerPortalService(
         login, login._registry,
@@ -427,9 +418,6 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
         "HTTP_COOKIE": f"__Host-orion_session={secret}",
     }, study_start))
     assert study_response["status"] == "200 OK" and json.loads(study_body) == study_view
-    study_active["value"] = False
-    with pytest.raises(LoginDenied, match="revoked"):
-        study_portal.report(secret)
     assert ledger.lookup(metadata_grant.authorization_id) is None
     with pytest.raises(MetadataSessionDenied, match="already used"):
         run_enrolled_metadata_session(
@@ -527,8 +515,12 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
     with pytest.raises(MetadataSessionDenied, match="scope changed"):
         interrupted_vault.environment()
     assert enrolled.lookup(metadata_grant.authorization_id) is None
+    with pytest.raises(MetadataSessionDenied, match="scope changed"):
+        study_portal.report(secret)
     ledger.revoke()
     assert ledger.lookup(metadata_grant.authorization_id) is None
+    with pytest.raises(MetadataSessionDenied, match="report authorization revoked"):
+        study_portal.report(secret)
     with grant_lock:
         active["value"] = False
     with pytest.raises(LoginDenied, match="revoked"):

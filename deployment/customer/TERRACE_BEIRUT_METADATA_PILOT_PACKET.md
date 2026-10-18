@@ -59,7 +59,10 @@ is preserved separately from the canonical slug.
    approved grant. The runtime consumes the grant before resolving the vault
    reference. It reserves each attempt before transport, checks revocation
    before and after reads, and persists only projected metadata under a
-   private directory. No ERP writes or production execution are available.
+   private directory. It persists the structural study under the active grant
+   lock before marking acquisition consumed. Report reads require the same
+   enrolled connector, completed ledger status, current session membership and
+   unexpired, unrevoked grant. No ERP writes or production execution are available.
 5. Emergency stop: revoke the approval ledger, disable the vault reference,
    block destination egress, and stop the process. Retain partial state for
    custody review until its approved deletion deadline; a restart cannot reuse

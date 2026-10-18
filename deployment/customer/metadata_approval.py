@@ -14,6 +14,7 @@ import sqlite3
 import stat
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 from cryptography.exceptions import InvalidSignature
@@ -168,6 +169,26 @@ class ApprovedMetadataGrantLedger:
             return self.grant if self._claimed and self._status(db) == (
                 self.digest, "claimed",
             ) else None
+
+    def report_active(self, authorization_id: str, *, now: datetime) -> bool:
+        """A completed run may be read until expiry, unless revoked."""
+        if (authorization_id != self.grant.authorization_id
+                or not isinstance(now, datetime) or now.utcoffset() is None
+                or now < self.grant.starts_at or now >= self.grant.expires_at):
+            return False
+        with self._connect() as db:
+            return self._status(db) == (self.digest, "consumed")
+
+    @contextmanager
+    def report_commit_scope(self, authorization_id: str, *, now: datetime) -> Iterator[None]:
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if (authorization_id != self.grant.authorization_id
+                    or not isinstance(now, datetime) or now.utcoffset() is None
+                    or now < self.grant.starts_at or now >= self.grant.expires_at
+                    or self._status(db) != (self.digest, "consumed")):
+                raise MetadataSessionDenied("metadata report authorization revoked")
+            yield
 
     @contextmanager
     def commit_scope(self, authorization_id: str) -> Iterator[None]:

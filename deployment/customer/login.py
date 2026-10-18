@@ -213,7 +213,7 @@ class CustomerLogin:
                 self._registry._require_member(db, identity, tenant_id)
             except TenantDenied as exc:
                 raise LoginDenied("authenticated membership denied") from exc
-            yield
+            yield db
             if row[4] <= time.time():
                 raise LoginDenied("authenticated session expired during commit")
 

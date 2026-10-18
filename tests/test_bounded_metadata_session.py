@@ -168,7 +168,15 @@ def test_signed_proposal_binding_and_durable_metadata_revocation(tmp_path, revok
         )
         assert result.status == "complete" and calls == ["Doc 00", "Doc 01"]
         ledger.finish(complete=True)
+        assert ledger.report_active(value.authorization_id, now=START)
+        with ledger.report_commit_scope(value.authorization_id, now=START):
+            pass
+        assert not ledger.report_active(value.authorization_id, now=value.expires_at)
+        with (pytest.raises(MetadataSessionDenied, match="report authorization revoked"),
+              ledger.report_commit_scope(value.authorization_id, now=value.expires_at)):
+            pass
     ledger.revoke()
+    assert not ledger.report_active(value.authorization_id, now=START)
     reopened = ApprovedMetadataGrantLedger(
         ledger_path, grant=value, proposal=proposal, packet=packet,
         signature=signature, approval_key=signer.public_key(), existing=True,

@@ -23,6 +23,7 @@ from .bounded_metadata import (
     run_bounded_metadata_session,
 )
 from .metadata_approval import ApprovedMetadataGrantLedger
+from .metadata_study_report import MetadataStudyReportSource, persist_metadata_study
 from .metadata_transport import ReviewedMetadataTransport
 from .tenants import TenantRegistry
 
@@ -114,6 +115,18 @@ class EnrolledMetadataConnection:
                 finally:
                     self._scope_db.reset(token)
 
+    def report_active(self, authorization_id: str, *, now: datetime) -> bool:
+        return self.ledger.report_active(authorization_id, now=now)
+
+    @contextmanager
+    def report_commit_scope(self, authorization_id: str, *, now: datetime) -> Iterator[None]:
+        with self.ledger.report_commit_scope(authorization_id, now=now):
+            yield
+
+    def require_current_for_report(self, registry_db: object) -> None:
+        """Called inside CustomerLogin's registry transaction, without reopening it."""
+        self._require_current(registry_db)
+
 
 def run_enrolled_metadata_session(
     connection: EnrolledMetadataConnection, *, transport: Callable[..., object],
@@ -121,6 +134,47 @@ def run_enrolled_metadata_session(
     monotonic: Callable[[], float] = time.monotonic,
 ) -> MetadataSessionResult:
     """One-use qualified launch; interruption consumes the signed approval."""
+    result, _ = _run_enrolled(
+        connection, transport=transport, state_directory=state_directory,
+        clock=clock, monotonic=monotonic, persist_study=False,
+    )
+    return result
+
+
+def run_confined_metadata_session(
+    connection: EnrolledMetadataConnection, *, state_directory: Path,
+    clock: Callable[[], datetime], ca_bundle: Path | None = None,
+    monotonic: Callable[[], float] = time.monotonic,
+) -> tuple[MetadataSessionResult, MetadataStudyReportSource]:
+    """Qualified one-use launch and same-grant persisted structural report."""
+    if not isinstance(connection, EnrolledMetadataConnection):
+        raise MetadataSessionDenied("enrolled metadata connection required")
+    transport = ReviewedMetadataTransport(connection.ledger.grant.origin, ca_bundle)
+    return run_enrolled_metadata_study(
+        connection, transport=transport, state_directory=state_directory,
+        clock=clock, monotonic=monotonic,
+    )
+
+
+def run_enrolled_metadata_study(
+    connection: EnrolledMetadataConnection, *, transport: Callable[..., object],
+    state_directory: Path, clock: Callable[[], datetime],
+    monotonic: Callable[[], float] = time.monotonic,
+) -> tuple[MetadataSessionResult, MetadataStudyReportSource]:
+    """Synthetic transport seam; persist under the still-active grant lock."""
+    result, source = _run_enrolled(
+        connection, transport=transport, state_directory=state_directory,
+        clock=clock, monotonic=monotonic, persist_study=True,
+    )
+    assert source is not None
+    return result, source
+
+
+def _run_enrolled(
+    connection: EnrolledMetadataConnection, *, transport: Callable[..., object],
+    state_directory: Path, clock: Callable[[], datetime], monotonic: Callable[[], float],
+    persist_study: bool,
+) -> tuple[MetadataSessionResult, MetadataStudyReportSource | None]:
     if not isinstance(connection, EnrolledMetadataConnection):
         raise MetadataSessionDenied("enrolled metadata connection required")
     connection.ledger.claim()
@@ -132,22 +186,16 @@ def run_enrolled_metadata_session(
             commit_scope=connection.commit_scope, state_directory=state_directory,
             clock=clock, monotonic=monotonic,
         )
+        source = None
+        if persist_study:
+            with connection.commit_scope(connection.ledger.grant.authorization_id):
+                if connection.lookup(connection.ledger.grant.authorization_id) is None:
+                    raise MetadataSessionDenied("metadata authorization revoked")
+                _, digest = persist_metadata_study(
+                    grant=connection.ledger.grant, state_directory=state_directory,
+                )
+            source = MetadataStudyReportSource(connection.ledger.grant, state_directory, digest)
         complete = True
-        return result
+        return result, source
     finally:
         connection.ledger.finish(complete=complete)
-
-
-def run_confined_metadata_session(
-    connection: EnrolledMetadataConnection, *, state_directory: Path,
-    clock: Callable[[], datetime], ca_bundle: Path | None = None,
-    monotonic: Callable[[], float] = time.monotonic,
-) -> MetadataSessionResult:
-    """Qualified network launch with direct TLS, no proxy and no redirects."""
-    if not isinstance(connection, EnrolledMetadataConnection):
-        raise MetadataSessionDenied("enrolled metadata connection required")
-    transport = ReviewedMetadataTransport(connection.ledger.grant.origin, ca_bundle)
-    return run_enrolled_metadata_session(
-        connection, transport=transport, state_directory=state_directory,
-        clock=clock, monotonic=monotonic,
-    )
