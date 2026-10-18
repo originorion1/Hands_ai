@@ -52,9 +52,13 @@ class CustomerPortalService:
     registry: TenantRegistry
     report_lookup: Callable[[str], CustomerReportBinding | None] | None = None
 
-    def report(self, session_secret: str) -> dict[str, object] | None:
+    def report(
+        self, session_secret: str, *, expected_tenant: str | None = None,
+    ) -> dict[str, object] | None:
         """Read the persisted report under both session and grant revocation locks."""
         access = self.login.authorize(session_secret)
+        if expected_tenant is not None and access.tenant_id != expected_tenant:
+            raise LoginDenied("session scope changed during report read")
         if self.report_lookup is None:
             return None
         binding = self.report_lookup(access.tenant_id)
@@ -70,12 +74,19 @@ class CustomerPortalService:
             view = binding.source.read_view()
             lineage = view.get("lineage") if isinstance(view, Mapping) else None
             authority = view.get("authority") if isinstance(view, Mapping) else None
+            procurement = view.get("procurement") if isinstance(view, Mapping) else None
             if (not isinstance(lineage, Mapping) or not isinstance(authority, Mapping)
                     or lineage.get("authorization_id") != binding.authorization_id
                     or authority.get("execution_allowed") is not False
                     or authority.get("erp_writes") != 0
                     or binding.is_active(binding.authorization_id) is not True):
                 raise LoginDenied("report authority or lineage denied")
+            if procurement is not None and (
+                not isinstance(procurement, Mapping)
+                or procurement.get("tenant_id") != access.tenant_id
+                or procurement.get("run_id") != lineage.get("run_id")
+            ):
+                raise LoginDenied("report tenant or run lineage denied")
             return view
 
     def overview(self, session_secret: str) -> dict[str, object]:
@@ -99,7 +110,7 @@ class CustomerPortalService:
                 "ON p.tenant_id=c.tenant_id AND p.label=c.label "
                 "WHERE c.tenant_id=? ORDER BY c.label", (access.tenant_id,),
             ).fetchall()
-        report = self.report(session_secret)
+        report = self.report(session_secret, expected_tenant=access.tenant_id)
         lineage = report.get("lineage", {}) if report is not None else {}
         finding = report.get("procurement") if report is not None else None
         return {

@@ -1,0 +1,53 @@
+{
+  "labels": {
+    "I01": {
+      "label_origin": "designed_synthetic",
+      "positive_target": "Count Entry"
+    },
+    "I02": {
+      "label_origin": "designed_synthetic",
+      "positive_target": "Pick Event"
+    },
+    "I03": {
+      "label_origin": "designed_synthetic",
+      "positive_target": "Warehouse Bin"
+    },
+    "I04": {
+      "label_origin": "designed_synthetic",
+      "positive_target": null
+    },
+    "M01": {
+      "label_origin": "designed_synthetic",
+      "positive_target": "Repair Ticket"
+    },
+    "M02": {
+      "label_origin": "designed_synthetic",
+      "positive_target": "Breakdown Event"
+    },
+    "M03": {
+      "label_origin": "designed_synthetic",
+      "positive_target": "Parts Use"
+    },
+    "M04": {
+      "label_origin": "designed_synthetic",
+      "positive_target": null
+    },
+    "P01": {
+      "label_origin": "designed_synthetic",
+      "positive_target": "Supplier Bill"
+    },
+    "P02": {
+      "label_origin": "designed_synthetic",
+      "positive_target": "Purchase Bill"
+    },
+    "P03": {
+      "label_origin": "designed_synthetic",
+      "positive_target": "Freight Charge"
+    },
+    "P04": {
+      "label_origin": "designed_synthetic",
+      "positive_target": null
+    }
+  },
+  "schema": "orion.study-selection-labels.v1"
+}
