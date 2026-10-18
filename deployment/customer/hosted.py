@@ -12,6 +12,8 @@ from collections.abc import Callable, Mapping
 
 from orion_connector_sdk import ReviewedConnector
 
+from .auth0_provider import ReviewedAuth0Provider
+from .google_secret_vault import GoogleSecretManagerVault
 from .login import CustomerLogin
 from .oidc import OIDCVerifier
 from .oidc_client import OIDCTokenExchangeDenied, ReviewedOIDCTokenExchange
@@ -104,4 +106,37 @@ def create_hosted_customer_portal(
         approved_erp_origin=approved_erp_origin,
         vault_store=store_connector,
         vault_revoke=revoke_connector,
+    )
+
+
+def create_auth0_google_portal(
+    *, origin: str, registry: TenantRegistry, provider: ReviewedAuth0Provider,
+    oidc_client_id: str, oidc_client_secret_reference: str,
+    vault: GoogleSecretManagerVault,
+    report_lookup: Callable[[str], CustomerReportBinding | None],
+    reviewed_connector: ReviewedConnector, connector_schema_bytes: bytes,
+    connector_schema_sha256: str, approved_erp_origin: str,
+) -> CustomerPortalHTTP:
+    """Wire reviewed Auth0 metadata and private Google vault callbacks only."""
+    if not isinstance(provider, ReviewedAuth0Provider) or not isinstance(
+        vault, GoogleSecretManagerVault
+    ):
+        raise TypeError("reviewed provider adapters required")
+    return create_hosted_customer_portal(
+        origin=origin, registry=registry,
+        oidc_issuer=provider.issuer,
+        oidc_authorization_endpoint=provider.authorization_endpoint,
+        oidc_token_endpoint=provider.token_endpoint,
+        oidc_client_id=oidc_client_id,
+        oidc_redirect_uri=f"{origin}/callback",
+        oidc_public_keys=provider.public_keys,
+        oidc_client_secret_reference=oidc_client_secret_reference,
+        vault_read_client_secret=vault.read_client_secret,
+        vault_store_connector=vault.store_connector,
+        vault_revoke_connector=vault.revoke_connector,
+        report_lookup=report_lookup,
+        reviewed_connector=reviewed_connector,
+        connector_schema_bytes=connector_schema_bytes,
+        connector_schema_sha256=connector_schema_sha256,
+        approved_erp_origin=approved_erp_origin,
     )
