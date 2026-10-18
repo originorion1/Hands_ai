@@ -3,13 +3,28 @@
 from __future__ import annotations
 
 import json
+import threading
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from deployment.customer.bounded_metadata import MetadataGrant, MetadataSessionDenied
+from deployment.customer.enrollment import enroll_erpnext
+from deployment.customer.journey import run_customer_synthetic_lineage
+from deployment.customer.login import LoginDenied
+from deployment.customer.metadata_approval import ApprovedMetadataGrantLedger, approval_packet
+from deployment.customer.metadata_connection import (
+    EnrolledMetadataConnection,
+    run_enrolled_metadata_session,
+)
+from deployment.customer.portal import AuthorizationProposal
+from deployment.customer.portal_http import CustomerPortalHTTP
+from deployment.customer.service import CustomerPortalService, CustomerReportBinding
 from deployment.intelligence.procurement_report import (
     ProcurementReportSource,
     invalidate_with_successor,
@@ -23,6 +38,7 @@ from evaluation.procurement_price_270.evaluate import evaluate
 from evaluation.procurement_price_270.fixture import CASES, FIELDS, rows
 from orion.business.procurement import ProcurementEvidenceError, investigate_purchases
 from orion.contracts import EvidenceKind
+from orion.discovery.credential_references import CredentialEnvironmentReferences
 from orion.discovery.pilot_read import PilotAuthorization, PilotRequest
 from orion.discovery.read_window import ReviewedReadWindow
 from orion.presentation.report_interface import BoundReportSource, ReportInterfaceError
@@ -177,6 +193,298 @@ def test_admitted_source_persists_exact_finding_and_tampering_denies(tmp_path):
     review_path.write_bytes(review_path.read_bytes() + b" ")
     with pytest.raises(ReportInterfaceError):
         source.read_view()
+
+
+def test_customer_portal_reads_exact_persisted_finding_and_denies_revocation(tmp_path):
+    result, _private = _admitted_run(tmp_path)
+    base = BoundReportSource.from_private_binding(result.binding_path)
+    path, digest = persist_procurement_finding(
+        base=base, target_ref="holdout_a-T", company="Synthetic Procurement Co"
+    )
+    source = ProcurementReportSource(base, path, digest)
+    login, secret, _csrf = _synthetic_customer_session(
+        source.tenant_id, tmp_path / "portal-auth", datetime.now(UTC)
+    )
+    active = {"value": True}
+    lock = threading.Lock()
+
+    @contextmanager
+    def commit_scope(_authorization_id):
+        with lock:
+            yield
+
+    binding = CustomerReportBinding(
+        source, "synthetic-procurement-read", lambda _id: active["value"],
+        commit_scope,
+    )
+    service = CustomerPortalService(
+        login, login._registry,
+        report_lookup=lambda tenant: binding if tenant == source.tenant_id else None,
+    )
+    app = CustomerPortalHTTP(
+        login=login, service=service, origin="https://command.synthetic.invalid",
+    )
+
+    def get(path_name, *, cookie=secret):
+        response = {}
+
+        def start(status, headers):
+            response["status"] = status
+            response["headers"] = headers
+
+        body = b"".join(app({
+            "wsgi.url_scheme": "https", "HTTP_HOST": "command.synthetic.invalid",
+            "PATH_INFO": path_name, "REQUEST_METHOD": "GET",
+            "HTTP_COOKIE": f"__Host-orion_session={cookie}",
+        }, start))
+        return response["status"], json.loads(body), response["headers"]
+
+    status, report, _ = get("/customer/api/report")
+    assert status == "200 OK"
+    assert report == source.read_view()
+    assert report["procurement"]["estimated_exposure_usd"] == "60.00"
+    assert report["lineage"]["authorization_id"] == binding.authorization_id
+    status, overview, _ = get("/customer/api/overview")
+    assert status == "200 OK"
+    assert overview["report_available"] is True
+    assert overview["findings"] == [{
+        "run_id": str(result.run_id), "status": "candidate_review",
+    }]
+    assert get("/customer/api/report", cookie="forged")[0] == "401 Unauthorized"
+    original = path.read_bytes()
+    path.write_bytes(original + b" ")
+    assert get("/customer/api/report")[0] == "503 Service Unavailable"
+    path.write_bytes(original)
+    with lock:
+        active["value"] = False
+    status, denied, headers = get("/customer/api/report")
+    assert status == "401 Unauthorized" and denied == {"error": "request denied"}
+    assert any(name == "Set-Cookie" and "Max-Age=0" in value
+               for name, value in headers)
+
+
+def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path):
+    """One synthetic tenant and session traverse both governed acquisition stages."""
+    now = datetime.now(UTC)
+    tenant = "synthetic-procurement-tenant"
+    company = "Synthetic Procurement Co"
+    login, secret, csrf = _synthetic_customer_session(
+        tenant, tmp_path / "identity", now,
+    )
+    scope = (("Purchase Order", ("next",)), ("Purchase Invoice", ("next",)))
+    proposal = AuthorizationProposal(
+        tenant_id=tenant, companies=(company,), fields_by_doctype=scope,
+        sensitive_exclusions=("payroll", "personal records", "attachments"),
+        historical_start=now.date(), historical_end=now.date(),
+        max_requests=25, max_duration_seconds=1800, max_evidence_bytes=65536,
+        retention_days=1, revocation_operator="Synthetic owner",
+    )
+    proposal_service = CustomerPortalService(login, login._registry)
+    proposal_id = proposal_service.submit_authorization(
+        secret, csrf_token=csrf, proposal=proposal,
+    )
+    review_packet = proposal_service.authorization_proposal(secret, proposal_id=proposal_id)
+    reviewed_connector = ReviewedConnector(
+        "erpnext", "originorion-connector-erpnext-discovery", "0.2.0rc4",
+        "orion.discovery.erpnext_adapter:ERPNextDiscoveryAdapter",
+    )
+    schema = json.dumps({
+        "schema_version": "orion.connector-configuration.v1", "connector": "erpnext",
+        "fields": [
+            {"name": name, "label": name.replace("_", " ").title(),
+             "kind": kind, "required": True, "write_only": kind == "secret"}
+            for name, kind in (("endpoint", "https_url"), ("api_key", "secret"),
+                               ("api_secret", "secret"), ("company", "text"))
+        ],
+    }, sort_keys=True).encode()
+    vault = {}
+
+    def store(tenant_id, connector_name, key, secret_value):
+        assert tenant_id == tenant and connector_name == "erpnext"
+        reference = "vault:" + "v" * 28
+        vault[reference] = (key, secret_value)
+        return reference
+
+    connection = enroll_erpnext(
+        login=login, registry=login._registry, session_secret=secret,
+        csrf_token=csrf, reviewed=reviewed_connector, schema_bytes=schema,
+        schema_sha256=sha256(schema).hexdigest(), label="Synthetic ERPNext",
+        endpoint="https://erp.example.com", approved_origin="https://erp.example.com",
+        company=company, api_key="synthetic-key", api_secret="synthetic-secret",
+        vault_store=store, vault_revoke=lambda reference: vault.pop(reference, None),
+    )
+    assert connection.execution_allowed is False
+    metadata_grant = MetadataGrant(
+        authorization_id="synthetic-metadata-read", tenant_id=tenant,
+        external_customer_reference="Synthetic External Company", company=company,
+        origin="https://erp.example.com",
+        credential_references=CredentialEnvironmentReferences(
+            "SYNTHETIC_KEY_REF", "SYNTHETIC_SECRET_REF",
+        ),
+        credential_vault_reference=connection.credential_ref,
+        fields_by_doctype=scope, seed_doctype="Purchase Order",
+        starts_at=now - timedelta(seconds=1), expires_at=now + timedelta(minutes=29),
+        max_attempts=25, max_evidence_bytes=65536,
+    )
+    approved = approval_packet(review_packet, metadata_grant, proposal_id=proposal_id)
+    signer = Ed25519PrivateKey.generate()
+    signature = signer.sign(
+        b"ORION METADATA APPROVAL V1\0" + json.dumps(
+            approved, sort_keys=True, separators=(",", ":"),
+        ).encode()
+    )
+    approval_dir = tmp_path / "approved"
+    approval_dir.mkdir(mode=0o700)
+    ledger = ApprovedMetadataGrantLedger(
+        approval_dir / "ledger.sqlite", grant=metadata_grant, proposal=review_packet,
+        packet=approved, signature=signature, approval_key=signer.public_key(),
+    )
+    enrolled = EnrolledMetadataConnection(
+        login._registry, ledger, "Synthetic ERPNext",
+        vault_read=lambda reference: vault[reference],
+    )
+    studied = []
+
+    class Response:
+        def __init__(self, url, payload):
+            self.url = url
+            self.payload = json.dumps(payload).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return self.url
+
+        def read(self, size):
+            return self.payload[:size]
+
+    def transport(request, *, timeout):
+        assert timeout == 20 and request.get_method() == "GET"
+        current = "Purchase Order" if not studied else "Purchase Invoice"
+        studied.append(current)
+        target = "Purchase Invoice" if current == "Purchase Order" else "Outside Scope"
+        return Response(request.full_url, {"message": {"docs": [{
+            "name": current, "fields": [{
+                "fieldname": "next", "fieldtype": "Link", "options": target,
+            }],
+        }]}})
+
+    metadata_dir = tmp_path / "metadata"
+    metadata_dir.mkdir(mode=0o700)
+    structural = run_enrolled_metadata_session(
+        enrolled, transport=transport,
+        state_directory=metadata_dir / "session",
+        clock=lambda: now, monotonic=lambda: 0.0,
+    )
+    assert structural.studied_doctypes == ("Purchase Order", "Purchase Invoice")
+    assert studied == list(structural.studied_doctypes)
+    assert ledger.lookup(metadata_grant.authorization_id) is None
+    with pytest.raises(MetadataSessionDenied, match="already used"):
+        run_enrolled_metadata_session(
+            enrolled, transport=transport, state_directory=metadata_dir / "replay",
+            clock=lambda: now, monotonic=lambda: 0.0,
+        )
+
+    records = rows("holdout_a")
+    connector = SyntheticRecordConnector(
+        tenant_id=tenant, source_id="synthetic-procurement-source",
+        dataset_id="synthetic-procurement-holdout-a", records=records,
+    )
+    window = ReviewedReadWindow(
+        tenant_id=tenant, company=company, resource="Synthetic Purchase",
+        fields=FIELDS, date_field="posting_date",
+        start=datetime(2026, 1, 1).date(), end=datetime(2026, 3, 1).date(),
+        expires_at=now + timedelta(minutes=10),
+    )
+    purchase_grant = PilotAuthorization(
+        authorization_id="synthetic-procurement-read", source_id=connector.source_id,
+        window=window, identity_field="name", company_field="company",
+        provenance_source="synthetic-record-v1", evidence_kind=EvidenceKind.SOURCE,
+        max_records=len(records),
+    )
+    request = PilotRequest(
+        tenant_id=tenant, company=company, source_id=connector.source_id,
+        resource="Synthetic Purchase", fields=FIELDS, date_field="posting_date",
+        start=window.start, end=window.end, max_records=len(records),
+    )
+    registration = discover(ReviewedConnector(
+        "synthetic-records", "originorion-connector-synthetic", "0.2.0rc2",
+        "orion_connector_synthetic:SyntheticRecordConnector",
+    ))
+    purchase_dir = tmp_path / "purchase"
+    purchase_dir.mkdir(mode=0o700)
+    admitted = run_customer_synthetic_lineage(
+        login=login, session_secret=secret, registration=registration,
+        connector=connector, request=request,
+        authorization_id=purchase_grant.authorization_id,
+        lookup=lambda identity: purchase_grant if identity == purchase_grant.authorization_id else None,
+        run_id=uuid4(), private_dir=purchase_dir, now=now,
+    )
+    base = BoundReportSource.from_private_binding(admitted.binding_path)
+    finding_path, finding_digest = persist_procurement_finding(
+        base=base, target_ref="holdout_a-T", company=company,
+    )
+    source = ProcurementReportSource(base, finding_path, finding_digest)
+    grant_lock = threading.Lock()
+    active = {"value": True}
+
+    @contextmanager
+    def report_commit(_authorization_id):
+        with grant_lock:
+            yield
+
+    binding = CustomerReportBinding(
+        source, purchase_grant.authorization_id,
+        lambda _identity: active["value"], report_commit,
+    )
+    portal = CustomerPortalService(
+        login, login._registry, report_lookup=lambda chosen: binding if chosen == tenant else None,
+    )
+    report = portal.report(secret)
+    assert report == source.read_view()
+    assert report["lineage"]["run_id"] == str(admitted.run_id)
+    assert report["lineage"]["source_sha256"] == admitted.source_sha256
+    assert report["procurement"]["estimated_exposure_usd"] == "60.00"
+    assert report["procurement"]["independently_verified_savings_usd"] is None
+    assert portal.overview(secret)["report_available"] is True
+    app = CustomerPortalHTTP(
+        login=login, service=portal, origin="https://command.synthetic.invalid",
+    )
+    response = {}
+
+    def start(status, _headers):
+        response["status"] = status
+
+    api_body = b"".join(app({
+        "wsgi.url_scheme": "https", "HTTP_HOST": "command.synthetic.invalid",
+        "PATH_INFO": "/customer/api/report", "REQUEST_METHOD": "GET",
+        "HTTP_COOKIE": f"__Host-orion_session={secret}",
+    }, start))
+    assert response["status"] == "200 OK" and json.loads(api_body) == report
+    def revoke_during_vault(reference):
+        login._registry.revoke_credential_reference(
+            login._verified_session_identity(secret), tenant_id=tenant,
+            label="Synthetic ERPNext",
+        )
+        return vault[reference]
+
+    interrupted_vault = EnrolledMetadataConnection(
+        login._registry, ledger, "Synthetic ERPNext",
+        vault_read=revoke_during_vault,
+    )
+    with pytest.raises(MetadataSessionDenied, match="scope changed"):
+        interrupted_vault.environment()
+    assert enrolled.lookup(metadata_grant.authorization_id) is None
+    ledger.revoke()
+    assert ledger.lookup(metadata_grant.authorization_id) is None
+    with grant_lock:
+        active["value"] = False
+    with pytest.raises(LoginDenied, match="revoked"):
+        portal.report(secret)
 
 
 def test_authorized_correction_invalidates_persisted_candidate(tmp_path):

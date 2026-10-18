@@ -19,12 +19,16 @@ originorion-connector-sdk = { path = "packages/connector-sdk" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orion", "src/orion_http"]
-exclude = ["src/orion/discovery/erpnext_pilot_metadata.py"]
+exclude = [
+    "src/orion/discovery/erpnext_pilot_metadata.py",
+    "src/orion/business/procurement.py",
+]
 
 [tool.hatch.build.targets.sdist]
 exclude = [
     "packages/**",
     "src/orion/discovery/erpnext_pilot_metadata.py",
+    "src/orion/business/procurement.py",
     "orion/adapters/systems/erpnext/**",
     "orion/hands/erpnext/**",
 ]

@@ -19,6 +19,8 @@ function clear() {
   byId('studies').textContent = 'No study proposal is available from an approved source.';
   byId('evidence').textContent = 'No evidence coverage is available.';
   byId('findings').textContent = 'No finding is available.';
+  byId('reportPanel').hidden = true;
+  byId('reportDetails').replaceChildren();
   byId('apiKey').value = '';
   byId('apiSecret').value = '';
 }
@@ -51,6 +53,14 @@ async function request(path, body) {
 }
 async function refresh() {
   const data = await request('/customer/api/overview');
+  const report = data.report_available ? await request('/customer/api/report') : null;
+  if (report && (!report.lineage?.run_id ||
+      (report.procurement && (report.procurement.tenant_id !== data.tenant_id ||
+       report.procurement.run_id !== report.lineage.run_id)) ||
+      report.authority?.execution_allowed !== false || report.authority?.erp_writes !== 0)) {
+    clear();
+    throw new Error('Report lineage or authorization mismatch. Sign in again.');
+  }
   overview = data;
   byId('loginPanel').hidden = true;
   byId('workspace').hidden = false;
@@ -64,14 +74,48 @@ async function refresh() {
     byId('connections').append(item);
   }
   if (!data.connections.length) byId('connections').append(document.createTextNode('No connector enrolled.'));
-  byId('authorization').textContent = `Authorization: ${data.authorization_status}. No ERP reads are enabled by this portal.`;
+  byId('authorization').textContent = `Authorization: ${data.authorization_status}. This workspace performs no ERP writes.`;
   byId('studies').textContent = data.autonomous_study_proposals.length
     ? data.autonomous_study_proposals.join('; ') : 'No approved study proposal is available.';
   byId('evidence').textContent = data.evidence_coverage === null
     ? 'No approved evidence coverage is available.' : String(data.evidence_coverage);
   byId('findings').textContent = data.findings.length
     ? `${data.findings.length} evidence-linked finding(s) available.` : 'No finding is available.';
-  status('Authenticated. Scope is read-only and currently has no approved acquisition grant.');
+  if (report?.procurement) {
+    const finding = report.procurement;
+    const details = [
+      ['OBSERVED FACT', `${finding.item} · ${finding.target_ref} · ${finding.company}`],
+      ['Supporting transactions', finding.comparison_refs.join(', ')],
+      ['Normalized price', `$${finding.target_unit_usd} per ${finding.normalized_unit}; reference $${finding.reference_unit_usd}`],
+      ['INFERRED FINDING', `${finding.status} · ${finding.confidence}`],
+      ['ESTIMATED FINANCIAL EXPOSURE', `$${finding.estimated_exposure_usd}`],
+      ['Alternative explanations', finding.alternative_explanations.join('; ')],
+      ['Missing evidence', finding.missing_evidence.join('; ') || 'None recorded'],
+      ['Reviewer decision', finding.reviewer_decision],
+      ['INDEPENDENTLY VERIFIED SAVINGS', finding.independently_verified_savings_usd ?? 'None verified'],
+      ['Source provenance', `${finding.source_system} · ${finding.connector_identity} · ${finding.source_id}`],
+      ['Investigation and custody', `${report.lineage.run_id} · source ${finding.source_data_sha256} · finding ${finding.finding_sha256}`],
+      ['Evidence references', finding.evidence_ids.join(', ')],
+      ['Authorization', `${finding.authorization_id} · read-only · ${finding.authorization_status}`]
+    ];
+    const container = byId('reportDetails');
+    container.replaceChildren();
+    for (const [label, value] of details) {
+      const line = document.createElement('p');
+      const strong = document.createElement('strong');
+      strong.textContent = `${label}: `;
+      line.append(strong, document.createTextNode(value));
+      container.append(line);
+    }
+    byId('reportPanel').hidden = false;
+  } else if (report) {
+    const line = document.createElement('p');
+    line.textContent = `${report.report_kind} · run ${report.lineage.run_id} · read-only · ${report.lineage.evidence_ids?.length ?? 0} evidence references`;
+    byId('reportDetails').replaceChildren(line);
+    byId('reportPanel').hidden = false;
+  }
+  status(report ? 'Authenticated. Evidence-linked read-only report loaded.' :
+    'Authenticated. No approved report or acquisition grant is bound.');
 }
 function bind(id, handler) {
   byId(id).addEventListener('submit', async event => {

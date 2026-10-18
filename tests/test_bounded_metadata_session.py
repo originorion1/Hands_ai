@@ -7,12 +7,18 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from deployment.customer.bounded_metadata import (
     MetadataGrant,
     MetadataSessionDenied,
     run_bounded_metadata_session,
 )
+from deployment.customer.metadata_approval import (
+    ApprovedMetadataGrantLedger,
+    approval_packet,
+)
+from deployment.customer.portal import AuthorizationProposal
 from orion.discovery.credential_references import CredentialEnvironmentReferences
 
 START = datetime(2026, 10, 18, 10, tzinfo=UTC)
@@ -99,6 +105,82 @@ def test_25_attempts_are_allowed_but_request_26_is_denied_before_transport(tmp_p
     assert b"SENSITIVE MUST NOT PERSIST" not in b"".join(
         path.read_bytes() for path in state.iterdir() if path.is_file()
     )
+
+
+@pytest.mark.parametrize("revoke_during", [False, True])
+def test_signed_proposal_binding_and_durable_metadata_revocation(tmp_path, revoke_during):
+    value = grant(2)
+    proposal = AuthorizationProposal(
+        tenant_id=value.tenant_id, companies=(value.company,),
+        fields_by_doctype=value.fields_by_doctype,
+        sensitive_exclusions=("payroll", "personal records", "attachments"),
+        historical_start=START.date(), historical_end=START.date(),
+        max_requests=25, max_duration_seconds=1800,
+        max_evidence_bytes=value.max_evidence_bytes, retention_days=1,
+        revocation_operator="Synthetic reviewer",
+    ).review_packet()
+    packet = approval_packet(proposal, value, proposal_id="reviewed-synthetic-proposal")
+    signer = Ed25519PrivateKey.generate()
+    import json as _json
+
+    signature = signer.sign(
+        b"ORION METADATA APPROVAL V1\0" + _json.dumps(
+            packet, sort_keys=True, separators=(",", ":"), allow_nan=False,
+        ).encode()
+    )
+    directory = tmp_path / "approvals"
+    directory.mkdir(mode=0o700)
+    ledger_path = directory / "ledger.sqlite"
+    ledger = ApprovedMetadataGrantLedger(
+        ledger_path, grant=value, proposal=proposal, packet=packet,
+        signature=signature, approval_key=signer.public_key(),
+    )
+    ledger.claim()
+    calls = []
+    parent = tmp_path / "run"
+    parent.mkdir(mode=0o700)
+    transport = transport_for(
+        tuple(dict(value.fields_by_doctype)), calls,
+        after=ledger.revoke if revoke_during else None,
+    )
+    if revoke_during:
+        with pytest.raises(MetadataSessionDenied, match="revoked"):
+            run_bounded_metadata_session(
+                value, lookup=ledger.lookup, environment=ENV,
+                transport=transport, commit_scope=ledger.commit_scope,
+                state_directory=parent / "session",
+                clock=lambda: START, monotonic=lambda: 0.0,
+            )
+        ledger.finish(complete=False)
+        assert calls == ["Doc 00"]
+        assert not (parent / "session/evidence-01.json").exists()
+    else:
+        result = run_bounded_metadata_session(
+            value, lookup=ledger.lookup, environment=ENV,
+            transport=transport, commit_scope=ledger.commit_scope,
+            state_directory=parent / "session",
+            clock=lambda: START, monotonic=lambda: 0.0,
+        )
+        assert result.status == "complete" and calls == ["Doc 00", "Doc 01"]
+        ledger.finish(complete=True)
+    ledger.revoke()
+    reopened = ApprovedMetadataGrantLedger(
+        ledger_path, grant=value, proposal=proposal, packet=packet,
+        signature=signature, approval_key=signer.public_key(), existing=True,
+    )
+    assert reopened.lookup(value.authorization_id) is None
+    with (pytest.raises(MetadataSessionDenied, match="revoked"),
+          reopened.commit_scope(value.authorization_id)):
+        pass
+    narrow = proposal | {"max_requests": 1}
+    from deployment.customer.portal import authorization_scope_digest
+
+    scope = {key: item for key, item in narrow.items() if key not in {
+        "kind", "status", "execution_authority", "scope_sha256",
+    }}
+    narrow["scope_sha256"] = authorization_scope_digest(scope)
+    with pytest.raises(MetadataSessionDenied, match="exceeds reviewed proposal"):
+        approval_packet(narrow, value, proposal_id="reviewed")
 
 
 def test_exact_25_request_completion_and_projected_evidence(tmp_path):
