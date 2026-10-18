@@ -22,7 +22,8 @@ def _wilson(successes: int, total: int) -> list[float] | None:
     return [round(midpoint - radius, 3), round(midpoint + radius, 3)]
 
 
-def score(predictions_path: Path, cases_path: Path, labels_path: Path) -> dict:
+def score(predictions_path: Path, cases_path: Path, labels_path: Path, *,
+          methods: tuple[str, ...] = METHODS) -> dict:
     predictions_bytes = predictions_path.read_bytes()
     cases_bytes = cases_path.read_bytes()
     labels_bytes = labels_path.read_bytes()
@@ -34,7 +35,7 @@ def score(predictions_path: Path, cases_path: Path, labels_path: Path) -> dict:
             or sealed.get("cases_sha256") != hashlib.sha256(cases_bytes).hexdigest()
             or sealed.get("split") != data.get("split")
             or labels.get("split") != data.get("split")
-            or tuple(sealed.get("method_order", ())) != METHODS):
+            or tuple(sealed.get("method_order", ())) != methods):
         raise ValueError("unsealed or inconsistent evaluation inputs")
     cases = {case["case_id"]: case for case in data["cases"]}
     if set(labels["labels"]) != set(cases):
@@ -42,7 +43,7 @@ def score(predictions_path: Path, cases_path: Path, labels_path: Path) -> dict:
     grouped = defaultdict(list)
     for row in sealed["predictions"]:
         grouped[row["method"]].append(row)
-    if set(grouped) != set(METHODS):
+    if set(grouped) != set(methods):
         raise ValueError("method set is incomplete")
     results = {}
     for method, rows in grouped.items():

@@ -115,3 +115,4 @@ def test_holdout_labels_are_absent_from_core_source_distribution(tmp_path):
         names = archive.getnames()
     assert any(name.endswith("/src/orion/learning/epistemic_selection.py") for name in names)
     assert not any("/evaluation/native_intelligence_v1/" in name for name in names)
+    assert not any("/evaluation/adaptive_v1/" in name for name in names)
