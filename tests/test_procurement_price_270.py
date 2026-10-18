@@ -388,12 +388,7 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
     )
     assert structural.studied_doctypes == ("Purchase Order", "Purchase Invoice")
     assert studied == list(structural.studied_doctypes)
-    study_binding = CustomerReportBinding(
-        study_source, metadata_grant.authorization_id,
-        lambda identity: enrolled.report_active(identity, now=now),
-        lambda identity: enrolled.report_commit_scope(identity, now=now),
-        enrolled.require_current_for_report,
-    )
+    study_binding = enrolled.report_binding(study_source)
     study_portal = CustomerPortalService(
         login, login._registry,
         report_lookup=lambda chosen: study_binding if chosen == tenant else None,

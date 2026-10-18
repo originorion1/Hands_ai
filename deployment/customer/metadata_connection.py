@@ -13,7 +13,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .bounded_metadata import (
@@ -25,6 +25,7 @@ from .bounded_metadata import (
 from .metadata_approval import ApprovedMetadataGrantLedger
 from .metadata_study_report import MetadataStudyReportSource, persist_metadata_study
 from .metadata_transport import ReviewedMetadataTransport
+from .service import CustomerReportBinding
 from .tenants import TenantRegistry
 
 
@@ -115,17 +116,28 @@ class EnrolledMetadataConnection:
                 finally:
                     self._scope_db.reset(token)
 
-    def report_active(self, authorization_id: str, *, now: datetime) -> bool:
-        return self.ledger.report_active(authorization_id, now=now)
+    def report_active(self, authorization_id: str) -> bool:
+        return self.ledger.report_active(authorization_id, now=datetime.now(UTC))
 
     @contextmanager
-    def report_commit_scope(self, authorization_id: str, *, now: datetime) -> Iterator[None]:
-        with self.ledger.report_commit_scope(authorization_id, now=now):
+    def report_commit_scope(self, authorization_id: str) -> Iterator[None]:
+        with self.ledger.report_commit_scope(authorization_id, now=datetime.now(UTC)):
             yield
 
     def require_current_for_report(self, registry_db: object) -> None:
         """Called inside CustomerLogin's registry transaction, without reopening it."""
         self._require_current(registry_db)
+
+    def report_binding(self, source: MetadataStudyReportSource) -> CustomerReportBinding:
+        """Bind one acquired report to fresh expiry, grant and enrollment checks."""
+        if (not isinstance(source, MetadataStudyReportSource)
+                or source.grant != self.ledger.grant):
+            raise MetadataSessionDenied("metadata report source and grant differ")
+        return CustomerReportBinding(
+            source, self.ledger.grant.authorization_id,
+            self.report_active, self.report_commit_scope,
+            self.require_current_for_report,
+        )
 
 
 def run_enrolled_metadata_session(

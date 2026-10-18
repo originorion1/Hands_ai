@@ -60,7 +60,9 @@ is preserved separately from the canonical slug.
    reference. It reserves each attempt before transport, checks revocation
    before and after reads, and persists only projected metadata under a
    private directory. It persists the structural study under the active grant
-   lock before marking acquisition consumed. Report reads require the same
+   lock before marking acquisition consumed. Bind the returned source with
+   `EnrolledMetadataConnection.report_binding`; it uses the current UTC clock
+   for each read. Report reads require the same
    enrolled connector, completed ledger status, current session membership and
    unexpired, unrevoked grant. No ERP writes or production execution are available.
 5. Emergency stop: revoke the approval ledger, disable the vault reference,
