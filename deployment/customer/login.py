@@ -137,7 +137,12 @@ class CustomerLogin:
         try:
             assertion = self._token_exchange(code, pkce_verifier, self._redirect_uri)
             identity = self._verifier.verify(assertion, expected_nonce=nonce)
-            self._registry.authorize(identity, tenant_id=tenant_id)
+            try:
+                self._registry.authorize(identity, tenant_id=tenant_id)
+            except TenantDenied:
+                # A pending invitation is bound to the same verified IdP
+                # issuer and subject; it confers no access before this step.
+                self._registry.accept_invitation(identity, tenant_id=tenant_id)
         except (TenantDenied, ValueError, TypeError, OSError, TimeoutError) as exc:
             raise LoginDenied("identity or tenant membership denied") from exc
         secret = secrets.token_urlsafe(32)

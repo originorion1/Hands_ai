@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
@@ -22,6 +23,9 @@ from deployment.customer.enrollment import EnrollmentDenied, enroll_erpnext
 from deployment.customer.journey import run_customer_synthetic_lineage
 from deployment.customer.login import CustomerLogin, LoginDenied
 from deployment.customer.oidc import OIDCVerifier, VerifiedIdentity
+from deployment.customer.portal import AuthorizationProposal
+from deployment.customer.portal_http import CustomerPortalHTTP
+from deployment.customer.service import CustomerPortalService
 from deployment.customer.tenants import TenantDenied, TenantRegistry
 from deployment.release_candidate import continuous_lineage as lineage
 from orion.contracts import EvidenceKind
@@ -144,6 +148,231 @@ def test_untrusted_tenant_claim_and_wrong_tenant_are_denied(context):
         _complete(login, key, "alpha-admin", tenant="tenant-beta")
     with pytest.raises(LoginDenied, match="membership"):
         _complete(login, key, "stranger", tenant="tenant-alpha")
+
+
+def test_verified_invited_user_can_complete_login_only_for_invited_tenant(context):
+    registry, login, key, alpha, _beta = context
+    registry.invite_member(
+        alpha, tenant_id="tenant-alpha", issuer=ISSUER,
+        subject="invited-analyst", role="analyst",
+        expires_at=int(time.time()) + 120,
+    )
+    with pytest.raises(LoginDenied, match="membership"):
+        _complete(login, key, "invited-analyst", tenant="tenant-beta")
+    session, _ = _complete(login, key, "invited-analyst", tenant="tenant-alpha")
+    assert login.authorize(_secret(session)).role == "analyst"
+    registry.remove_member(
+        alpha, tenant_id="tenant-alpha", issuer=ISSUER,
+        subject="invited-analyst",
+    )
+    with pytest.raises(LoginDenied, match="membership"):
+        login.authorize(_secret(session))
+
+
+def test_portal_service_scopes_members_and_proposals_to_session(context):
+    registry, login, key, _alpha, _beta = context
+    service = CustomerPortalService(login, registry)
+    admin_session, _ = _complete(login, key, "alpha-admin")
+    analyst_session, _ = _complete(login, key, "alpha-analyst")
+    admin_secret = _secret(admin_session)
+    analyst_secret = _secret(analyst_session)
+    overview = service.overview(analyst_secret)
+    assert overview["tenant_id"] == "tenant-alpha"
+    assert overview["role"] == "analyst"
+    assert overview["authorization_status"] == "no_approved_grant_bound"
+    assert overview["autonomous_study_proposals"] == []
+    assert "credential_ref" not in json.dumps(overview)
+    with pytest.raises(LoginDenied):
+        service.invite(
+            analyst_secret, csrf_token=analyst_session.csrf_token,
+            issuer=ISSUER, subject="invited", role="analyst",
+            expires_at=int(time.time()) + 120,
+        )
+    service.invite(
+        admin_secret, csrf_token=admin_session.csrf_token,
+        issuer=ISSUER, subject="invited", role="analyst",
+        expires_at=int(time.time()) + 120,
+    )
+    proposal = AuthorizationProposal(
+        tenant_id="tenant-alpha", companies=("Synthetic Alpha",),
+        fields_by_doctype=(("Purchase Order", ("name", "company")),),
+        sensitive_exclusions=("payroll", "personal records", "attachments"),
+        historical_start=date(2025, 1, 1), historical_end=date(2025, 12, 31),
+        max_requests=25, max_duration_seconds=1800, max_evidence_bytes=65536,
+        retention_days=1, revocation_operator="Synthetic Operator",
+    )
+    with pytest.raises(LoginDenied):
+        service.submit_authorization(
+            analyst_secret, csrf_token=analyst_session.csrf_token, proposal=proposal,
+        )
+    proposal_id = service.submit_authorization(
+        admin_secret, csrf_token=admin_session.csrf_token, proposal=proposal,
+    )
+    assert service.authorization_proposal(admin_secret, proposal_id=proposal_id)[
+        "execution_authority"
+    ] is False
+    with pytest.raises(LoginDenied):
+        service.authorization_proposal(analyst_secret, proposal_id=proposal_id)
+    other = AuthorizationProposal(
+        tenant_id="tenant-beta", companies=("Synthetic Beta",),
+        fields_by_doctype=(("Purchase Order", ("name",)),),
+        sensitive_exclusions=("payroll",), historical_start=date(2025, 1, 1),
+        historical_end=date(2025, 12, 31), max_requests=1,
+        max_duration_seconds=60, max_evidence_bytes=1024,
+        retention_days=1, revocation_operator="Synthetic Operator",
+    )
+    with pytest.raises(LoginDenied, match="tenant differs"):
+        service.submit_authorization(
+            admin_secret, csrf_token=admin_session.csrf_token, proposal=other,
+        )
+    with registry._connection() as db:
+        db.execute(
+            "UPDATE authorization_proposals SET payload_json=? WHERE proposal_id=?",
+            ('{"kind":"authorization_proposal","status":"pending_governed_validation",'
+             '"execution_authority":false,"tenant_id":"tenant-alpha",'
+             '"scope_sha256":"' + "0" * 64 + '"}', proposal_id),
+        )
+    with pytest.raises(LoginDenied, match="integrity"):
+        service.authorization_proposal(admin_secret, proposal_id=proposal_id)
+    login.logout(admin_secret, csrf_token=admin_session.csrf_token)
+    with pytest.raises(LoginDenied):
+        service.overview(admin_secret)
+
+
+def _portal_request(app, path, *, method="GET", query="", cookie="", csrf="", body=None,
+                    scheme="https", origin="https://command.example.invalid"):
+    raw = b"" if body is None else json.dumps(body).encode()
+    environ = {
+        "wsgi.url_scheme": scheme, "HTTP_HOST": "command.example.invalid",
+        "REQUEST_METHOD": method, "PATH_INFO": path, "QUERY_STRING": query,
+        "HTTP_COOKIE": cookie, "HTTP_ORIGIN": origin,
+        "HTTP_X_ORION_CSRF": csrf, "CONTENT_LENGTH": str(len(raw)),
+        "CONTENT_TYPE": "application/json", "wsgi.input": io.BytesIO(raw),
+    }
+    recorded = {}
+
+    def start(status, headers):
+        recorded["status"] = status
+        recorded["headers"] = headers
+
+    recorded["body"] = b"".join(app(environ, start))
+    return recorded
+
+
+def test_https_portal_login_scope_logout_and_denial_clear_browser_state(context):
+    registry, login, key, _alpha, _beta = context
+    app = CustomerPortalHTTP(
+        login=login, service=CustomerPortalService(login, registry),
+        origin="https://command.example.invalid",
+    )
+    denied_http = _portal_request(app, "/customer/api/overview", scheme="http")
+    assert denied_http["status"].startswith("403")
+    start = _portal_request(app, "/customer/login", query="tenant=tenant-alpha")
+    assert start["status"].startswith("302")
+    auth_url = dict(start["headers"])["Location"]
+    query = {key: value[0] for key, value in parse_qs(urlsplit(auth_url).query).items()}
+    login._token_exchange.assertion = _assertion(key, "alpha-admin", query["nonce"])
+    callback = _portal_request(
+        app, "/callback", query=f"state={query['state']}&code=one-use",
+    )
+    assert callback["status"].startswith("303")
+    cookies = [value for name, value in callback["headers"] if name == "Set-Cookie"]
+    session_cookie = cookies[0].split(";", 1)[0]
+    csrf_cookie = cookies[1].split(";", 1)[0]
+    csrf = csrf_cookie.partition("=")[2]
+    overview = _portal_request(app, "/customer/api/overview", cookie=session_cookie)
+    assert overview["status"].startswith("200")
+    assert json.loads(overview["body"])["tenant_id"] == "tenant-alpha"
+    assert b"credential_ref" not in overview["body"]
+    denied_switch = _portal_request(
+        app, "/customer/api/switch", method="POST", cookie=session_cookie,
+        csrf=csrf, body={"tenant_id": "tenant-beta"},
+    )
+    assert denied_switch["status"].startswith("401")
+    assert b"tenant-alpha" not in denied_switch["body"]
+    denied_enrollment = _portal_request(
+        app, "/customer/api/erpnext/enroll", method="POST", cookie=session_cookie,
+        csrf=csrf, body={"label": "Synthetic", "endpoint": "https://erp.example.invalid",
+                         "company": "Synthetic Company", "api_key": "synthetic-key",
+                         "api_secret": "synthetic-secret"},
+    )
+    assert denied_enrollment["status"].startswith("401")
+    assert b"synthetic-secret" not in denied_enrollment["body"]
+    logout = _portal_request(
+        app, "/customer/api/logout", method="POST", cookie=session_cookie,
+        csrf=csrf, body={},
+    )
+    assert logout["status"].startswith("200")
+    assert _portal_request(app, "/customer/api/overview", cookie=session_cookie)[
+        "status"
+    ].startswith("401")
+
+
+def test_https_portal_enrollment_response_never_exposes_secret_or_vault_reference(context):
+    registry, login, key, _alpha, _beta = context
+    session, _ = _complete(login, key, "alpha-admin")
+    reviewed = ReviewedConnector(
+        "erpnext", "originorion-connector-erpnext-discovery", "0.2.0rc4",
+        "orion.discovery.erpnext_adapter:ERPNextDiscoveryAdapter",
+    )
+    fields = [
+        {"name": name, "label": name.replace("_", " ").title(), "kind": kind,
+         "required": True, "write_only": kind == "secret"}
+        for name, kind in (("endpoint", "https_url"), ("api_key", "secret"),
+                           ("api_secret", "secret"), ("company", "text"))
+    ]
+    schema = json.dumps({
+        "schema_version": "orion.connector-configuration.v1", "connector": "erpnext",
+        "fields": fields,
+    }, sort_keys=True).encode()
+    vault = {}
+
+    def store(tenant, connector, api_key, api_secret):
+        reference = "vault:" + "v" * 28
+        vault[reference] = (tenant, connector, api_key, api_secret)
+        return reference
+
+    app = CustomerPortalHTTP(
+        login=login, service=CustomerPortalService(login, registry),
+        origin="https://command.example.invalid", reviewed_connector=reviewed,
+        schema_bytes=schema, schema_sha256=hashlib.sha256(schema).hexdigest(),
+        approved_erp_origin="https://erp.example.com", vault_store=store,
+        vault_revoke=lambda reference: vault.pop(reference, None),
+    )
+    response = _portal_request(
+        app, "/customer/api/erpnext/enroll", method="POST",
+        cookie=session.cookie.split(";", 1)[0], csrf=session.csrf_token,
+        body={"label": "ERPNext", "endpoint": "https://erp.example.com",
+              "company": "Synthetic Co", "api_key": "synthetic-key",
+              "api_secret": "synthetic-secret"},
+    )
+    assert response["status"].startswith("202")
+    assert b"synthetic-key" not in response["body"]
+    assert b"synthetic-secret" not in response["body"]
+    assert b"vault:" not in response["body"]
+    assert json.loads(response["body"])["execution_authority"] is False
+    overview = _portal_request(
+        app, "/customer/api/overview", cookie=session.cookie.split(";", 1)[0],
+    )
+    assert json.loads(overview["body"])["connections"][0]["company"] == "Synthetic Co"
+    assert b"vault:" not in overview["body"]
+    assert b"synthetic-secret" not in registry._path.read_bytes()
+
+
+def test_portal_read_denies_revocation_between_initial_and_locked_checks(context, monkeypatch):
+    registry, login, key, _alpha, _beta = context
+    session, _ = _complete(login, key, "alpha-admin")
+    service = CustomerPortalService(login, registry)
+    original = login._verified_session_identity
+
+    def revoke_during_read(secret):
+        identity = original(secret)
+        registry.logout(identity)
+        return identity
+
+    monkeypatch.setattr(login, "_verified_session_identity", revoke_during_read)
+    with pytest.raises(TenantDenied, match="membership"):
+        service.overview(_secret(session))
 
 
 def test_analyst_cannot_escalate_or_reuse_expired_session(context):

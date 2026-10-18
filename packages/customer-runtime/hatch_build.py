@@ -13,12 +13,14 @@ class CustomBuildHook(BuildHookInterface):
         customer = source_root / "deployment/customer"
         expected = {
             "__init__.py", "backup.py", "bounded_metadata.py", "catalog.py",
-            "enrollment.py", "journey.py", "login.py", "oidc.py", "tenants.py",
+            "enrollment.py", "journey.py", "login.py", "oidc.py", "portal.py",
+            "portal_http.py", "service.py", "tenants.py",
         }
         if {path.name for path in customer.glob("*.py")} != expected:
             raise RuntimeError("customer runtime source set changed without review")
         paths = [source_root / "deployment/__init__.py"]
         paths.extend(customer / name for name in sorted(expected))
+        paths.extend(customer / name for name in ("portal.html", "portal.css", "portal.js"))
         paths.extend((
             source_root / "deployment/release_candidate/__init__.py",
             source_root / "deployment/release_candidate/continuous_lineage.py",
