@@ -12,7 +12,7 @@ import ssl
 from collections.abc import Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
-from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, ProxyHandler, Request, build_opener
 
 
 class OIDCTokenExchangeDenied(ValueError):
@@ -63,7 +63,7 @@ class ReviewedOIDCTokenExchange:
         self._secret_reference = client_secret_reference
         self._resolve_secret = resolve_secret
         self._opener = opener or build_opener(
-            _NoRedirect(), HTTPSHandler(context=ssl.create_default_context()),
+            ProxyHandler({}), _NoRedirect(), HTTPSHandler(context=ssl.create_default_context()),
         ).open
 
     def __call__(self, code: str, verifier: str, redirect_uri: str) -> str:

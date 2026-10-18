@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "originorion-customer-runtime"
-version = "0.1.0rc5"
+version = "0.1.0rc6"
 description = "Installed customer portal, approved metadata and report integration for ORION"
 requires-python = ">=3.12"
 dependencies = [
