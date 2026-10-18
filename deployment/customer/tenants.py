@@ -42,6 +42,11 @@ _EVIDENCE_ID = re.compile(r"[A-Za-z0-9_-]{12,80}\Z")
 _MAX_SYNTHETIC_EVIDENCE_BYTES = 64 * 1024
 
 
+def is_canonical_tenant_slug(value: object) -> bool:
+    """Use the registry's single canonical tenant identity grammar."""
+    return isinstance(value, str) and _TENANT.fullmatch(value) is not None
+
+
 class TenantDenied(ValueError):
     """Tenant membership, bootstrap, or session authority is unavailable."""
 
