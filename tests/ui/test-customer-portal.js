@@ -46,6 +46,7 @@ const persistedReport = {
     authorization_status: 'read_only_admitted'
   }
 };
+let servedReport = persistedReport;
 const document = {
   cookie: '__Host-orion_csrf=synthetic-csrf',
   getElementById: id => elements[id] || (elements[id] = new Element()),
@@ -57,7 +58,7 @@ const context = vm.createContext({
   fetch: async path => {
     if (interrupted) throw new Error('network interruption');
     if (path === '/customer/api/report' && !denied) {
-      return {status: 200, ok: true, json: async () => persistedReport};
+      return {status: 200, ok: true, json: async () => servedReport};
     }
     return denied ? {status: 401, ok: false} : {
     status: 200, ok: true, json: async () => ({
@@ -81,6 +82,14 @@ vm.runInContext(script, context, {filename: 'portal.js'});
   assert.equal(elements.reportPanel.hidden, false);
   assert(elements.reportDetails.children.some(line =>
     line.children.some(child => child.textContent === '$60.00')));
+  servedReport = {
+    authority: {execution_allowed: false, erp_writes: 0},
+    report_kind: 'synthetic_lineage',
+    lineage: {run_id: 'generic-run', evidence_ids: ['evidence-1']}
+  };
+  await vm.runInContext('refresh()', context);
+  assert.match(elements.reportDetails.children[0].textContent, /generic-run/);
+  servedReport = persistedReport;
   denied = true;
   await assert.rejects(vm.runInContext('request("/customer/api/overview")', context));
   assert.equal(elements.workspace.hidden, true);

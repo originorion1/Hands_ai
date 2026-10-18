@@ -54,8 +54,9 @@ async function request(path, body) {
 async function refresh() {
   const data = await request('/customer/api/overview');
   const report = data.report_available ? await request('/customer/api/report') : null;
-  if (report && (report.procurement?.tenant_id !== data.tenant_id ||
-      report.procurement?.run_id !== report.lineage?.run_id ||
+  if (report && (!report.lineage?.run_id ||
+      (report.procurement && (report.procurement.tenant_id !== data.tenant_id ||
+       report.procurement.run_id !== report.lineage.run_id)) ||
       report.authority?.execution_allowed !== false || report.authority?.erp_writes !== 0)) {
     clear();
     throw new Error('Report lineage or authorization mismatch. Sign in again.');
@@ -106,6 +107,11 @@ async function refresh() {
       line.append(strong, document.createTextNode(value));
       container.append(line);
     }
+    byId('reportPanel').hidden = false;
+  } else if (report) {
+    const line = document.createElement('p');
+    line.textContent = `${report.report_kind} · run ${report.lineage.run_id} · read-only · ${report.lineage.evidence_ids?.length ?? 0} evidence references`;
+    byId('reportDetails').replaceChildren(line);
     byId('reportPanel').hidden = false;
   }
   status(report ? 'Authenticated. Evidence-linked read-only report loaded.' :
