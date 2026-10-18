@@ -14,7 +14,7 @@ from orion_connector_sdk import ReviewedConnector
 
 from .login import CustomerLogin
 from .oidc import OIDCVerifier
-from .oidc_client import ReviewedOIDCTokenExchange
+from .oidc_client import OIDCTokenExchangeDenied, ReviewedOIDCTokenExchange
 from .portal_http import CustomerPortalHTTP
 from .service import CustomerPortalService, CustomerReportBinding
 from .tenants import TenantRegistry
@@ -64,11 +64,30 @@ def create_hosted_customer_portal(
         issuer=oidc_issuer, audience=oidc_client_id,
         public_keys=oidc_public_keys,
     )
+
+    def read_client_secret(reference: str) -> str:
+        try:
+            return vault_read_client_secret(reference)
+        except Exception:  # noqa: BLE001 - external vault messages may contain secrets
+            raise OIDCTokenExchangeDenied("client credential unavailable") from None
+
+    def store_connector(tenant: str, connector: str, key: str, secret: str) -> str:
+        try:
+            return vault_store_connector(tenant, connector, key, secret)
+        except Exception:  # noqa: BLE001 - external vault messages may contain secrets
+            raise RuntimeError("connector vault unavailable") from None
+
+    def revoke_connector(reference: str) -> None:
+        try:
+            vault_revoke_connector(reference)
+        except Exception:  # noqa: BLE001 - external vault messages may contain secrets
+            raise RuntimeError("connector vault unavailable") from None
+
     exchange = ReviewedOIDCTokenExchange(
         issuer=oidc_issuer, token_endpoint=oidc_token_endpoint,
         client_id=oidc_client_id, redirect_uri=oidc_redirect_uri,
         client_secret_reference=oidc_client_secret_reference,
-        resolve_secret=vault_read_client_secret,
+        resolve_secret=read_client_secret,
     )
     login = CustomerLogin(
         registry, verifier,
@@ -83,6 +102,6 @@ def create_hosted_customer_portal(
         schema_bytes=connector_schema_bytes,
         schema_sha256=connector_schema_sha256,
         approved_erp_origin=approved_erp_origin,
-        vault_store=vault_store_connector,
-        vault_revoke=vault_revoke_connector,
+        vault_store=store_connector,
+        vault_revoke=revoke_connector,
     )

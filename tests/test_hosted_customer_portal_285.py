@@ -115,11 +115,19 @@ def test_hosted_portal_keeps_identity_vault_grant_and_report_server_side(tmp_pat
     vault = {}
     assertions = {}
     active = {"tenant-alpha": True, "tenant-beta": True}
+    faults = {"store": False, "client": False}
 
     def vault_store(tenant, connector, key, secret):
+        if faults["store"]:
+            raise RuntimeError("synthetic-secret-value")
         reference = "vault:" + ("a" if tenant == "tenant-alpha" else "b") * 28
         vault[reference] = (tenant, connector, key, secret)
         return reference
+
+    def read_client_secret(_reference):
+        if faults["client"]:
+            raise RuntimeError("synthetic-idp-secret")
+        return "synthetic-idp-secret"
 
     class ReportSource:
         def __init__(self, tenant):
@@ -180,7 +188,7 @@ def test_hosted_portal_keeps_identity_vault_grant_and_report_server_side(tmp_pat
         oidc_client_id=CLIENT, oidc_redirect_uri=f"{ORIGIN}/callback",
         oidc_public_keys={"synthetic-key": public},
         oidc_client_secret_reference="vault:" + "i" * 28,
-        vault_read_client_secret=lambda _reference: "synthetic-idp-secret",
+        vault_read_client_secret=read_client_secret,
         vault_store_connector=vault_store,
         vault_revoke_connector=lambda reference: vault.pop(reference, None),
         report_lookup=lookup,
@@ -220,6 +228,15 @@ def test_hosted_portal_keeps_identity_vault_grant_and_report_server_side(tmp_pat
     assert b"vault:" not in enrollment["body"]
     assert b"synthetic-secret-value" not in registry._path.read_bytes()
     assert b"vault:" not in _request(app, "/customer/api/overview", cookie=alpha_cookie)["body"]
+    faults["store"] = True
+    vault_failure = _request(app, "/customer/api/erpnext/enroll", method="POST",
+                             cookie=alpha_cookie, csrf=alpha_csrf,
+                             body={"label": "Another ERP", "endpoint": "https://erp.example.com",
+                                   "company": "Synthetic Alpha", "api_key": "synthetic-key-value",
+                                   "api_secret": "synthetic-secret-value"})
+    assert vault_failure["status"] == "503 Service Unavailable"
+    assert b"synthetic-secret-value" not in vault_failure["body"]
+    faults["store"] = False
     proposal = {
         "tenant_id": "tenant-alpha", "companies": ["Synthetic Alpha"],
         "fields_by_doctype": [["Purchase Order", ["name"]]],
@@ -249,6 +266,16 @@ def test_hosted_portal_keeps_identity_vault_grant_and_report_server_side(tmp_pat
                     csrf=beta_csrf, body={})["status"] == "200 OK"
     assert _request(app, "/customer/api/report", cookie=beta_cookie)[
         "status"] == "401 Unauthorized"
+    faults["client"] = True
+    start = _request(app, "/customer/login", query="tenant=tenant-alpha")
+    query = {name: parts[0] for name, parts in parse_qs(
+        urlsplit(dict(start["headers"])["Location"]).query,
+    ).items()}
+    denied_login = _request(
+        app, "/callback", query=f"state={query['state']}&code=synthetic-code",
+    )
+    assert denied_login["status"] == "401 Unauthorized"
+    assert b"synthetic-idp-secret" not in denied_login["body"]
 
 
 def test_hosted_portal_requires_backend_dependencies(tmp_path):
