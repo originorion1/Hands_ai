@@ -7,7 +7,7 @@
 | AR-03 | P1 qualification | No independent reviewer is appointed; designed labels are not validated outcomes. | Versioned update gate implemented and mock-tested, but update activation and learning proof remain pending external adjudication. |
 | AR-04 | P1 qualification | No authorized stable Ubuntu host is available; WSL2 cannot qualify stable Linux. | Local full regression is diagnostic. Stable-Linux gate remains open for an authorized runner. |
 | AR-05 | P1 package boundary | Adding an evaluator-only lab to the repository could include unseen labels in the core source archive. | `pyproject.toml` excludes `evaluation/adaptive_v1/**`; package-boundary regression inspects the built sdist. |
-| AR-06 | P1 chronology | An outcome review could refer to an uncommitted or stale strategy prediction. | `PredictionLedger.resolved_pair` and strategy-version/issuance checks require the persisted prospective pair; negative regressions cover missing, changed, stale, replayed and foreign-tenant records. |
+| AR-06 | P1 chronology | An outcome review could refer to an uncommitted or stale strategy prediction; changing the frozen ledger source also invalidated its pinned evaluation hash. | Restored the ledger source byte-for-byte. A read-only adapter in the new research module checks the persisted prospective pair and strategy version; negative regressions cover missing, changed, stale, replayed and foreign-tenant records. |
 
 No live customer access, write permission, Actions, merge, signing or
 production service activation is authorized by this register.

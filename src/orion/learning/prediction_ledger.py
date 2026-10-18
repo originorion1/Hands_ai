@@ -176,41 +176,6 @@ def _json(record: Prediction | Outcome | ModelRevision | LearningCycleCheckpoint
     return json.dumps(asdict(record), default=encode, sort_keys=True, separators=(',', ':'))
 
 
-def _decode_prediction(payload: str) -> Prediction:
-    value = json.loads(payload)
-    cohort = value.get('cohort')
-    return Prediction(
-        tenant_id=value['tenant_id'], prediction_id=value['prediction_id'],
-        target_definition=value['target_definition'], model_version=value['model_version'],
-        issued_at=datetime.fromisoformat(value['issued_at']),
-        evidence_cutoff=datetime.fromisoformat(value['evidence_cutoff']),
-        horizon_end=datetime.fromisoformat(value['horizon_end']),
-        probability=value['probability'],
-        evidence_ids=tuple(UUID(item) for item in value['evidence_ids']),
-        unit=value.get('unit', 'binary'),
-        cohort=(BusinessCohort(
-            cohort['entity_id'], cohort['location_id'],
-            datetime.fromisoformat(cohort['window_start']),
-            datetime.fromisoformat(cohort['window_end']),
-        ) if cohort is not None else None),
-    )
-
-
-def _decode_outcome(payload: str) -> Outcome:
-    value = json.loads(payload)
-    cohort = value.get('cohort')
-    return Outcome(
-        tenant_id=value['tenant_id'], prediction_id=value['prediction_id'],
-        observed_at=datetime.fromisoformat(value['observed_at']), actual=value['actual'],
-        evidence_ids=tuple(UUID(item) for item in value['evidence_ids']),
-        cohort=(BusinessCohort(
-            cohort['entity_id'], cohort['location_id'],
-            datetime.fromisoformat(cohort['window_start']),
-            datetime.fromisoformat(cohort['window_end']),
-        ) if cohort is not None else None),
-    )
-
-
 class PredictionLedger:
     """Local append-only API with transactional exact replay checks.
 
@@ -311,27 +276,23 @@ class PredictionLedger:
             ''', (tenant_id, prediction_id)).fetchone()
         if row is None or row[1] is not None:
             raise ValueError('checkpoint prediction is missing or no longer pending')
-        return _decode_prediction(row[0])
-
-    def resolved_pair(self, tenant_id: str, prediction_id: str) -> tuple[Prediction, Outcome]:
-        """Return a tenant-bound committed prediction and resolved outcome."""
-        _identity(tenant_id)
-        _identity(prediction_id)
-        with self._connect() as connection:
-            row = connection.execute('''
-                SELECT p.payload, o.payload FROM predictions p
-                JOIN prediction_outcomes o
-                  ON p.tenant=o.tenant AND p.identity=o.identity
-                WHERE p.tenant=? AND p.identity=?
-            ''', (tenant_id, prediction_id)).fetchone()
-        if row is None:
-            raise ValueError('resolved prediction/outcome pair is absent')
-        prediction, outcome = _decode_prediction(row[0]), _decode_outcome(row[1])
-        if (prediction.tenant_id != tenant_id or outcome.tenant_id != tenant_id
-                or prediction.prediction_id != prediction_id
-                or outcome.prediction_id != prediction_id):
-            raise ValueError('resolved prediction/outcome payload identity mismatch')
-        return prediction, outcome
+        value = json.loads(row[0])
+        cohort = value.get('cohort')
+        return Prediction(
+            tenant_id=value['tenant_id'], prediction_id=value['prediction_id'],
+            target_definition=value['target_definition'], model_version=value['model_version'],
+            issued_at=datetime.fromisoformat(value['issued_at']),
+            evidence_cutoff=datetime.fromisoformat(value['evidence_cutoff']),
+            horizon_end=datetime.fromisoformat(value['horizon_end']),
+            probability=value['probability'],
+            evidence_ids=tuple(UUID(item) for item in value['evidence_ids']),
+            unit=value.get('unit', 'binary'),
+            cohort=(BusinessCohort(
+                cohort['entity_id'], cohort['location_id'],
+                datetime.fromisoformat(cohort['window_start']),
+                datetime.fromisoformat(cohort['window_end']),
+            ) if cohort is not None else None),
+        )
 
     def record_revision(self, revision: ModelRevision) -> None:
         """Commit a revision only when its evidence is in resolved prior outcomes."""

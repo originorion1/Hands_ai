@@ -7,15 +7,17 @@ caller must verify reviewer identity, outcome custody and source digests.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import math
+import sqlite3
 from collections import defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from .prediction_ledger import Outcome, Prediction, PredictionLedger
+from .prediction_ledger import Outcome, Prediction, PredictionLedger, _json
 
 ANSWERS = ("flag", "clear", "missing")
 
@@ -149,6 +151,21 @@ def base_strategy(tenant_id: str, prior: Sequence[float],
     return StudyStrategyVersion(tenant_id, identity, None, belief, rows, (), created_at)
 
 
+def _committed_pair_matches(ledger: PredictionLedger, prediction: Prediction,
+                            outcome: Outcome) -> bool:
+    """Read the frozen ledger without changing its protected source contract."""
+    with sqlite3.connect(ledger.path.resolve().as_uri() + "?mode=ro", uri=True) as connection:
+        connection.execute("PRAGMA query_only=ON")
+        row = connection.execute("""
+            SELECT p.payload, o.payload FROM predictions p
+            JOIN prediction_outcomes o
+              ON p.tenant=o.tenant AND p.identity=o.identity
+            WHERE p.tenant=? AND p.identity=?
+        """, (prediction.tenant_id, prediction.prediction_id)).fetchone()
+    return (row is not None and hmac.compare_digest(row[0], _json(prediction))
+            and hmac.compare_digest(row[1], _json(outcome)))
+
+
 def derive_adjudicated_strategy(
     previous: StudyStrategyVersion,
     cases: Sequence[AdjudicatedStudyCase],
@@ -192,11 +209,7 @@ def derive_adjudicated_strategy(
             raise ValueError("tenant, strategy, reviewer, time or replay boundary failed")
         identities.add(prediction.prediction_id)
         digest = case.review_digest()
-        try:
-            committed = ledger.resolved_pair(previous.tenant_id, prediction.prediction_id)
-        except ValueError as error:
-            raise ValueError("prospective ledger resolution denied") from error
-        if committed != (prediction, outcome):
+        if not _committed_pair_matches(ledger, prediction, outcome):
             raise ValueError("prospective ledger resolution denied")
         if not reviewer_verifier(case, digest):
             raise ValueError("independent reviewer attestation denied")

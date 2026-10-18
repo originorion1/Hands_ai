@@ -1,5 +1,3 @@
-import json
-import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -99,33 +97,6 @@ def test_same_prediction_identity_in_two_tenants_is_independent(tmp_path):
     later.resolve(Outcome('tenant-b', 'p1', NOW + timedelta(days=1), True, (REF,)))
     assert later.score('tenant-a')['pending'] == 1
     assert later.score('tenant-b')['false_negative'] == 1
-
-
-def test_resolved_pair_requires_tenant_bound_committed_payload(tmp_path):
-    path = tmp_path / 'ledger.db'
-    issued = PredictionLedger(path, clock=lambda: NOW)
-    issued.record(prediction())
-    with pytest.raises(ValueError, match='absent'):
-        issued.resolved_pair('tenant-a', 'p1')
-    later = PredictionLedger(path, clock=lambda: NOW + timedelta(days=1))
-    outcome = Outcome('tenant-a', 'p1', NOW + timedelta(days=1), True, (REF,))
-    later.resolve(outcome)
-    assert later.resolved_pair('tenant-a', 'p1') == (prediction(), outcome)
-    with pytest.raises(ValueError, match='absent'):
-        later.resolved_pair('tenant-b', 'p1')
-    with sqlite3.connect(path) as connection:
-        row = connection.execute(
-            'SELECT payload FROM prediction_outcomes WHERE tenant=? AND identity=?',
-            ('tenant-a', 'p1'),
-        ).fetchone()
-        altered = json.loads(row[0])
-        altered['tenant_id'] = 'tenant-b'
-        connection.execute(
-            'UPDATE prediction_outcomes SET payload=? WHERE tenant=? AND identity=?',
-            (json.dumps(altered), 'tenant-a', 'p1'),
-        )
-    with pytest.raises(ValueError, match='payload identity'):
-        later.resolved_pair('tenant-a', 'p1')
 
 
 def test_offline_demonstration_is_repeatable_and_reports_all_outcomes():

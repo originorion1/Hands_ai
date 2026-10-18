@@ -1,6 +1,8 @@
 """Synthetic mocks test the gate; they are not independent reviewer evidence."""
 
 import hashlib
+import json
+import sqlite3
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, uuid5
@@ -116,6 +118,23 @@ def test_missing_or_changed_ledger_resolution_denies_update(tmp_path):
         _derive(base, forged, ledger, evidence)
     with pytest.raises(ValueError, match="replay"):
         _derive(base, (reviews[0], *reviews[1:-1], reviews[0]), ledger, evidence)
+
+
+def test_modified_ledger_payload_denies_update(tmp_path):
+    ledger, reviews, evidence, base = _reviews(tmp_path)
+    with sqlite3.connect(ledger.path) as connection:
+        row = connection.execute(
+            "SELECT payload FROM prediction_outcomes WHERE tenant=? AND identity=?",
+            ("tenant-a", "p-0"),
+        ).fetchone()
+        changed = json.loads(row[0])
+        changed["tenant_id"] = "tenant-b"
+        connection.execute(
+            "UPDATE prediction_outcomes SET payload=? WHERE tenant=? AND identity=?",
+            (json.dumps(changed), "tenant-a", "p-0"),
+        )
+    with pytest.raises(ValueError, match="ledger resolution"):
+        _derive(base, reviews, ledger, evidence)
 
 
 def test_future_label_and_tenant_mismatch_denied(tmp_path):
