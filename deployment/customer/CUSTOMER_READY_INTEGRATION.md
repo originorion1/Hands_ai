@@ -28,6 +28,12 @@ findings, estimated exposure and independently verified savings separately,
 and removes all scoped data after denial or interruption. The USD 60 finding
 in automated tests is designed synthetic evidence, with no verified savings.
 
+The installed split is explicit: `originorion-customer-runtime` owns generic
+identity, enrollment, metadata approval and portal code;
+`originorion-procurement-prototype` supplies the single procurement rule,
+finding custody adapter and reviewer ledger. Installing the customer runtime
+alone does not select procurement as a default study.
+
 Open customer-release gates: reviewed real IdP and vault configuration,
 customer-approved company/destination/field mapping and credential references,
 fresh owner and customer authorization, qualified confined transport, stable
