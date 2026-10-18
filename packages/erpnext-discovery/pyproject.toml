@@ -4,13 +4,16 @@ build-backend = "hatchling.build"
 
 [project]
 name = "originorion-connector-erpnext-discovery"
-version = "0.2.0rc3"
+version = "0.2.0rc4"
 description = "ERPNext discovery adapter for the ORION Kernel"
 requires-python = ">=3.12"
-dependencies = ["originorion-core==0.2.0rc1", "originorion-connector-sdk==0.2.0rc1"]
+dependencies = ["originorion-core==0.2.0rc2", "originorion-connector-sdk==0.2.0rc1"]
 
 [project.entry-points."orion.connectors.v1"]
 erpnext = "orion.discovery.erpnext_adapter:ERPNextDiscoveryAdapter"
+
+[project.entry-points."orion.aggregate_reports.v1"]
+erpnext = "orion.discovery.erpnext_live_session:live_session_run_report_from_json"
 
 [tool.hatch.build.targets.wheel]
 only-include = []

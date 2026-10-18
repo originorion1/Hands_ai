@@ -227,7 +227,7 @@ source = { directory = "packages/connector-sdk" }
 
 [[package]]
 name = "originorion-core"
-version = "0.2.0rc1"
+version = "0.2.0rc2"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },

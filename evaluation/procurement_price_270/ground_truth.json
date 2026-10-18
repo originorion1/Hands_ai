@@ -1,0 +1,5 @@
+{
+  "schema": "orion.procurement-synthetic-labels.v1",
+  "positive_cases": ["holdout_a", "holdout_b", "holdout_h"],
+  "basis": "Designed synthetic avoidable price differences; not independent customer outcomes"
+}

@@ -12,7 +12,7 @@ from .request_target import is_api_target
 
 STATUS = {
     "interface_version": "orion.deployment-status.v1",
-    "release_version": "0.2.0rc1",
+    "release_version": "0.2.0rc2",
     "stage": "A",
     "http_api": "healthy",
     "report_service": "not_connected",

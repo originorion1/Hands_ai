@@ -219,14 +219,26 @@ function renderReport() {
   $('studyDetail').textContent = 'Completed aggregate';
   $('observations').textContent = String(report.observations);
   $('reportStatus').textContent = `${report.cyclesCompleted} cycles · ${formatStopReason(report.stopReason)}`;
-  $('historySummary').textContent = `Completed aggregate: ${report.cyclesCompleted} cycles and ${report.observations} persisted observations. No record values or live events loaded.`;
+  $('historySummary').textContent = report.lineage
+    ? `Synthetic run ${report.lineage.run_id} · dataset ${report.lineage.dataset_id} · source SHA-256 ${report.lineage.source_sha256} · ${report.observations} persisted observations. No record values or live events loaded.`
+    : `Completed aggregate: ${report.cyclesCompleted} cycles and ${report.observations} persisted observations. No record values or live events loaded.`;
+  $('procurementPanel').hidden = !report.procurement;
+  if (report.procurement) {
+    const finding = report.procurement;
+    $('procurementSummary').textContent = `${finding.item} · ${finding.status} · target ${finding.target_ref} · estimated exposure USD ${finding.estimated_exposure_usd} · reviewer ${finding.reviewer_decision}`;
+    $('procurementEvidence').textContent = `Company ${finding.company} · run ${report.lineage.run_id} · ${finding.source_system} / ${finding.connector_identity} / ${finding.source_id} · ${finding.evidence_ids.length}/${report.observations} admitted observations · acquired ${finding.evidence_acquired_at} · source SHA-256 ${report.lineage.source_sha256} · base report SHA-256 ${finding.base_report_sha256} · finding SHA-256 ${finding.finding_sha256} · supporting transactions ${finding.comparison_refs.join(', ')} · normalized target USD ${finding.target_unit_usd} per ${finding.normalized_unit} × ${finding.quantity_each} each · reference USD ${finding.reference_unit_usd || 'unavailable'} · authorization ${finding.authorization_status}`;
+    $('procurementLimits').textContent = `Confidence ${finding.confidence}. Missing: ${finding.missing_evidence.join('; ') || 'none recorded'}. Contradictions/exclusions: ${finding.excluded_evidence.join('; ') || 'none recorded'}. Alternatives: ${finding.alternative_explanations.join('; ')}. Next question: ${finding.next_question || 'none'}. Invalidation: ${finding.invalidation_history.map(event => event.successor_run_id).join(', ') || 'none'}.`;
+  }
 }
 
 function applyReportView(value) {
   const counter = item => Number.isSafeInteger(item) && item >= 0 && item <= 1000000;
   if (
-    !value || value.interface_version !== 'orion.readonly-report.v1' ||
-    value.report_kind !== 'completed_aggregate' ||
+    !value || ![
+      ['orion.readonly-report.v1', 'completed_aggregate'],
+      ['orion.readonly-report.v2', 'synthetic_lineage'],
+      ['orion.readonly-report.v3', 'procurement_price_leakage']
+    ].some(([version, kind]) => value.interface_version === version && value.report_kind === kind) ||
     !value.metadata || !counter(value.metadata.used) || !counter(value.metadata.budget) ||
     !value.studies || !counter(value.studies.used) || !counter(value.studies.budget) ||
     !value.cycles || !counter(value.cycles.completed) ||
@@ -238,6 +250,34 @@ function applyReportView(value) {
   ) {
     throw Error('The report service returned an invalid safe view.');
   }
+  if (['orion.readonly-report.v2', 'orion.readonly-report.v3'].includes(value.interface_version) && (
+    !value.lineage || !/^[0-9a-f-]{36}$/.test(value.lineage.run_id) ||
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value.lineage.dataset_id) ||
+    !/^[0-9a-f]{64}$/.test(value.lineage.source_sha256) ||
+    !Array.isArray(value.lineage.evidence_ids) ||
+    value.lineage.evidence_ids.length !== value.observations_persisted
+  )) {
+    throw Error('The report service returned an invalid lineage.');
+  }
+  if (value.interface_version === 'orion.readonly-report.v3' && (
+    !value.procurement || !['candidate_review', 'abstained', 'no_anomaly', 'invalidated'].includes(value.procurement.status) ||
+    typeof value.procurement.item !== 'string' || typeof value.procurement.target_ref !== 'string' ||
+    typeof value.procurement.target_unit_usd !== 'string' ||
+    typeof value.procurement.estimated_exposure_usd !== 'string' ||
+    value.procurement.connector_identity !== 'originorion-connector-synthetic@0.2.0rc2' ||
+    typeof value.procurement.source_id !== 'string' ||
+    !Array.isArray(value.procurement.comparison_refs) ||
+    !Array.isArray(value.procurement.evidence_ids) ||
+    value.procurement.evidence_ids.length !== value.observations_persisted ||
+    !Array.isArray(value.procurement.missing_evidence) ||
+    !Array.isArray(value.procurement.excluded_evidence) ||
+    !Array.isArray(value.procurement.alternative_explanations) ||
+    !Array.isArray(value.procurement.invalidation_history) ||
+    !/^[0-9a-f]{64}$/.test(value.procurement.finding_sha256) ||
+    value.procurement.independently_verified_savings_usd !== null
+  )) {
+    throw Error('The report service returned an invalid procurement finding.');
+  }
   report = {
     metadataUsed: value.metadata.used,
     metadataBudget: value.metadata.budget,
@@ -245,11 +285,15 @@ function applyReportView(value) {
     studyBudget: value.studies.budget,
     observations: value.observations_persisted,
     cyclesCompleted: value.cycles.completed,
-    stopReason: value.stop_reason
+    stopReason: value.stop_reason,
+    lineage: value.interface_version === 'orion.readonly-report.v1' ? null : value.lineage,
+    procurement: value.interface_version === 'orion.readonly-report.v3' ? value.procurement : null
   };
-  source = 'authenticated aggregate report';
+  source = report.procurement ? 'authenticated procurement finding' : 'authenticated aggregate report';
   renderReport();
-  $('summary').textContent = 'A completed aggregate report is connected read-only. Ask for a briefing to review its counters.';
+  $('summary').textContent = report.procurement
+    ? `Procurement investigation ${report.procurement.status.replaceAll('_', ' ')}. Estimated exposure USD ${report.procurement.estimated_exposure_usd}; reviewer ${report.procurement.reviewer_decision}. See the evidence panel.`
+    : 'A completed aggregate report is connected read-only. Ask for a briefing to review its counters.';
 }
 
 function clearReportView() {
@@ -262,6 +306,10 @@ function clearReportView() {
   $('observations').textContent = '—';
   $('reportStatus').textContent = 'No report';
   $('historySummary').textContent = 'No bound historical report loaded.';
+  $('procurementPanel').hidden = true;
+  $('procurementSummary').textContent = '';
+  $('procurementEvidence').textContent = '';
+  $('procurementLimits').textContent = '';
   $('summary').textContent = 'No aggregate report is connected. No result will be inferred without evidence.';
 }
 

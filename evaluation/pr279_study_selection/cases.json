@@ -1,0 +1,737 @@
+{
+  "cases": [
+    {
+      "allowed_targets": [
+        "Supplier Bill",
+        "Catalog Price",
+        "Receipt Note"
+      ],
+      "case_id": "P01",
+      "domain": "procurement",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Link",
+          "options": "Supplier Bill"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Link",
+          "options": "Catalog Price"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Table",
+          "options": "Receipt Note"
+        }
+      ],
+      "records": {
+        "Catalog Price": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "P01-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Receipt Note": {
+          "approved_exception": true,
+          "currency": "USD",
+          "observed_unit_cost": "13.00",
+          "quantity": "6",
+          "record_ref": "P01-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Supplier Bill": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "6",
+          "record_ref": "P01-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Purchasing Hub",
+      "source_id": "synthetic-study-source-p01",
+      "tenant_id": "synthetic-study-procurement"
+    },
+    {
+      "allowed_targets": [
+        "Receiving",
+        "Purchase Bill",
+        "Vendor Terms"
+      ],
+      "case_id": "P02",
+      "domain": "procurement",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Link",
+          "options": "Receiving"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Table",
+          "options": "Purchase Bill"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Link",
+          "options": "Vendor Terms"
+        }
+      ],
+      "records": {
+        "Purchase Bill": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "7",
+          "record_ref": "P02-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Receiving": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "P02-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Vendor Terms": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "P02-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Buy Desk",
+      "source_id": "synthetic-study-source-p02",
+      "tenant_id": "synthetic-study-procurement"
+    },
+    {
+      "allowed_targets": [
+        "Freight Charge",
+        "Invoice Detail",
+        "Contract Line"
+      ],
+      "case_id": "P03",
+      "domain": "procurement",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Table",
+          "options": "Freight Charge"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Link",
+          "options": "Invoice Detail"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Link",
+          "options": "Contract Line"
+        }
+      ],
+      "records": {
+        "Contract Line": {
+          "approved_exception": true,
+          "currency": "USD",
+          "observed_unit_cost": "13.00",
+          "quantity": "8",
+          "record_ref": "P03-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Freight Charge": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "8",
+          "record_ref": "P03-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Invoice Detail": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "P03-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Spend Register",
+      "source_id": "synthetic-study-source-p03",
+      "tenant_id": "synthetic-study-procurement"
+    },
+    {
+      "allowed_targets": [
+        "Invoice Match",
+        "Purchase Queue",
+        "Supplier Terms"
+      ],
+      "case_id": "P04",
+      "domain": "procurement",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Link",
+          "options": "Invoice Match"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Table",
+          "options": "Purchase Queue"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Link",
+          "options": "Supplier Terms"
+        }
+      ],
+      "records": {
+        "Invoice Match": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "P04-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Purchase Queue": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "P04-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Supplier Terms": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "P04-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Order Control",
+      "source_id": "synthetic-study-source-p04",
+      "tenant_id": "synthetic-study-procurement"
+    },
+    {
+      "allowed_targets": [
+        "Repair Ticket",
+        "Asset Registry",
+        "Service Contract"
+      ],
+      "case_id": "M01",
+      "domain": "maintenance",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Link",
+          "options": "Repair Ticket"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Link",
+          "options": "Asset Registry"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Table",
+          "options": "Service Contract"
+        }
+      ],
+      "records": {
+        "Asset Registry": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "M01-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Repair Ticket": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "10",
+          "record_ref": "M01-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Service Contract": {
+          "approved_exception": true,
+          "currency": "USD",
+          "observed_unit_cost": "13.00",
+          "quantity": "10",
+          "record_ref": "M01-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Plant Desk",
+      "source_id": "synthetic-study-source-m01",
+      "tenant_id": "synthetic-study-maintenance"
+    },
+    {
+      "allowed_targets": [
+        "Work Order",
+        "Breakdown Event",
+        "Warranty Case"
+      ],
+      "case_id": "M02",
+      "domain": "maintenance",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Table",
+          "options": "Work Order"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Link",
+          "options": "Breakdown Event"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Link",
+          "options": "Warranty Case"
+        }
+      ],
+      "records": {
+        "Breakdown Event": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "11",
+          "record_ref": "M02-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Warranty Case": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "M02-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Work Order": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "M02-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Service Hub",
+      "source_id": "synthetic-study-source-m02",
+      "tenant_id": "synthetic-study-maintenance"
+    },
+    {
+      "allowed_targets": [
+        "Parts Use",
+        "Service Visit",
+        "Asset Ledger"
+      ],
+      "case_id": "M03",
+      "domain": "maintenance",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Table",
+          "options": "Parts Use"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Link",
+          "options": "Service Visit"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Link",
+          "options": "Asset Ledger"
+        }
+      ],
+      "records": {
+        "Asset Ledger": {
+          "approved_exception": true,
+          "currency": "USD",
+          "observed_unit_cost": "13.00",
+          "quantity": "12",
+          "record_ref": "M03-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Parts Use": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "12",
+          "record_ref": "M03-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Service Visit": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "M03-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Asset Control",
+      "source_id": "synthetic-study-source-m03",
+      "tenant_id": "synthetic-study-maintenance"
+    },
+    {
+      "allowed_targets": [
+        "Callout Note",
+        "Service Schedule",
+        "Warranty Register"
+      ],
+      "case_id": "M04",
+      "domain": "maintenance",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Link",
+          "options": "Callout Note"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Table",
+          "options": "Service Schedule"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Link",
+          "options": "Warranty Register"
+        }
+      ],
+      "records": {
+        "Callout Note": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "M04-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Service Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "M04-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Warranty Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "M04-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Equipment Desk",
+      "source_id": "synthetic-study-source-m04",
+      "tenant_id": "synthetic-study-maintenance"
+    },
+    {
+      "allowed_targets": [
+        "Transfer Event",
+        "Count Entry",
+        "Stock Ledger"
+      ],
+      "case_id": "I01",
+      "domain": "inventory",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Link",
+          "options": "Transfer Event"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Table",
+          "options": "Count Entry"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Link",
+          "options": "Stock Ledger"
+        }
+      ],
+      "records": {
+        "Count Entry": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "14",
+          "record_ref": "I01-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Stock Ledger": {
+          "approved_exception": true,
+          "currency": "USD",
+          "observed_unit_cost": "13.00",
+          "quantity": "14",
+          "record_ref": "I01-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Transfer Event": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "14",
+          "record_ref": "I01-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Stock Hub",
+      "source_id": "synthetic-study-source-i01",
+      "tenant_id": "synthetic-study-inventory"
+    },
+    {
+      "allowed_targets": [
+        "Pick Event",
+        "Batch Master",
+        "Stock Count"
+      ],
+      "case_id": "I02",
+      "domain": "inventory",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Table",
+          "options": "Pick Event"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Link",
+          "options": "Batch Master"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Link",
+          "options": "Stock Count"
+        }
+      ],
+      "records": {
+        "Batch Master": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "15",
+          "record_ref": "I02-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Pick Event": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "15",
+          "record_ref": "I02-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Stock Count": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "15",
+          "record_ref": "I02-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Warehouse Desk",
+      "source_id": "synthetic-study-source-i02",
+      "tenant_id": "synthetic-study-inventory"
+    },
+    {
+      "allowed_targets": [
+        "Warehouse Bin",
+        "Adjustment",
+        "Count Sheet"
+      ],
+      "case_id": "I03",
+      "domain": "inventory",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Link",
+          "options": "Warehouse Bin"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Link",
+          "options": "Adjustment"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Table",
+          "options": "Count Sheet"
+        }
+      ],
+      "records": {
+        "Adjustment": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "16",
+          "record_ref": "I03-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Count Sheet": {
+          "approved_exception": true,
+          "currency": "USD",
+          "observed_unit_cost": "13.00",
+          "quantity": "16",
+          "record_ref": "I03-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Warehouse Bin": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "16",
+          "record_ref": "I03-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Inventory Control",
+      "source_id": "synthetic-study-source-i03",
+      "tenant_id": "synthetic-study-inventory"
+    },
+    {
+      "allowed_targets": [
+        "Location Register",
+        "Movement Note",
+        "Stock Tag"
+      ],
+      "case_id": "I04",
+      "domain": "inventory",
+      "fields": [
+        {
+          "fieldname": "link_1",
+          "fieldtype": "Link",
+          "options": "Location Register"
+        },
+        {
+          "fieldname": "link_2",
+          "fieldtype": "Table",
+          "options": "Movement Note"
+        },
+        {
+          "fieldname": "link_3",
+          "fieldtype": "Link",
+          "options": "Stock Tag"
+        }
+      ],
+      "records": {
+        "Location Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "17",
+          "record_ref": "I04-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Movement Note": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "17",
+          "record_ref": "I04-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Stock Tag": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "17",
+          "record_ref": "I04-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Goods Desk",
+      "source_id": "synthetic-study-source-i04",
+      "tenant_id": "synthetic-study-inventory"
+    }
+  ],
+  "schema": "orion.study-selection-cases.v1"
+}

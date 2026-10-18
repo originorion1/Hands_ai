@@ -16,8 +16,9 @@ def test_installed_style_report_process_recovers_without_execution(tmp_path):
     manifest.write_text(json.dumps({
         "source_sha": "a" * 40,
         "tree": "b" * 40,
-        "version": "0.2.0rc1",
-        "report_host_version": version("originorion-connector-erpnext-discovery"),
+        "version": "0.2.0rc2",
+        "report_host_distribution": "originorion-core",
+        "report_host_version": version("originorion-core"),
         "report_server_module_sha256": sha256(Path(report_server.__file__).read_bytes()).hexdigest(),
     }))
     result = run(manifest)
@@ -33,9 +34,24 @@ def test_different_installed_report_module_is_denied(tmp_path):
     manifest.write_text(json.dumps({
         "source_sha": "a" * 40,
         "tree": "b" * 40,
-        "version": "0.2.0rc1",
-        "report_host_version": version("originorion-connector-erpnext-discovery"),
+        "version": "0.2.0rc2",
+        "report_host_distribution": "originorion-core",
+        "report_host_version": version("originorion-core"),
         "report_server_module_sha256": "0" * 64,
+    }))
+    with pytest.raises(RuntimeError, match="installed release identity"):
+        run(manifest)
+
+
+def test_vendor_distribution_cannot_claim_core_report_host(tmp_path):
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "source_sha": "a" * 40,
+        "tree": "b" * 40,
+        "version": "0.2.0rc2",
+        "report_host_distribution": "originorion-connector-erpnext-discovery",
+        "report_host_version": version("originorion-connector-erpnext-discovery"),
+        "report_server_module_sha256": sha256(Path(report_server.__file__).read_bytes()).hexdigest(),
     }))
     with pytest.raises(RuntimeError, match="installed release identity"):
         run(manifest)

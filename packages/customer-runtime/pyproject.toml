@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "originorion-customer-runtime"
+version = "0.1.0rc5"
+description = "Installed customer portal, approved metadata and report integration for ORION"
+requires-python = ">=3.12"
+dependencies = [
+    "originorion-core==0.2.0rc2",
+    "originorion-connector-sdk==0.2.0rc1",
+    "originorion-connector-synthetic==0.2.0rc2",
+    "originorion-connector-erpnext-discovery==0.2.0rc4",
+    "PyJWT>=2.8",
+]
+
+[tool.hatch.build.targets.wheel]
+only-include = []
+
+[tool.hatch.build.hooks.custom]

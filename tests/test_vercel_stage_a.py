@@ -100,7 +100,7 @@ def test_status_reports_configuration_without_claiming_backend_health(monkeypatc
     status, _, body = _request(StatusHandler, "/api/v1/status")
     assert status == 200
     value = json.loads(body)
-    assert value["release_version"] == "0.2.0rc1"
+    assert value["release_version"] == "0.2.0rc2"
     assert value["report_service"] == "requires_authentication"
     assert value["persistent_storage"] == "not_connected"
     assert value["execution_allowed"] is False

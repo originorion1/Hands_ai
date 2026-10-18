@@ -1,0 +1,1 @@
+"""Frozen synthetic procurement benchmark."""

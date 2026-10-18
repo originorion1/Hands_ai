@@ -9,15 +9,16 @@ import os
 import re
 import stat
 from dataclasses import dataclass
+from importlib.metadata import entry_points
 from pathlib import Path
 from typing import Any
 
-from ..discovery.erpnext_live_session import (
-    LiveSessionError,
-    LiveSessionRunReport,
-    live_session_run_report_from_json,
-)
 from ..stores.private_files import PrivateFileError, read_private_file
+from .lineage_report import (
+    LINEAGE_REPORT_SCHEMA,
+    LineageReportError,
+    project_lineage_report,
+)
 
 REPORT_INTERFACE_VERSION = "orion.readonly-report.v1"
 MAX_BINDING_BYTES = 4 * 1024
@@ -108,13 +109,22 @@ class BoundReportSource:
         if not hmac.compare_digest(actual, self.report_sha256):
             raise ReportInterfaceError("bound report digest does not match")
         try:
-            report = live_session_run_report_from_json(body)
-        except LiveSessionError as exc:
+            envelope = json.loads(body.decode("utf-8"), object_pairs_hook=_unique_object)
+            if type(envelope) is dict and envelope.get("schema") == LINEAGE_REPORT_SCHEMA:
+                return project_lineage_report(
+                    body, tenant_id=self.tenant_id, report_path=self.report_path
+                )
+            decoders = entry_points(group="orion.aggregate_reports.v1")
+            if len(decoders) != 1:
+                raise ReportInterfaceError("aggregate report decoder unavailable")
+            report = next(iter(decoders)).load()(body)
+            return project_report(report)
+        except (AttributeError, ImportError, LineageReportError, UnicodeError,
+                json.JSONDecodeError, TypeError, ValueError) as exc:
             raise ReportInterfaceError("bound report is invalid") from exc
-        return project_report(report)
 
 
-def project_report(report: LiveSessionRunReport) -> dict[str, object]:
+def project_report(report: object) -> dict[str, object]:
     """Project only aggregate facts needed by the read-only interface."""
 
     return {

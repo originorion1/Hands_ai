@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "originorion-core"
-version = "0.2.0rc1"
+version = "0.2.0rc2"
 description = "ORION — generic learning and governed automation kernel"
 requires-python = ">=3.12"
 readme = "README.md"
@@ -19,18 +19,22 @@ originorion-connector-sdk = { path = "packages/connector-sdk" }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/orion", "src/orion_http"]
-exclude = ["src/orion/discovery/erpnext_pilot_metadata.py"]
+exclude = [
+    "src/orion/discovery/erpnext_pilot_metadata.py",
+    "src/orion/business/procurement.py",
+]
 
 [tool.hatch.build.targets.sdist]
 exclude = [
     "packages/**",
     "src/orion/discovery/erpnext_pilot_metadata.py",
+    "src/orion/business/procurement.py",
     "orion/adapters/systems/erpnext/**",
     "orion/hands/erpnext/**",
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "packages/connector-sdk/src", "packages/erpnext-discovery/src", "packages/pilot-compat/src"]
+pythonpath = ["src", "packages/connector-sdk/src", "packages/erpnext-discovery/src", "packages/pilot-compat/src", "packages/synthetic-connector/src"]
 
 [tool.ruff]
 line-length = 100
