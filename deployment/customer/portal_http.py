@@ -14,6 +14,7 @@ from datetime import date
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
+from orion.presentation.report_interface import ReportInterfaceError
 from orion_connector_sdk import ReviewedConnector
 
 from .catalog import _unique_object
@@ -95,6 +96,13 @@ class CustomerPortalHTTP:
             secret = self._cookie(environ)
             if path == "/customer/api/overview" and method == "GET":
                 return self._reply(start_response, "200 OK", self.service.overview(secret))
+            if path == "/customer/api/report" and method == "GET":
+                report = self.service.report(secret)
+                if report is None:
+                    return self._reply(start_response, "404 Not Found", {
+                        "error": "no approved report bound",
+                    })
+                return self._reply(start_response, "200 OK", report)
             if method != "POST" or path not in {
                 "/customer/api/logout", "/customer/api/switch",
                 "/customer/api/invite", "/customer/api/remove",
@@ -154,6 +162,10 @@ class CustomerPortalHTTP:
             return self._reply(start_response, "202 Accepted", {
                 "tenant_id": connection.tenant_id, "connector": connection.connector,
                 "status": "enrolled_pending_grant", "execution_authority": False,
+            })
+        except ReportInterfaceError:
+            return self._reply(start_response, "503 Service Unavailable", {
+                "error": "service unavailable",
             })
         except (LoginDenied, TenantDenied, EnrollmentDenied, PortalProposalDenied,
                 TypeError, ValueError, KeyError):

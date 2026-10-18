@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import threading
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
@@ -10,6 +12,8 @@ from uuid import uuid4
 
 import pytest
 
+from deployment.customer.portal_http import CustomerPortalHTTP
+from deployment.customer.service import CustomerPortalService, CustomerReportBinding
 from deployment.intelligence.procurement_report import (
     ProcurementReportSource,
     invalidate_with_successor,
@@ -177,6 +181,74 @@ def test_admitted_source_persists_exact_finding_and_tampering_denies(tmp_path):
     review_path.write_bytes(review_path.read_bytes() + b" ")
     with pytest.raises(ReportInterfaceError):
         source.read_view()
+
+
+def test_customer_portal_reads_exact_persisted_finding_and_denies_revocation(tmp_path):
+    result, _private = _admitted_run(tmp_path)
+    base = BoundReportSource.from_private_binding(result.binding_path)
+    path, digest = persist_procurement_finding(
+        base=base, target_ref="holdout_a-T", company="Synthetic Procurement Co"
+    )
+    source = ProcurementReportSource(base, path, digest)
+    login, secret, _csrf = _synthetic_customer_session(
+        source.tenant_id, tmp_path / "portal-auth", datetime.now(UTC)
+    )
+    active = {"value": True}
+    lock = threading.Lock()
+
+    @contextmanager
+    def commit_scope(_authorization_id):
+        with lock:
+            yield
+
+    binding = CustomerReportBinding(
+        source, "synthetic-procurement-read", lambda _id: active["value"],
+        commit_scope,
+    )
+    service = CustomerPortalService(
+        login, login._registry,
+        report_lookup=lambda tenant: binding if tenant == source.tenant_id else None,
+    )
+    app = CustomerPortalHTTP(
+        login=login, service=service, origin="https://command.synthetic.invalid",
+    )
+
+    def get(path_name, *, cookie=secret):
+        response = {}
+
+        def start(status, headers):
+            response["status"] = status
+            response["headers"] = headers
+
+        body = b"".join(app({
+            "wsgi.url_scheme": "https", "HTTP_HOST": "command.synthetic.invalid",
+            "PATH_INFO": path_name, "REQUEST_METHOD": "GET",
+            "HTTP_COOKIE": f"__Host-orion_session={cookie}",
+        }, start))
+        return response["status"], json.loads(body), response["headers"]
+
+    status, report, _ = get("/customer/api/report")
+    assert status == "200 OK"
+    assert report == source.read_view()
+    assert report["procurement"]["estimated_exposure_usd"] == "60.00"
+    assert report["lineage"]["authorization_id"] == binding.authorization_id
+    status, overview, _ = get("/customer/api/overview")
+    assert status == "200 OK"
+    assert overview["report_available"] is True
+    assert overview["findings"] == [{
+        "run_id": str(result.run_id), "status": "candidate_review",
+    }]
+    assert get("/customer/api/report", cookie="forged")[0] == "401 Unauthorized"
+    original = path.read_bytes()
+    path.write_bytes(original + b" ")
+    assert get("/customer/api/report")[0] == "503 Service Unavailable"
+    path.write_bytes(original)
+    with lock:
+        active["value"] = False
+    status, denied, headers = get("/customer/api/report")
+    assert status == "401 Unauthorized" and denied == {"error": "request denied"}
+    assert any(name == "Set-Cookie" and "Max-Age=0" in value
+               for name, value in headers)
 
 
 def test_authorized_correction_invalidates_persisted_candidate(tmp_path):

@@ -25,7 +25,7 @@ from deployment.customer.login import CustomerLogin, LoginDenied
 from deployment.customer.oidc import OIDCVerifier, VerifiedIdentity
 from deployment.customer.portal import AuthorizationProposal
 from deployment.customer.portal_http import CustomerPortalHTTP
-from deployment.customer.service import CustomerPortalService
+from deployment.customer.service import CustomerPortalService, CustomerReportBinding
 from deployment.customer.tenants import TenantDenied, TenantRegistry
 from deployment.release_candidate import continuous_lineage as lineage
 from orion.contracts import EvidenceKind
@@ -148,6 +148,28 @@ def test_untrusted_tenant_claim_and_wrong_tenant_are_denied(context):
         _complete(login, key, "alpha-admin", tenant="tenant-beta")
     with pytest.raises(LoginDenied, match="membership"):
         _complete(login, key, "stranger", tenant="tenant-alpha")
+
+
+def test_report_binding_denies_cross_tenant_source_even_with_valid_member(context):
+    registry, login, key, _alpha, _beta = context
+    beta_session, _ = _complete(login, key, "beta-admin", tenant="tenant-beta")
+
+    class Source:
+        tenant_id = "tenant-alpha"
+
+        def read_view(self):
+            raise AssertionError("cross-tenant source must not be read")
+
+    from contextlib import nullcontext
+
+    binding = CustomerReportBinding(
+        Source(), "synthetic-grant", lambda _id: True, lambda _id: nullcontext(),
+    )
+    service = CustomerPortalService(
+        login, registry, report_lookup=lambda _tenant: binding,
+    )
+    with pytest.raises(LoginDenied, match="tenant binding"):
+        service.report(_secret(beta_session))
 
 
 def test_verified_invited_user_can_complete_login_only_for_invited_tenant(context):

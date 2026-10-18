@@ -9,7 +9,10 @@ from __future__ import annotations
 import hmac
 import json
 import time
+from collections.abc import Callable, Mapping
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from typing import Protocol
 from uuid import uuid4
 
 from .catalog import _unique_object
@@ -18,10 +21,62 @@ from .portal import AuthorizationProposal, authorization_scope_digest
 from .tenants import TenantRegistry
 
 
+class CustomerReportSource(Protocol):
+    tenant_id: str
+
+    def read_view(self) -> dict[str, object]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class CustomerReportBinding:
+    """Trusted control-plane binding; browser input cannot construct this object.
+
+    ``commit_scope`` must serialize the active-grant check with revocation.
+    The report source performs its own evidence and digest validation.
+    """
+
+    source: CustomerReportSource
+    authorization_id: str
+    is_active: Callable[[str], bool]
+    commit_scope: Callable[[str], AbstractContextManager[None]]
+
+    def __post_init__(self) -> None:
+        if (not self.authorization_id or not callable(self.is_active)
+                or not callable(self.commit_scope) or not callable(self.source.read_view)):
+            raise ValueError("trusted report and grant binding required")
+
+
 @dataclass(frozen=True, slots=True)
 class CustomerPortalService:
     login: CustomerLogin
     registry: TenantRegistry
+    report_lookup: Callable[[str], CustomerReportBinding | None] | None = None
+
+    def report(self, session_secret: str) -> dict[str, object] | None:
+        """Read the persisted report under both session and grant revocation locks."""
+        access = self.login.authorize(session_secret)
+        if self.report_lookup is None:
+            return None
+        binding = self.report_lookup(access.tenant_id)
+        if binding is None:
+            return None
+        if (not isinstance(binding, CustomerReportBinding)
+                or binding.source.tenant_id != access.tenant_id):
+            raise LoginDenied("report tenant binding denied")
+        with (self.login.authorized_report_commit(session_secret, tenant_id=access.tenant_id),
+              binding.commit_scope(binding.authorization_id)):
+            if binding.is_active(binding.authorization_id) is not True:
+                raise LoginDenied("report grant revoked")
+            view = binding.source.read_view()
+            lineage = view.get("lineage") if isinstance(view, Mapping) else None
+            authority = view.get("authority") if isinstance(view, Mapping) else None
+            if (not isinstance(lineage, Mapping) or not isinstance(authority, Mapping)
+                    or lineage.get("authorization_id") != binding.authorization_id
+                    or authority.get("execution_allowed") is not False
+                    or authority.get("erp_writes") != 0
+                    or binding.is_active(binding.authorization_id) is not True):
+                raise LoginDenied("report authority or lineage denied")
+            return view
 
     def overview(self, session_secret: str) -> dict[str, object]:
         access = self.login.authorize(session_secret)
@@ -44,6 +99,9 @@ class CustomerPortalService:
                 "ON p.tenant_id=c.tenant_id AND p.label=c.label "
                 "WHERE c.tenant_id=? ORDER BY c.label", (access.tenant_id,),
             ).fetchall()
+        report = self.report(session_secret)
+        lineage = report.get("lineage", {}) if report is not None else {}
+        finding = report.get("procurement") if report is not None else None
         return {
             "tenant_id": access.tenant_id, "role": access.role,
             "subject": access.subject, "session_expires_at": access.session_expires_at,
@@ -57,11 +115,17 @@ class CustomerPortalService:
                  "execution_allowed": False}
                 for label, connector, status, endpoint, company in connections
             ],
-            "authorization_status": "no_approved_grant_bound",
+            "authorization_status": (
+                "approved_read_only_report_bound" if report is not None
+                else "no_approved_grant_bound"
+            ),
             "autonomous_study_proposals": [],
-            "evidence_coverage": None,
-            "investigation_progress": None,
-            "findings": [],
+            "evidence_coverage": len(lineage.get("evidence_ids", [])) if report else None,
+            "investigation_progress": "persisted" if report else None,
+            "findings": ([{"run_id": lineage.get("run_id"),
+                           "status": finding.get("status")}]
+                         if isinstance(finding, dict) else []),
+            "report_available": report is not None,
         }
 
     def invite(
