@@ -28,6 +28,7 @@ exclude = [
 exclude = [
     "packages/**",
     "evaluation/native_intelligence_v1/**",
+    "evaluation/adaptive_v1/**",
     "src/orion/discovery/erpnext_pilot_metadata.py",
     "src/orion/business/procurement.py",
     "orion/adapters/systems/erpnext/**",

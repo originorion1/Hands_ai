@@ -8,6 +8,7 @@ import math
 import random
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -198,7 +199,8 @@ def _choose(method: str, candidates: tuple[QuestionModel, ...], case: dict,
     return selected, f"{method} selection under common governed preflight"
 
 
-def run_case(case: dict, calibration: dict, method: str) -> dict:
+def run_case(case: dict, calibration: dict, method: str, *,
+             chooser: Callable | None = None) -> dict:
     started = time.perf_counter_ns()
     understanding = _understanding(case)
     questions = _questions(case, calibration)
@@ -214,8 +216,9 @@ def run_case(case: dict, calibration: dict, method: str) -> dict:
     for _ in range(2):
         remaining = tuple(question for question in questions
                           if question.question_id not in selected_ids)
-        question, rationale = _choose(method, remaining, case, belief, calibration,
-                                      understanding, authorization)
+        question, rationale = (chooser or _choose)(
+            method, remaining, case, belief, calibration, understanding, authorization,
+        )
         plan = DiscoveryPlan(case["tenant_id"], (DiscoveryPlanItem(
             DiscoveryTargetKind.RECORDS, question.target, rationale,
             question.provenance_ids,
