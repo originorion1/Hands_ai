@@ -49,8 +49,10 @@ comparable access and total cost.
 `browser_drill.py` is a separate, optional real-Chromium drill against an
 in-process synthetic OIDC and portal transport. It requires Playwright and a
 Chromium binary. Set `ORION_TEST_CHROMIUM_PATH` when the installed browser is
-not at Playwright's default path. The in-process route transport may not follow
-the cross-origin callback redirect in older Chromium builds; the harness then
-completes the same signed code-flow server-side and transfers only session
-cookies to the browser. This fallback is recorded as a browser transport
-limitation and is not evidence of a real IdP deployment.
+not at Playwright's default path. The route transport converts synthetic
+302/303 responses into browser meta redirects because older Chromium builds
+do not consistently intercept fulfilled cross-origin redirects. The browser
+still visits the real portal login and callback handlers and receives only
+session cookies. A server-side fallback is recorded if the callback cannot be
+visited. This is not evidence of a live IdP deployment or of exact HTTP
+redirect behavior in a hosted environment.

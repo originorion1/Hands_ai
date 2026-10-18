@@ -127,9 +127,9 @@ def main() -> None:
                         "iss": ISSUER, "sub": "browser-admin", "aud": "orion-browser",
                         "iat": now, "exp": now + 240, "nonce": query["nonce"][0],
                     }, key, algorithm="RS256", headers={"kid": "key-1"})
-                    route.fulfill(status=302, headers={
-                        "Location": f"{PORTAL}/callback?state={query['state'][0]}&code=one-use-browser-code",
-                    }, body="")
+                    callback = f"{PORTAL}/callback?state={query['state'][0]}&code=one-use-browser-code"
+                    route.fulfill(status=200, headers={"Content-Type": "text/html"},
+                                  body=f'<meta http-equiv="refresh" content="0;url={callback}">')
                     return
                 if parsed.hostname != "command.example.invalid":
                     blocked_external.append(parsed.hostname)
@@ -173,6 +173,11 @@ def main() -> None:
                                              and value.startswith("/") else value)
                 if cookies:
                     context.add_cookies(cookies)
+                if status in {302, 303} and "Location" in out_headers:
+                    destination = out_headers["Location"]
+                    route.fulfill(status=200, headers={"Content-Type": "text/html"},
+                                  body=f'<meta http-equiv="refresh" content="0;url={destination}">')
+                    return
                 route.fulfill(status=status, headers=out_headers, body=body)
 
             context.route("**/*", handle)
