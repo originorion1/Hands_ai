@@ -244,6 +244,7 @@ def main() -> None:
             page.locator("#loginPanel").wait_for(state="visible")
             assert page.locator("#reportPanel").is_hidden()
             assert page.locator("#reportDetails").inner_text() == ""
+            assert "Access denied" in page.locator("#status").inner_text()
             if args.evidence_dir:
                 page.screenshot(path=str(args.evidence_dir / "revoked-cleared.png"), full_page=True)
             assert not blocked_external
