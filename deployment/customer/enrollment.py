@@ -124,6 +124,7 @@ def enroll_erpnext(
             # from the registry without returning credentials to application state.
             login._verified_session_identity(session_secret), tenant_id=access.tenant_id,
             connector=registration, label=label, credential_ref=reference,
+            endpoint=_origin(endpoint), company=company,
         )
     except BaseException:
         vault_revoke(reference)

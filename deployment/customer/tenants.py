@@ -60,11 +60,12 @@ class TenantAccess:
 
 
 def _valid_bootstrap(payload: dict) -> None:
-    if set(payload) != {
+    required = {
         "approval_id", "tenant_id", "organization_name", "country", "timezone",
         "sector", "data_residency", "retention_days", "admin_issuer", "admin_subject",
         "expires_at",
-    }:
+    }
+    if set(payload) not in (required, required | {"external_company_reference"}):
         raise TenantDenied("invalid onboarding approval")
     if (
         type(payload["approval_id"]) is not str
@@ -85,6 +86,10 @@ def _valid_bootstrap(payload: dict) -> None:
         or type(payload["admin_subject"]) is not str
         or not payload["admin_subject"].strip()
         or type(payload["expires_at"]) is not int
+        or ("external_company_reference" in payload and (
+            type(payload["external_company_reference"]) is not str
+            or not _TEXT.fullmatch(payload["external_company_reference"])
+        ))
     ):
         raise TenantDenied("invalid onboarding approval")
     try:
@@ -117,6 +122,17 @@ class TenantRegistry:
                     active INTEGER NOT NULL CHECK(active IN (0,1)),
                     PRIMARY KEY (tenant_id, issuer, subject)
                 );
+                CREATE TABLE IF NOT EXISTS member_invitations (
+                    tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
+                    issuer TEXT NOT NULL, subject TEXT NOT NULL,
+                    role TEXT NOT NULL CHECK(role IN ('administrator','analyst')),
+                    expires_at INTEGER NOT NULL,
+                    PRIMARY KEY (tenant_id, issuer, subject)
+                );
+                CREATE TABLE IF NOT EXISTS tenant_external_references (
+                    tenant_id TEXT PRIMARY KEY REFERENCES tenants(tenant_id),
+                    company_reference TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS consumed_approvals (
                     approval_id TEXT PRIMARY KEY
                 );
@@ -131,6 +147,18 @@ class TenantRegistry:
                     generation INTEGER NOT NULL CHECK(generation > 0),
                     status TEXT NOT NULL CHECK(status IN ('active','revoked')),
                     PRIMARY KEY (tenant_id, label)
+                );
+                CREATE TABLE IF NOT EXISTS connection_profiles (
+                    tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
+                    label TEXT NOT NULL, endpoint TEXT NOT NULL,
+                    company TEXT NOT NULL,
+                    PRIMARY KEY (tenant_id, label)
+                );
+                CREATE TABLE IF NOT EXISTS authorization_proposals (
+                    proposal_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES tenants(tenant_id),
+                    scope_sha256 TEXT NOT NULL, payload_json TEXT NOT NULL,
+                    submitted_at INTEGER NOT NULL,
+                    status TEXT NOT NULL CHECK(status='pending_governed_validation')
                 );
                 CREATE TABLE IF NOT EXISTS retired_credential_refs (
                     credential_ref TEXT PRIMARY KEY,
@@ -258,6 +286,11 @@ class TenantRegistry:
                     "INSERT INTO members VALUES (?,?,?,?,1)",
                     (approval["tenant_id"], identity.issuer, identity.subject, "administrator"),
                 )
+                if "external_company_reference" in approval:
+                    db.execute(
+                        "INSERT INTO tenant_external_references VALUES (?,?)",
+                        (approval["tenant_id"], approval["external_company_reference"]),
+                    )
                 db.commit()
         except sqlite3.IntegrityError as exc:
             raise TenantDenied("tenant or onboarding approval already used") from exc
@@ -317,6 +350,94 @@ class TenantRegistry:
         except sqlite3.IntegrityError as exc:
             raise TenantDenied("member already enrolled") from exc
 
+    def invite_member(
+        self, administrator: VerifiedIdentity, *, tenant_id: str,
+        issuer: str, subject: str, role: str, expires_at: int,
+    ) -> None:
+        """Create an exact-identity invitation; an IdP-verified user must accept it."""
+        if (
+            type(issuer) is not str or not issuer.startswith("https://")
+            or type(subject) is not str or not subject.strip() or len(subject) > 256
+            or role not in _ROLES or type(expires_at) is not int
+            or not time.time() < expires_at <= time.time() + 7 * 86400
+        ):
+            raise TenantDenied("invalid member invitation")
+        try:
+            with self._connection() as db:
+                db.execute("BEGIN IMMEDIATE")
+                self._require_admin(db, administrator, tenant_id)
+                if db.execute(
+                    "SELECT 1 FROM members WHERE tenant_id=? AND issuer=? AND subject=? AND active=1",
+                    (tenant_id, issuer, subject),
+                ).fetchone():
+                    raise TenantDenied("member already active")
+                db.execute(
+                    "INSERT INTO member_invitations VALUES (?,?,?,?,?)",
+                    (tenant_id, issuer, subject, role, expires_at),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise TenantDenied("member invitation already exists") from exc
+
+    def accept_invitation(self, identity: VerifiedIdentity, *, tenant_id: str) -> TenantAccess:
+        """Consume an invitation only for the exact verified IdP subject."""
+        if not isinstance(identity, VerifiedIdentity) or identity.expires_at <= time.time():
+            raise TenantDenied("verified invited identity required")
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            active = db.execute(
+                "SELECT 1 FROM tenants WHERE tenant_id=? AND status='active'", (tenant_id,),
+            ).fetchone()
+            revoked = db.execute(
+                "SELECT 1 FROM revoked_sessions WHERE issuer=? AND session_id=?",
+                (identity.issuer, identity.session_id),
+            ).fetchone()
+            row = db.execute(
+                "SELECT role,expires_at FROM member_invitations WHERE tenant_id=? AND issuer=? AND subject=?",
+                (tenant_id, identity.issuer, identity.subject),
+            ).fetchone()
+            if active is None or revoked or row is None or row[1] <= time.time():
+                raise TenantDenied("member invitation unavailable")
+            db.execute(
+                "INSERT INTO members VALUES (?,?,?,?,1) "
+                "ON CONFLICT(tenant_id,issuer,subject) DO UPDATE SET role=excluded.role,active=1",
+                (tenant_id, identity.issuer, identity.subject, row[0]),
+            )
+            db.execute(
+                "DELETE FROM member_invitations WHERE tenant_id=? AND issuer=? AND subject=?",
+                (tenant_id, identity.issuer, identity.subject),
+            )
+        return TenantAccess(tenant_id, row[0], identity.subject, identity.expires_at)
+
+    def remove_member(
+        self, administrator: VerifiedIdentity, *, tenant_id: str,
+        issuer: str, subject: str,
+    ) -> None:
+        """Recheck administrator authority and deny removal of the last administrator."""
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            self._require_admin(db, administrator, tenant_id)
+            row = db.execute(
+                "SELECT role FROM members WHERE tenant_id=? AND issuer=? AND subject=? AND active=1",
+                (tenant_id, issuer, subject),
+            ).fetchone()
+            if row is None:
+                raise TenantDenied("member unavailable")
+            if row[0] == "administrator":
+                remaining = db.execute(
+                    "SELECT COUNT(*) FROM members WHERE tenant_id=? AND role='administrator' AND active=1",
+                    (tenant_id,),
+                ).fetchone()[0]
+                if remaining <= 1:
+                    raise TenantDenied("last administrator cannot be removed")
+            db.execute(
+                "UPDATE members SET active=0 WHERE tenant_id=? AND issuer=? AND subject=?",
+                (tenant_id, issuer, subject),
+            )
+            db.execute(
+                "DELETE FROM member_invitations WHERE tenant_id=? AND issuer=? AND subject=?",
+                (tenant_id, issuer, subject),
+            )
+
     @staticmethod
     def _require_admin(db: sqlite3.Connection, identity: VerifiedIdentity, tenant_id: str) -> None:
         if not isinstance(identity, VerifiedIdentity) or identity.expires_at <= time.time():
@@ -337,6 +458,7 @@ class TenantRegistry:
     def enroll_credential_reference(
         self, administrator: VerifiedIdentity, *, tenant_id: str,
         connector: ConnectorRegistration, label: str, credential_ref: str,
+        endpoint: str | None = None, company: str | None = None,
     ) -> None:
         """Record an external vault reference, never a submitted API secret."""
         if (
@@ -346,6 +468,11 @@ class TenantRegistry:
             or not _LABEL.fullmatch(label)
             or type(credential_ref) is not str
             or not _CREDENTIAL_REF.fullmatch(credential_ref)
+            or (endpoint is None) != (company is None)
+            or (endpoint is not None and (
+                type(endpoint) is not str or not endpoint.startswith("https://")
+                or type(company) is not str or not _TEXT.fullmatch(company)
+            ))
         ):
             raise TenantDenied("invalid reviewed credential reference")
         try:
@@ -356,6 +483,11 @@ class TenantRegistry:
                     "INSERT INTO credential_refs VALUES (?,?,?,?,1,'active')",
                     (tenant_id, label, connector.name, credential_ref),
                 )
+                if endpoint is not None:
+                    db.execute(
+                        "INSERT INTO connection_profiles VALUES (?,?,?,?)",
+                        (tenant_id, label, endpoint, company),
+                    )
         except sqlite3.IntegrityError as exc:
             raise TenantDenied("credential reference already enrolled") from exc
 
@@ -583,6 +715,22 @@ class TenantRegistry:
                     )
                     db.execute(
                         "UPDATE members SET active=0 WHERE tenant_id=?",
+                        (decision["tenant_id"],),
+                    )
+                    db.execute(
+                        "DELETE FROM member_invitations WHERE tenant_id=?",
+                        (decision["tenant_id"],),
+                    )
+                    db.execute(
+                        "DELETE FROM authorization_proposals WHERE tenant_id=?",
+                        (decision["tenant_id"],),
+                    )
+                    db.execute(
+                        "DELETE FROM connection_profiles WHERE tenant_id=?",
+                        (decision["tenant_id"],),
+                    )
+                    db.execute(
+                        "DELETE FROM tenant_external_references WHERE tenant_id=?",
                         (decision["tenant_id"],),
                     )
         except sqlite3.IntegrityError as exc:
