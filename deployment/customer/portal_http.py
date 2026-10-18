@@ -42,13 +42,22 @@ class CustomerPortalHTTP:
         schema_bytes: bytes | None = None, schema_sha256: str | None = None,
         approved_erp_origin: str | None = None,
         vault_store: Callable | None = None, vault_revoke: Callable | None = None,
+        allow_development_localhost: bool = False,
     ):
         target = urlsplit(origin)
         callback = urlsplit(login._redirect_uri)
+        if type(allow_development_localhost) is not bool:
+            raise ValueError("reviewed HTTPS portal origin required")
+        # The opt-in is deliberately pinned to one loopback origin; it cannot
+        # admit an arbitrary forwarded host or nonstandard deployment port.
+        local_dev_origin = origin == "https://localhost:8443"
         if (
             target.scheme != "https" or not target.hostname or target.path
             or target.query or target.fragment or target.username or target.password
-            or target.port not in (None, 443)
+            or (
+                target.port not in (None, 443)
+                and not (allow_development_localhost and local_dev_origin)
+            )
             or callback.scheme != "https" or callback.netloc != target.netloc
             or not callback.path.startswith("/") or callback.query or callback.fragment
             or service.login is not login

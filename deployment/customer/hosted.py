@@ -41,12 +41,15 @@ def create_hosted_customer_portal(
     connector_schema_bytes: bytes,
     connector_schema_sha256: str,
     approved_erp_origin: str,
+    allow_development_localhost: bool = False,
 ) -> CustomerPortalHTTP:
     """Return one WSGI app with all customer authorities injected server-side.
 
     The token client always starts with system TLS, no proxy and no redirects.
     Neither vault callbacks nor the report lookup may treat a browser-selected
-    tenant as authority without the checks in CustomerPortalService.
+    tenant as authority without the checks in CustomerPortalService. The
+    development opt-in permits only the exact ``https://localhost:8443``
+    origin; it does not relax host validation or forwarded-header handling.
     """
     if (
         not isinstance(registry, TenantRegistry)
@@ -106,6 +109,7 @@ def create_hosted_customer_portal(
         approved_erp_origin=approved_erp_origin,
         vault_store=store_connector,
         vault_revoke=revoke_connector,
+        allow_development_localhost=allow_development_localhost,
     )
 
 
@@ -116,6 +120,7 @@ def create_auth0_google_portal(
     report_lookup: Callable[[str], CustomerReportBinding | None],
     reviewed_connector: ReviewedConnector, connector_schema_bytes: bytes,
     connector_schema_sha256: str, approved_erp_origin: str,
+    allow_development_localhost: bool = False,
 ) -> CustomerPortalHTTP:
     """Wire reviewed Auth0 metadata and private Google vault callbacks only."""
     if not isinstance(provider, ReviewedAuth0Provider) or not isinstance(
@@ -139,4 +144,5 @@ def create_auth0_google_portal(
         connector_schema_bytes=connector_schema_bytes,
         connector_schema_sha256=connector_schema_sha256,
         approved_erp_origin=approved_erp_origin,
+        allow_development_localhost=allow_development_localhost,
     )

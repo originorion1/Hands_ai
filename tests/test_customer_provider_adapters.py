@@ -197,7 +197,13 @@ def test_google_secret_manager_denies_bad_identity_and_ambient_proxy(monkeypatch
         ).read_client_secret("vault:oidc-" + "a" * 32)
 
 
-def test_reviewed_provider_composition_uses_private_callbacks(tmp_path):
+@pytest.mark.parametrize(("origin", "allow_localhost"), [
+    ("https://portal.example.invalid", False),
+    ("https://localhost:8443", True),
+])
+def test_reviewed_provider_composition_uses_private_callbacks(
+    tmp_path, origin, allow_localhost,
+):
     issuer = "https://synthetic.auth0.example/"
     provider = review_auth0_metadata(
         issuer=issuer,
@@ -217,7 +223,7 @@ def test_reviewed_provider_composition_uses_private_callbacks(tmp_path):
         tmp_path / "tenants.sqlite", approval_public_key=Ed25519PrivateKey.generate().public_key(),
     )
     app = create_auth0_google_portal(
-        origin="https://portal.example.invalid", registry=registry, provider=provider,
+        origin=origin, registry=registry, provider=provider,
         oidc_client_id="synthetic-client", oidc_client_secret_reference=oidc_ref,
         vault=vault, report_lookup=lambda _tenant: None,
         reviewed_connector=ReviewedConnector(
@@ -226,6 +232,9 @@ def test_reviewed_provider_composition_uses_private_callbacks(tmp_path):
         ),
         connector_schema_bytes=b"{}", connector_schema_sha256="0" * 64,
         approved_erp_origin="https://erp.example.invalid",
+        allow_development_localhost=allow_localhost,
     )
     assert app.login._verifier._issuer == issuer
     assert app.login._token_exchange._resolve_secret(oidc_ref) == value.decode()
+    assert app.origin == origin
+    assert app.login._redirect_uri == f"{origin}/callback"
