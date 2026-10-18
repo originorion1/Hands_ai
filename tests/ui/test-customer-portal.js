@@ -111,6 +111,7 @@ vm.runInContext(script, context, {filename: 'portal.js'});
   assert.equal(elements.connections.children.length, 0);
   assert.equal(elements.reportPanel.hidden, true);
   assert.equal(elements.reportDetails.children.length, 0);
+  assert.match(elements.status.textContent, /Access denied/);
   assert.equal(elements.apiKey.value, '');
   assert.equal(elements.apiSecret.value, '');
   denied = false;

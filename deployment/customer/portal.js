@@ -39,6 +39,7 @@ async function request(path, body) {
   }
   if (response.status === 401 || response.status === 403) {
     clear();
+    status('Access denied. Sign in again.');
     throw new Error('Access denied. Sign in again.');
   }
   if (!response.ok) {

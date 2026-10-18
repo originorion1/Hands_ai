@@ -9,6 +9,7 @@ import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
 from email.message import Message
 from urllib.parse import parse_qs, urlsplit
@@ -116,6 +117,85 @@ def _complete(login, key, subject, tenant="tenant-alpha", **changes):
 
 def _secret(session):
     return session.cookie.split(";", 1)[0].split("=", 1)[1]
+
+
+def test_overview_denies_report_from_concurrently_switched_tenant(context, monkeypatch):
+    registry, login, key, alpha, beta = context
+    registry.add_member(
+        beta, tenant_id="tenant-beta", member=alpha, role="analyst",
+    )
+    session, _ = _complete(login, key, "alpha-admin")
+    secret = _secret(session)
+
+    class OtherTenantReport:
+        tenant_id = "tenant-beta"
+
+        def read_view(self):
+            return {
+                "lineage": {"authorization_id": "beta-grant", "run_id": "beta-run"},
+                "authority": {"execution_allowed": False, "erp_writes": 0},
+                "procurement": {"status": "candidate_review"},
+            }
+
+    @contextmanager
+    def report_commit(_authorization_id):
+        yield
+
+    binding = CustomerReportBinding(
+        OtherTenantReport(), "beta-grant", lambda _id: True, report_commit,
+    )
+    service = CustomerPortalService(
+        login, registry,
+        report_lookup=lambda tenant_id: binding if tenant_id == "tenant-beta" else None,
+    )
+    original_report = CustomerPortalService.report
+
+    def report_after_switch(self, session_secret, *, expected_tenant=None):
+        login.switch_tenant(
+            secret, tenant_id="tenant-beta", csrf_token=session.csrf_token,
+        )
+        return original_report(self, session_secret, expected_tenant=expected_tenant)
+
+    monkeypatch.setattr(CustomerPortalService, "report", report_after_switch)
+    with pytest.raises(LoginDenied, match="session scope changed"):
+        service.overview(secret)
+
+
+@pytest.mark.parametrize(
+    ("payload_tenant", "payload_run"),
+    [("tenant-beta", "alpha-run"), ("tenant-alpha", "other-run")],
+)
+def test_report_denies_procurement_payload_with_wrong_tenant_or_run(
+    context, payload_tenant, payload_run,
+):
+    registry, login, key, _alpha, _beta = context
+    session, _ = _complete(login, key, "alpha-admin")
+
+    class ContradictoryReport:
+        tenant_id = "tenant-alpha"
+
+        def read_view(self):
+            return {
+                "lineage": {"authorization_id": "alpha-grant", "run_id": "alpha-run"},
+                "authority": {"execution_allowed": False, "erp_writes": 0},
+                "procurement": {
+                    "tenant_id": payload_tenant, "run_id": payload_run,
+                    "status": "candidate_review",
+                },
+            }
+
+    @contextmanager
+    def report_commit(_authorization_id):
+        yield
+
+    binding = CustomerReportBinding(
+        ContradictoryReport(), "alpha-grant", lambda _id: True, report_commit,
+    )
+    service = CustomerPortalService(
+        login, registry, report_lookup=lambda tenant_id: binding if tenant_id == "tenant-alpha" else None,
+    )
+    with pytest.raises(LoginDenied, match="report tenant or run lineage denied"):
+        service.report(_secret(session))
 
 
 def test_admin_login_requires_membership_and_csrf(context):
