@@ -122,6 +122,7 @@ def plan_authorized_discovery(
     }
 
     referenced: dict[str, tuple[UUID, ...]] = {}
+    reference_counts: dict[str, int] = {}
 
     for entity in understanding.entities:
         for field in entity.fields:
@@ -141,18 +142,21 @@ def plan_authorized_discovery(
                 referenced.get(target, ()),
                 entity.provenance_ids,
             )
+            reference_counts[target] = reference_counts.get(target, 0) + 1
 
     items: list[DiscoveryPlanItem] = []
 
-    # Expand structure before sampling business records.
-    for target in sorted(referenced):
+    # One metadata read resolves every observed reference to that target.
+    # Prefer the largest structural coverage under a bounded read budget;
+    # names are only a deterministic tie-break, not evidence of value.
+    for target in sorted(referenced, key=lambda name: (-reference_counts[name], name)):
         items.append(
             DiscoveryPlanItem(
                 kind=DiscoveryTargetKind.METADATA,
                 target=target,
                 rationale=(
-                    "authorized structural reference discovered in "
-                    "observed metadata"
+                    f"authorized target resolves {reference_counts[target]} "
+                    "observed structural reference(s)"
                 ),
                 provenance_ids=referenced[target],
             )

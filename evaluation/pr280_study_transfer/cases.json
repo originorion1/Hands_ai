@@ -1,0 +1,3119 @@
+{
+  "cases": [
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Alpha Register",
+        "Delta Notice",
+        "Beta Ledger"
+      ],
+      "case_id": "UTI01",
+      "domain": "utilities",
+      "fields": [
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "UTI01-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "UTI01-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "UTI01-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "6",
+          "record_ref": "UTI01-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Utilities Index",
+      "source_id": "synthetic-source-uti01",
+      "tenant_id": "synthetic-uti01"
+    },
+    {
+      "allowed_targets": [
+        "Beta Ledger",
+        "Gamma Schedule",
+        "Delta Notice",
+        "Alpha Register"
+      ],
+      "case_id": "UTI02",
+      "domain": "utilities",
+      "fields": [
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "UTI02-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "UTI02-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "7",
+          "record_ref": "UTI02-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "UTI02-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Utilities Index",
+      "source_id": "synthetic-source-uti02",
+      "tenant_id": "synthetic-uti02"
+    },
+    {
+      "allowed_targets": [
+        "Alpha Register",
+        "Gamma Schedule",
+        "Beta Ledger",
+        "Delta Notice"
+      ],
+      "case_id": "UTI03",
+      "domain": "utilities",
+      "fields": [
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "UTI03-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "UTI03-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "8",
+          "record_ref": "UTI03-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "UTI03-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Utilities Index",
+      "source_id": "synthetic-source-uti03",
+      "tenant_id": "synthetic-uti03"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Alpha Register",
+        "Beta Ledger",
+        "Delta Notice"
+      ],
+      "case_id": "UTI04",
+      "domain": "utilities",
+      "fields": [
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "UTI04-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "UTI04-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "UTI04-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "UTI04-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Utilities Index",
+      "source_id": "synthetic-source-uti04",
+      "tenant_id": "synthetic-uti04"
+    },
+    {
+      "allowed_targets": [
+        "Delta Notice",
+        "Beta Ledger",
+        "Alpha Register",
+        "Gamma Schedule"
+      ],
+      "case_id": "UTI05",
+      "domain": "utilities",
+      "fields": [
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "UTI05-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "10",
+          "record_ref": "UTI05-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "UTI05-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "UTI05-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Utilities Index",
+      "source_id": "synthetic-source-uti05",
+      "tenant_id": "synthetic-uti05"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Beta Ledger",
+        "Delta Notice",
+        "Alpha Register"
+      ],
+      "case_id": "UTI06",
+      "domain": "utilities",
+      "fields": [
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "UTI06-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "UTI06-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "UTI06-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "11",
+          "record_ref": "UTI06-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Utilities Index",
+      "source_id": "synthetic-source-uti06",
+      "tenant_id": "synthetic-uti06"
+    },
+    {
+      "allowed_targets": [
+        "Alpha Register",
+        "Delta Notice",
+        "Beta Ledger",
+        "Gamma Schedule"
+      ],
+      "case_id": "UTI07",
+      "domain": "utilities",
+      "fields": [
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_2",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "12",
+          "record_ref": "UTI07-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "UTI07-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "UTI07-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "UTI07-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Utilities Index",
+      "source_id": "synthetic-source-uti07",
+      "tenant_id": "synthetic-uti07"
+    },
+    {
+      "allowed_targets": [
+        "Delta Notice",
+        "Alpha Register",
+        "Gamma Schedule",
+        "Beta Ledger"
+      ],
+      "case_id": "UTI08",
+      "domain": "utilities",
+      "fields": [
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "UTI08-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "UTI08-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "UTI08-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "UTI08-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Utilities Index",
+      "source_id": "synthetic-source-uti08",
+      "tenant_id": "synthetic-uti08"
+    },
+    {
+      "allowed_targets": [
+        "Delta Notice",
+        "Beta Ledger",
+        "Gamma Schedule",
+        "Alpha Register"
+      ],
+      "case_id": "LOG01",
+      "domain": "logistics",
+      "fields": [
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "LOG01-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "LOG01-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "LOG01-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "6",
+          "record_ref": "LOG01-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Logistics Index",
+      "source_id": "synthetic-source-log01",
+      "tenant_id": "synthetic-log01"
+    },
+    {
+      "allowed_targets": [
+        "Delta Notice",
+        "Gamma Schedule",
+        "Beta Ledger",
+        "Alpha Register"
+      ],
+      "case_id": "LOG02",
+      "domain": "logistics",
+      "fields": [
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "LOG02-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "LOG02-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "LOG02-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "7",
+          "record_ref": "LOG02-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Logistics Index",
+      "source_id": "synthetic-source-log02",
+      "tenant_id": "synthetic-log02"
+    },
+    {
+      "allowed_targets": [
+        "Delta Notice",
+        "Beta Ledger",
+        "Alpha Register",
+        "Gamma Schedule"
+      ],
+      "case_id": "LOG03",
+      "domain": "logistics",
+      "fields": [
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_2",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "LOG03-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "LOG03-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "LOG03-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "8",
+          "record_ref": "LOG03-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Logistics Index",
+      "source_id": "synthetic-source-log03",
+      "tenant_id": "synthetic-log03"
+    },
+    {
+      "allowed_targets": [
+        "Beta Ledger",
+        "Delta Notice",
+        "Alpha Register",
+        "Gamma Schedule"
+      ],
+      "case_id": "LOG04",
+      "domain": "logistics",
+      "fields": [
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "LOG04-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "LOG04-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "LOG04-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "LOG04-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Logistics Index",
+      "source_id": "synthetic-source-log04",
+      "tenant_id": "synthetic-log04"
+    },
+    {
+      "allowed_targets": [
+        "Beta Ledger",
+        "Delta Notice",
+        "Alpha Register",
+        "Gamma Schedule"
+      ],
+      "case_id": "LOG05",
+      "domain": "logistics",
+      "fields": [
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "LOG05-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "10",
+          "record_ref": "LOG05-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "LOG05-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "LOG05-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Logistics Index",
+      "source_id": "synthetic-source-log05",
+      "tenant_id": "synthetic-log05"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Alpha Register",
+        "Delta Notice",
+        "Beta Ledger"
+      ],
+      "case_id": "LOG06",
+      "domain": "logistics",
+      "fields": [
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "LOG06-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "LOG06-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "LOG06-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "11",
+          "record_ref": "LOG06-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Logistics Index",
+      "source_id": "synthetic-source-log06",
+      "tenant_id": "synthetic-log06"
+    },
+    {
+      "allowed_targets": [
+        "Alpha Register",
+        "Beta Ledger",
+        "Delta Notice",
+        "Gamma Schedule"
+      ],
+      "case_id": "LOG07",
+      "domain": "logistics",
+      "fields": [
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "LOG07-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "12",
+          "record_ref": "LOG07-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "LOG07-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "LOG07-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Logistics Index",
+      "source_id": "synthetic-source-log07",
+      "tenant_id": "synthetic-log07"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Beta Ledger",
+        "Delta Notice",
+        "Alpha Register"
+      ],
+      "case_id": "LOG08",
+      "domain": "logistics",
+      "fields": [
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "LOG08-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "LOG08-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "LOG08-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "LOG08-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Logistics Index",
+      "source_id": "synthetic-source-log08",
+      "tenant_id": "synthetic-log08"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Beta Ledger",
+        "Delta Notice",
+        "Alpha Register"
+      ],
+      "case_id": "FAC01",
+      "domain": "facilities",
+      "fields": [
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "FAC01-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "FAC01-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "FAC01-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "6",
+          "record_ref": "FAC01-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Facilities Index",
+      "source_id": "synthetic-source-fac01",
+      "tenant_id": "synthetic-fac01"
+    },
+    {
+      "allowed_targets": [
+        "Beta Ledger",
+        "Delta Notice",
+        "Alpha Register",
+        "Gamma Schedule"
+      ],
+      "case_id": "FAC02",
+      "domain": "facilities",
+      "fields": [
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "FAC02-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "7",
+          "record_ref": "FAC02-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "FAC02-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "FAC02-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Facilities Index",
+      "source_id": "synthetic-source-fac02",
+      "tenant_id": "synthetic-fac02"
+    },
+    {
+      "allowed_targets": [
+        "Beta Ledger",
+        "Gamma Schedule",
+        "Delta Notice",
+        "Alpha Register"
+      ],
+      "case_id": "FAC03",
+      "domain": "facilities",
+      "fields": [
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "FAC03-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "FAC03-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "FAC03-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "8",
+          "record_ref": "FAC03-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Facilities Index",
+      "source_id": "synthetic-source-fac03",
+      "tenant_id": "synthetic-fac03"
+    },
+    {
+      "allowed_targets": [
+        "Alpha Register",
+        "Gamma Schedule",
+        "Beta Ledger",
+        "Delta Notice"
+      ],
+      "case_id": "FAC04",
+      "domain": "facilities",
+      "fields": [
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_2",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "FAC04-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "FAC04-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "FAC04-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "FAC04-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Facilities Index",
+      "source_id": "synthetic-source-fac04",
+      "tenant_id": "synthetic-fac04"
+    },
+    {
+      "allowed_targets": [
+        "Beta Ledger",
+        "Delta Notice",
+        "Alpha Register",
+        "Gamma Schedule"
+      ],
+      "case_id": "FAC05",
+      "domain": "facilities",
+      "fields": [
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "FAC05-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "FAC05-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "FAC05-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "10",
+          "record_ref": "FAC05-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Facilities Index",
+      "source_id": "synthetic-source-fac05",
+      "tenant_id": "synthetic-fac05"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Alpha Register",
+        "Beta Ledger",
+        "Delta Notice"
+      ],
+      "case_id": "FAC06",
+      "domain": "facilities",
+      "fields": [
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "FAC06-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "FAC06-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "11",
+          "record_ref": "FAC06-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "FAC06-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Facilities Index",
+      "source_id": "synthetic-source-fac06",
+      "tenant_id": "synthetic-fac06"
+    },
+    {
+      "allowed_targets": [
+        "Beta Ledger",
+        "Delta Notice",
+        "Gamma Schedule",
+        "Alpha Register"
+      ],
+      "case_id": "FAC07",
+      "domain": "facilities",
+      "fields": [
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "12",
+          "record_ref": "FAC07-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "FAC07-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "FAC07-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "FAC07-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Facilities Index",
+      "source_id": "synthetic-source-fac07",
+      "tenant_id": "synthetic-fac07"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Delta Notice",
+        "Alpha Register",
+        "Beta Ledger"
+      ],
+      "case_id": "FAC08",
+      "domain": "facilities",
+      "fields": [
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "FAC08-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "FAC08-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "FAC08-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "FAC08-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Facilities Index",
+      "source_id": "synthetic-source-fac08",
+      "tenant_id": "synthetic-fac08"
+    },
+    {
+      "allowed_targets": [
+        "Alpha Register",
+        "Beta Ledger",
+        "Gamma Schedule",
+        "Delta Notice"
+      ],
+      "case_id": "SUB01",
+      "domain": "subscriptions",
+      "fields": [
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "SUB01-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "SUB01-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "6",
+          "record_ref": "SUB01-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "6",
+          "record_ref": "SUB01-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Subscriptions Index",
+      "source_id": "synthetic-source-sub01",
+      "tenant_id": "synthetic-sub01"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Alpha Register",
+        "Beta Ledger",
+        "Delta Notice"
+      ],
+      "case_id": "SUB02",
+      "domain": "subscriptions",
+      "fields": [
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_2",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "SUB02-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "SUB02-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "7",
+          "record_ref": "SUB02-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "7",
+          "record_ref": "SUB02-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Subscriptions Index",
+      "source_id": "synthetic-source-sub02",
+      "tenant_id": "synthetic-sub02"
+    },
+    {
+      "allowed_targets": [
+        "Alpha Register",
+        "Delta Notice",
+        "Gamma Schedule",
+        "Beta Ledger"
+      ],
+      "case_id": "SUB03",
+      "domain": "subscriptions",
+      "fields": [
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "SUB03-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "8",
+          "record_ref": "SUB03-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "SUB03-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "8",
+          "record_ref": "SUB03-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Subscriptions Index",
+      "source_id": "synthetic-source-sub03",
+      "tenant_id": "synthetic-sub03"
+    },
+    {
+      "allowed_targets": [
+        "Alpha Register",
+        "Delta Notice",
+        "Beta Ledger",
+        "Gamma Schedule"
+      ],
+      "case_id": "SUB04",
+      "domain": "subscriptions",
+      "fields": [
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "SUB04-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "SUB04-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "SUB04-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "9",
+          "record_ref": "SUB04-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Subscriptions Index",
+      "source_id": "synthetic-source-sub04",
+      "tenant_id": "synthetic-sub04"
+    },
+    {
+      "allowed_targets": [
+        "Beta Ledger",
+        "Gamma Schedule",
+        "Alpha Register",
+        "Delta Notice"
+      ],
+      "case_id": "SUB05",
+      "domain": "subscriptions",
+      "fields": [
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "SUB05-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "SUB05-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "10",
+          "record_ref": "SUB05-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "10",
+          "record_ref": "SUB05-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Subscriptions Index",
+      "source_id": "synthetic-source-sub05",
+      "tenant_id": "synthetic-sub05"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Alpha Register",
+        "Delta Notice",
+        "Beta Ledger"
+      ],
+      "case_id": "SUB06",
+      "domain": "subscriptions",
+      "fields": [
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "11",
+          "record_ref": "SUB06-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "SUB06-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "SUB06-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "11",
+          "record_ref": "SUB06-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Subscriptions Index",
+      "source_id": "synthetic-source-sub06",
+      "tenant_id": "synthetic-sub06"
+    },
+    {
+      "allowed_targets": [
+        "Gamma Schedule",
+        "Alpha Register",
+        "Delta Notice",
+        "Beta Ledger"
+      ],
+      "case_id": "SUB07",
+      "domain": "subscriptions",
+      "fields": [
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_1_2",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "SUB07-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "SUB07-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "17.00",
+          "quantity": "12",
+          "record_ref": "SUB07-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "12",
+          "record_ref": "SUB07-R1",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Subscriptions Index",
+      "source_id": "synthetic-source-sub07",
+      "tenant_id": "synthetic-sub07"
+    },
+    {
+      "allowed_targets": [
+        "Alpha Register",
+        "Beta Ledger",
+        "Delta Notice",
+        "Gamma Schedule"
+      ],
+      "case_id": "SUB08",
+      "domain": "subscriptions",
+      "fields": [
+        {
+          "fieldname": "reference_0_0",
+          "fieldtype": "Table",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_1",
+          "fieldtype": "Table",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_2",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_1_0",
+          "fieldtype": "Link",
+          "options": "Beta Ledger"
+        },
+        {
+          "fieldname": "reference_0_1",
+          "fieldtype": "Link",
+          "options": "Alpha Register"
+        },
+        {
+          "fieldname": "reference_2_0",
+          "fieldtype": "Link",
+          "options": "Delta Notice"
+        },
+        {
+          "fieldname": "reference_3_0",
+          "fieldtype": "Table",
+          "options": "Gamma Schedule"
+        },
+        {
+          "fieldname": "reference_3_1",
+          "fieldtype": "Link",
+          "options": "Gamma Schedule"
+        }
+      ],
+      "records": {
+        "Alpha Register": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "SUB08-R1",
+          "reference_unit_cost": null,
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Beta Ledger": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "SUB08-R2",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Delta Notice": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "SUB08-R3",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        },
+        "Gamma Schedule": {
+          "approved_exception": false,
+          "currency": "USD",
+          "observed_unit_cost": "10.00",
+          "quantity": "13",
+          "record_ref": "SUB08-R4",
+          "reference_unit_cost": "10.00",
+          "source_period": "2026-01-01/2026-03-01",
+          "unit": "each"
+        }
+      },
+      "seed_doctype": "Subscriptions Index",
+      "source_id": "synthetic-source-sub08",
+      "tenant_id": "synthetic-sub08"
+    }
+  ],
+  "schema": "orion.study-selection-cases.v1"
+}

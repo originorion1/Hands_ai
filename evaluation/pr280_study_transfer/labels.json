@@ -1,0 +1,133 @@
+{
+  "labels": {
+    "FAC01": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "FAC02": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Beta Ledger"
+    },
+    "FAC03": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "FAC04": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": null
+    },
+    "FAC05": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "FAC06": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Delta Notice"
+    },
+    "FAC07": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Alpha Register"
+    },
+    "FAC08": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": null
+    },
+    "LOG01": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "LOG02": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "LOG03": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "LOG04": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": null
+    },
+    "LOG05": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Beta Ledger"
+    },
+    "LOG06": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "LOG07": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Beta Ledger"
+    },
+    "LOG08": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": null
+    },
+    "SUB01": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "SUB02": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Delta Notice"
+    },
+    "SUB03": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Beta Ledger"
+    },
+    "SUB04": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": null
+    },
+    "SUB05": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "SUB06": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Alpha Register"
+    },
+    "SUB07": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Delta Notice"
+    },
+    "SUB08": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": null
+    },
+    "UTI01": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "UTI02": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Delta Notice"
+    },
+    "UTI03": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Delta Notice"
+    },
+    "UTI04": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": null
+    },
+    "UTI05": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Beta Ledger"
+    },
+    "UTI06": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Gamma Schedule"
+    },
+    "UTI07": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": "Alpha Register"
+    },
+    "UTI08": {
+      "label_origin": "designed_synthetic_independent_stream",
+      "positive_target": null
+    }
+  },
+  "schema": "orion.study-selection-labels.v1"
+}
