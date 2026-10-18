@@ -107,7 +107,8 @@ def test_25_attempts_are_allowed_but_request_26_is_denied_before_transport(tmp_p
     )
 
 
-def test_signed_proposal_binding_and_durable_metadata_revocation(tmp_path):
+@pytest.mark.parametrize("revoke_during", [False, True])
+def test_signed_proposal_binding_and_durable_metadata_revocation(tmp_path, revoke_during):
     value = grant(2)
     proposal = AuthorizationProposal(
         tenant_id=value.tenant_id, companies=(value.company,),
@@ -134,16 +135,34 @@ def test_signed_proposal_binding_and_durable_metadata_revocation(tmp_path):
         ledger_path, grant=value, proposal=proposal, packet=packet,
         signature=signature, approval_key=signer.public_key(),
     )
+    ledger.claim()
     calls = []
     parent = tmp_path / "run"
     parent.mkdir(mode=0o700)
-    result = run_bounded_metadata_session(
-        value, lookup=ledger.lookup, environment=ENV,
-        transport=transport_for(tuple(dict(value.fields_by_doctype)), calls),
-        commit_scope=ledger.commit_scope, state_directory=parent / "session",
-        clock=lambda: START, monotonic=lambda: 0.0,
+    transport = transport_for(
+        tuple(dict(value.fields_by_doctype)), calls,
+        after=ledger.revoke if revoke_during else None,
     )
-    assert result.status == "complete" and calls == ["Doc 00", "Doc 01"]
+    if revoke_during:
+        with pytest.raises(MetadataSessionDenied, match="revoked"):
+            run_bounded_metadata_session(
+                value, lookup=ledger.lookup, environment=ENV,
+                transport=transport, commit_scope=ledger.commit_scope,
+                state_directory=parent / "session",
+                clock=lambda: START, monotonic=lambda: 0.0,
+            )
+        ledger.finish(complete=False)
+        assert calls == ["Doc 00"]
+        assert not (parent / "session/evidence-01.json").exists()
+    else:
+        result = run_bounded_metadata_session(
+            value, lookup=ledger.lookup, environment=ENV,
+            transport=transport, commit_scope=ledger.commit_scope,
+            state_directory=parent / "session",
+            clock=lambda: START, monotonic=lambda: 0.0,
+        )
+        assert result.status == "complete" and calls == ["Doc 00", "Doc 01"]
+        ledger.finish(complete=True)
     ledger.revoke()
     reopened = ApprovedMetadataGrantLedger(
         ledger_path, grant=value, proposal=proposal, packet=packet,

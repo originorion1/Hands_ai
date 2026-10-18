@@ -98,6 +98,7 @@ def _synthetic_customer_session(tenant: str, auth_dir: Path, now: datetime):
         "tenant_id": tenant, "organization_name": "Synthetic Tenant",
         "country": "US", "timezone": "UTC", "sector": "synthetic",
         "data_residency": "synthetic-region", "retention_days": 1,
+        "external_company_reference": "Synthetic External Company",
         "admin_issuer": issuer, "admin_subject": subject,
         "expires_at": int(now.timestamp()) + 240,
     }

@@ -33,6 +33,7 @@ def grant_scope(grant: MetadataGrant) -> dict[str, object]:
         "company": grant.company, "origin": grant.origin,
         "credential_key_reference": grant.credential_references.api_key_variable,
         "credential_secret_reference": grant.credential_references.api_secret_variable,
+        "credential_vault_reference": grant.credential_vault_reference,
         "fields_by_doctype": [[name, list(fields)] for name, fields in grant.fields_by_doctype],
         "seed_doctype": grant.seed_doctype, "starts_at": grant.starts_at.isoformat(),
         "expires_at": grant.expires_at.isoformat(), "max_attempts": grant.max_attempts,
@@ -104,6 +105,7 @@ class ApprovedMetadataGrantLedger:
         self.path = path
         self.grant = grant
         self.digest = hashlib.sha256(body).hexdigest()
+        self._claimed = False
         with self._connect(create=not existing) as db:
             if existing:
                 row = db.execute(
@@ -130,22 +132,47 @@ class ApprovedMetadataGrantLedger:
                            (self.grant.authorization_id, self.digest))
         return db
 
-    def _active(self, db: sqlite3.Connection) -> bool:
+    def _status(self, db: sqlite3.Connection) -> tuple[str, str] | None:
         row = db.execute("SELECT packet_sha256,status FROM approvals WHERE authorization_id=?",
                          (self.grant.authorization_id,)).fetchone()
-        return row == (self.digest, "active")
+        return row
+
+    def claim(self) -> None:
+        """Consume the one permitted launch, before resolving credentials."""
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if self._claimed or self._status(db) != (self.digest, "active"):
+                raise MetadataSessionDenied("metadata launch already used or revoked")
+            db.execute("UPDATE approvals SET status='claimed' WHERE authorization_id=?",
+                       (self.grant.authorization_id,))
+            self._claimed = True
+
+    def finish(self, *, complete: bool) -> None:
+        """Retain consumed or interrupted state; neither permits replay."""
+        if type(complete) is not bool:
+            raise MetadataSessionDenied("explicit metadata completion state required")
+        with self._connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            if self._claimed and self._status(db) == (self.digest, "claimed"):
+                db.execute("UPDATE approvals SET status=? WHERE authorization_id=?",
+                           ("consumed" if complete else "interrupted",
+                            self.grant.authorization_id))
+            self._claimed = False
 
     def lookup(self, authorization_id: str) -> MetadataGrant | None:
         if authorization_id != self.grant.authorization_id:
             return None
         with self._connect() as db:
-            return self.grant if self._active(db) else None
+            return self.grant if self._claimed and self._status(db) == (
+                self.digest, "claimed",
+            ) else None
 
     @contextmanager
     def commit_scope(self, authorization_id: str) -> Iterator[None]:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            if authorization_id != self.grant.authorization_id or not self._active(db):
+            if (authorization_id != self.grant.authorization_id or not self._claimed
+                    or self._status(db) != (self.digest, "claimed")):
                 raise MetadataSessionDenied("metadata authorization revoked")
             yield
 

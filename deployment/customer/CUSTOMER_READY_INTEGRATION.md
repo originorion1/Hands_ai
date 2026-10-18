@@ -20,8 +20,14 @@ checks the proposed tenant, company, DocType/field allowlist, 25-attempt ceiling
 owner signature over that exact packet is required before
 `ApprovedMetadataGrantLedger` can activate it. The private ledger persists
 revocation; its `lookup` and `commit_scope` feed the bounded metadata runner.
-The connector transport is still injected and must be independently confined
-to the reviewed destination. No customer ERP access is configured here.
+The qualified launch consumes the signed approval before resolving credentials;
+completion, interruption and process restart cannot reuse it.
+`EnrolledMetadataConnection` checks the enrolled ERPNext origin, company,
+external customer reference and exact vault reference on every lookup and
+commit. It obtains credentials through the protected vault callback and stops
+on reference rotation or revocation. The connector transport is still injected
+and must be independently confined to the reviewed destination. No customer
+ERP access is configured here.
 
 The browser reads the exact persisted report, labels observed facts, inferred
 findings, estimated exposure and independently verified savings separately,

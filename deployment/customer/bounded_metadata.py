@@ -61,6 +61,7 @@ class MetadataGrant:
     company: str = field(repr=False)
     origin: str = field(repr=False)
     credential_references: CredentialEnvironmentReferences = field(repr=False)
+    credential_vault_reference: str = field(default="", repr=False)
     fields_by_doctype: tuple[tuple[str, tuple[str, ...]], ...] = ()
     seed_doctype: str = ""
     starts_at: datetime = field(default_factory=datetime.now)
@@ -81,6 +82,11 @@ class MetadataGrant:
             raise MetadataSessionDenied("exact HTTPS origin required")
         if not isinstance(self.credential_references, CredentialEnvironmentReferences):
             raise MetadataSessionDenied("credential references required")
+        if (type(self.credential_vault_reference) is not str
+                or (self.credential_vault_reference and
+                    (not self.credential_vault_reference.startswith("vault:")
+                     or len(self.credential_vault_reference) > 256))):
+            raise MetadataSessionDenied("reviewed vault reference required")
         if (
             self.starts_at.utcoffset() is None or self.expires_at.utcoffset() is None
             or self.expires_at <= self.starts_at

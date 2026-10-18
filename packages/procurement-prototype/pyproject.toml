@@ -7,7 +7,7 @@ name = "originorion-procurement-prototype"
 version = "0.1.0rc1"
 description = "Evidence-linked synthetic procurement investigation and review for ORION"
 requires-python = ">=3.12"
-dependencies = ["originorion-customer-runtime==0.1.0rc3"]
+dependencies = ["originorion-customer-runtime==0.1.0rc4"]
 
 [tool.hatch.build.targets.wheel]
 only-include = []

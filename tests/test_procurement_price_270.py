@@ -13,10 +13,15 @@ from uuid import uuid4
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from deployment.customer.bounded_metadata import MetadataGrant, run_bounded_metadata_session
+from deployment.customer.bounded_metadata import MetadataGrant, MetadataSessionDenied
+from deployment.customer.enrollment import enroll_erpnext
 from deployment.customer.journey import run_customer_synthetic_lineage
 from deployment.customer.login import LoginDenied
 from deployment.customer.metadata_approval import ApprovedMetadataGrantLedger, approval_packet
+from deployment.customer.metadata_connection import (
+    EnrolledMetadataConnection,
+    run_enrolled_metadata_session,
+)
 from deployment.customer.portal import AuthorizationProposal
 from deployment.customer.portal_http import CustomerPortalHTTP
 from deployment.customer.service import CustomerPortalService, CustomerReportBinding
@@ -279,13 +284,44 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
         secret, csrf_token=csrf, proposal=proposal,
     )
     review_packet = proposal_service.authorization_proposal(secret, proposal_id=proposal_id)
+    reviewed_connector = ReviewedConnector(
+        "erpnext", "originorion-connector-erpnext-discovery", "0.2.0rc4",
+        "orion.discovery.erpnext_adapter:ERPNextDiscoveryAdapter",
+    )
+    schema = json.dumps({
+        "schema_version": "orion.connector-configuration.v1", "connector": "erpnext",
+        "fields": [
+            {"name": name, "label": name.replace("_", " ").title(),
+             "kind": kind, "required": True, "write_only": kind == "secret"}
+            for name, kind in (("endpoint", "https_url"), ("api_key", "secret"),
+                               ("api_secret", "secret"), ("company", "text"))
+        ],
+    }, sort_keys=True).encode()
+    vault = {}
+
+    def store(tenant_id, connector_name, key, secret_value):
+        assert tenant_id == tenant and connector_name == "erpnext"
+        reference = "vault:" + "v" * 28
+        vault[reference] = (key, secret_value)
+        return reference
+
+    connection = enroll_erpnext(
+        login=login, registry=login._registry, session_secret=secret,
+        csrf_token=csrf, reviewed=reviewed_connector, schema_bytes=schema,
+        schema_sha256=sha256(schema).hexdigest(), label="Synthetic ERPNext",
+        endpoint="https://erp.example.com", approved_origin="https://erp.example.com",
+        company=company, api_key="synthetic-key", api_secret="synthetic-secret",
+        vault_store=store, vault_revoke=lambda reference: vault.pop(reference, None),
+    )
+    assert connection.execution_allowed is False
     metadata_grant = MetadataGrant(
         authorization_id="synthetic-metadata-read", tenant_id=tenant,
         external_customer_reference="Synthetic External Company", company=company,
-        origin="https://synthetic.invalid",
+        origin="https://erp.example.com",
         credential_references=CredentialEnvironmentReferences(
             "SYNTHETIC_KEY_REF", "SYNTHETIC_SECRET_REF",
         ),
+        credential_vault_reference=connection.credential_ref,
         fields_by_doctype=scope, seed_doctype="Purchase Order",
         starts_at=now - timedelta(seconds=1), expires_at=now + timedelta(minutes=29),
         max_attempts=25, max_evidence_bytes=65536,
@@ -302,6 +338,10 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
     ledger = ApprovedMetadataGrantLedger(
         approval_dir / "ledger.sqlite", grant=metadata_grant, proposal=review_packet,
         packet=approved, signature=signature, approval_key=signer.public_key(),
+    )
+    enrolled = EnrolledMetadataConnection(
+        login._registry, ledger, "Synthetic ERPNext",
+        vault_read=lambda reference: vault[reference],
     )
     studied = []
 
@@ -335,16 +375,19 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
 
     metadata_dir = tmp_path / "metadata"
     metadata_dir.mkdir(mode=0o700)
-    structural = run_bounded_metadata_session(
-        metadata_grant, lookup=ledger.lookup,
-        environment={"SYNTHETIC_KEY_REF": "synthetic-key",
-                     "SYNTHETIC_SECRET_REF": "synthetic-secret"},
-        transport=transport, commit_scope=ledger.commit_scope,
+    structural = run_enrolled_metadata_session(
+        enrolled, transport=transport,
         state_directory=metadata_dir / "session",
         clock=lambda: now, monotonic=lambda: 0.0,
     )
     assert structural.studied_doctypes == ("Purchase Order", "Purchase Invoice")
     assert studied == list(structural.studied_doctypes)
+    assert ledger.lookup(metadata_grant.authorization_id) is None
+    with pytest.raises(MetadataSessionDenied, match="already used"):
+        run_enrolled_metadata_session(
+            enrolled, transport=transport, state_directory=metadata_dir / "replay",
+            clock=lambda: now, monotonic=lambda: 0.0,
+        )
 
     records = rows("holdout_a")
     connector = SyntheticRecordConnector(
@@ -424,6 +467,11 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
     assert response["status"] == "200 OK" and json.loads(api_body) == report
     ledger.revoke()
     assert ledger.lookup(metadata_grant.authorization_id) is None
+    login._registry.revoke_credential_reference(
+        login._verified_session_identity(secret), tenant_id=tenant,
+        label="Synthetic ERPNext",
+    )
+    assert enrolled.lookup(metadata_grant.authorization_id) is None
     with grant_lock:
         active["value"] = False
     with pytest.raises(LoginDenied, match="revoked"):
