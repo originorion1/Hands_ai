@@ -251,6 +251,53 @@ def test_plan_is_deterministic():
     assert first == second
 
 
+def test_bounded_plan_prioritizes_observed_reference_coverage():
+    root = entity(
+        "Company",
+        fields=(
+            field("first", options="Alpha"),
+            field("second", options="Zulu"),
+            field("third", options="Zulu"),
+        ),
+    )
+    plan = plan_authorized_discovery(
+        MetadataUnderstanding("customer-a", (root,)),
+        authorization=DiscoveryAuthorization(
+            tenant_id="customer-a",
+            metadata_targets=frozenset({"Alpha", "Zulu"}),
+            max_targets=1,
+        ),
+    )
+    assert [item.target for item in plan.items] == ["Zulu"]
+    assert "2 observed structural reference" in plan.items[0].rationale
+    assert plan.items[0].provenance_ids == root.provenance_ids
+
+
+def test_reference_coverage_cannot_override_tenant_or_allowlist():
+    root = entity(
+        "Company",
+        fields=(field("one", options="Denied"),
+                field("two", options="Denied"),
+                field("three", options="Allowed")),
+    )
+    understanding = MetadataUnderstanding("customer-a", (root,))
+    authorization = DiscoveryAuthorization(
+        tenant_id="customer-a", metadata_targets=frozenset({"Allowed"}),
+        max_targets=1,
+    )
+    assert plan_authorized_discovery(
+        understanding, authorization=authorization,
+    ).items[0].target == "Allowed"
+    with pytest.raises(DiscoveryPlanError, match="tenant boundary"):
+        plan_authorized_discovery(
+            understanding,
+            authorization=DiscoveryAuthorization(
+                tenant_id="customer-b",
+                metadata_targets=frozenset({"Allowed", "Denied"}),
+            ),
+        )
+
+
 def test_preserves_structural_provenance():
     evidence_id = uuid4()
 
