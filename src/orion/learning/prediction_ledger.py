@@ -326,7 +326,12 @@ class PredictionLedger:
             ''', (tenant_id, prediction_id)).fetchone()
         if row is None:
             raise ValueError('resolved prediction/outcome pair is absent')
-        return _decode_prediction(row[0]), _decode_outcome(row[1])
+        prediction, outcome = _decode_prediction(row[0]), _decode_outcome(row[1])
+        if (prediction.tenant_id != tenant_id or outcome.tenant_id != tenant_id
+                or prediction.prediction_id != prediction_id
+                or outcome.prediction_id != prediction_id):
+            raise ValueError('resolved prediction/outcome payload identity mismatch')
+        return prediction, outcome
 
     def record_revision(self, revision: ModelRevision) -> None:
         """Commit a revision only when its evidence is in resolved prior outcomes."""

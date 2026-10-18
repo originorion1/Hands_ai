@@ -50,17 +50,35 @@ def analyze(cases_path: Path, labels_path: Path, predictions_path: Path,
         raise ValueError("split or sealing mismatch")
     by_method = {(row["case_id"], row["method"]): row for row in predictions["predictions"]}
     details = []
+    all_method_failures = []
     for case in cases["cases"]:
         case_id = case["case_id"]
         issue = labels["labels"][case_id]["issue"]
         enhanced = by_method[case_id, "enhanced"]
         heuristic = by_method[case_id, "heuristic"]
-        if (issue and enhanced["status"] == "candidate_review"
-                or not issue and enhanced["status"] != "candidate_review"):
-            continue
         allowed = tuple(q for q in case["questions"] if q["visible"] and q["permitted"])
         pairs = tuple(pair for pair in itertools.combinations(allowed, 2)
                       if _pair_status(case, calibration, pair) == "candidate_review")
+        for method in ("existing", "enhanced", "heuristic"):
+            row = by_method[case_id, method]
+            if (issue and row["status"] == "candidate_review"
+                    or not issue and row["status"] != "candidate_review"):
+                continue
+            reason = ("misleading_evidence_or_calibration_shift" if not issue else
+                      "insufficient_two_read_evidence" if not pairs else
+                      "prioritization_under_two_read_budget")
+            all_method_failures.append({
+                "case_id": case_id, "method": method, "classification": reason,
+                "designed_issue": issue, "status": row["status"],
+                "posterior": row["posterior_issue_probability"],
+                "qualifying_pair_count_posthoc": len(pairs),
+                "source_refs": [item["source_record_ref"] for item in row["acquisitions"]],
+                "source_digests": [item["source_record_sha256"]
+                                   for item in row["acquisitions"]],
+            })
+        if (issue and enhanced["status"] == "candidate_review"
+                or not issue and enhanced["status"] != "candidate_review"):
+            continue
         if not issue:
             reason = "misleading_evidence_or_calibration_shift"
         elif not pairs:
@@ -91,6 +109,7 @@ def analyze(cases_path: Path, labels_path: Path, predictions_path: Path,
         "label_origin": "designed synthetic, not independently adjudicated",
         "posthoc_oracle_visible_to_policy": False,
         "details": details,
+        "all_method_failures": all_method_failures,
     }
 
 

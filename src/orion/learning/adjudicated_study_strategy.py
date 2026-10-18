@@ -158,6 +158,7 @@ def derive_adjudicated_strategy(
     ledger: PredictionLedger,
     reviewer_verifier: Callable[[AdjudicatedStudyCase, str], bool],
     source_verifier: Callable[[str, UUID, str], bool],
+    outcome_verifier: Callable[[Outcome], bool],
 ) -> StudyStrategyVersion:
     """Create a new immutable version only from independently verified reviews.
 
@@ -170,8 +171,8 @@ def derive_adjudicated_strategy(
     if len(cases) < 20:
         raise ValueError("at least 20 independently reviewed outcomes required")
     if (not isinstance(ledger, PredictionLedger) or not callable(reviewer_verifier)
-            or not callable(source_verifier)):
-        raise TypeError("ledger, reviewer and source verifiers required")
+            or not callable(source_verifier) or not callable(outcome_verifier)):
+        raise TypeError("ledger, reviewer, source and outcome verifiers required")
     known = {feature for feature, _ in previous.likelihoods}
     counts = defaultdict(lambda: [[1, 1, 1], [1, 1, 1]])
     per_feature = defaultdict(lambda: [0, 0])
@@ -182,10 +183,13 @@ def derive_adjudicated_strategy(
         if not isinstance(case, AdjudicatedStudyCase):
             raise TypeError("adjudicated case required")
         prediction, outcome = case.prediction, case.outcome
-        if (prediction.tenant_id != previous.tenant_id or case.reviewer_id == producer_id
+        if (prediction.tenant_id != previous.tenant_id
+                or prediction.model_version != previous.version_id
+                or _time(prediction.issued_at) < _time(previous.created_at)
+                or case.reviewer_id == producer_id
                 or _time(outcome.observed_at) > decided
                 or prediction.prediction_id in identities):
-            raise ValueError("tenant, reviewer, time or replay boundary failed")
+            raise ValueError("tenant, strategy, reviewer, time or replay boundary failed")
         identities.add(prediction.prediction_id)
         digest = case.review_digest()
         try:
@@ -196,6 +200,8 @@ def derive_adjudicated_strategy(
             raise ValueError("prospective ledger resolution denied")
         if not reviewer_verifier(case, digest):
             raise ValueError("independent reviewer attestation denied")
+        if not outcome_verifier(outcome):
+            raise ValueError("outcome evidence custody denied")
         for observation in case.observations:
             if observation.feature not in known:
                 raise ValueError("unverified feature cannot enter strategy")
@@ -206,7 +212,10 @@ def derive_adjudicated_strategy(
             counts[observation.feature][label][ANSWERS.index(observation.answer)] += 1
             per_feature[observation.feature][label] += 1
         outcomes[int(outcome.actual)] += 1
-        attestations.append(_digest((digest, case.reviewer_attestation_sha256)))
+        attestation = _digest((digest, case.reviewer_attestation_sha256))
+        if attestation in previous.adjudication_digests:
+            raise ValueError("reviewed outcome replay denied")
+        attestations.append(attestation)
     if min(outcomes) < 5:
         raise ValueError("each outcome class requires five independent reviews")
     updated = []

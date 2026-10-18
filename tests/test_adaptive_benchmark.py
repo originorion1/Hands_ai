@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 
 from evaluation.adaptive_v1.benchmark import METHODS, run_benchmark
+from evaluation.adaptive_v1.failure_analysis import analyze
 from evaluation.adaptive_v1.generate_unseen import COHORTS, generate
+from evaluation.adaptive_v1.paired_analysis import compare
+from evaluation.native_intelligence_v1.benchmark import run_benchmark as run_original
 from evaluation.native_intelligence_v1.score import score
 
 ROOT = Path(__file__).resolve().parents[1] / "evaluation/native_intelligence_v1"
@@ -52,3 +55,21 @@ def test_hybrid_denies_cross_tenant_case(tmp_path):
     path.write_text(json.dumps(cases))
     with pytest.raises(ValueError):
         run_benchmark(path, ROOT / "calibration.json")
+
+
+def test_paired_analysis_requires_all_sealed_cohorts(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        compare(tmp_path)
+
+
+def test_postseal_failure_analysis_covers_each_comparator(tmp_path):
+    path = tmp_path / "original-predictions.json"
+    path.write_text(json.dumps(run_original(ROOT / "development_cases.json",
+                                            ROOT / "calibration.json")))
+    result = analyze(ROOT / "development_cases.json", ROOT / "development_labels.json",
+                     path, ROOT / "calibration.json")
+    failures = result["all_method_failures"]
+    assert failures
+    assert {row["method"] for row in failures} == {"existing", "enhanced", "heuristic"}
+    assert all(len(row["source_refs"]) == len(row["source_digests"]) == 2
+               for row in failures)

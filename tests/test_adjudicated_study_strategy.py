@@ -22,6 +22,9 @@ DIGEST = hashlib.sha256(b"synthetic source record").hexdigest()
 
 
 def _reviews(tmp_path):
+    base = base_strategy("tenant-a", (0.5, 0.5),
+                         {"F0": ((0.45, 0.45, 0.10), (0.45, 0.45, 0.10))},
+                         created_at=NOW)
     path = tmp_path / "prospective.db"
     issued = PredictionLedger(path, clock=lambda: NOW)
     pairs = []
@@ -31,7 +34,7 @@ def _reviews(tmp_path):
         source_id = uuid5(NAMESPACE_URL, f"source-{index}")
         outcome_id = uuid5(NAMESPACE_URL, f"outcome-{index}")
         prediction = Prediction(
-            "tenant-a", prediction_id, "synthetic-issue-v1", "base-v1",
+            "tenant-a", prediction_id, "synthetic-issue-v1", base.version_id,
             NOW, NOW, HORIZON, 0.5, (source_id,),
         )
         outcome = Outcome("tenant-a", prediction_id, LATER, index % 2 == 0,
@@ -39,6 +42,7 @@ def _reviews(tmp_path):
         issued.record(prediction)
         pairs.append((prediction, outcome, source_id))
         evidence[source_id] = DIGEST
+        evidence[outcome_id] = DIGEST
     resolved = PredictionLedger(path, clock=lambda: LATER)
     for _, outcome, _ in pairs:
         resolved.resolve(outcome)
@@ -53,9 +57,6 @@ def _reviews(tmp_path):
         review = replace(review, reviewer_attestation_sha256=hashlib.sha256(
             review.review_digest().encode()).hexdigest())
         reviews.append(review)
-    base = base_strategy("tenant-a", (0.5, 0.5),
-                         {"F0": ((0.45, 0.45, 0.10), (0.45, 0.45, 0.10))},
-                         created_at=NOW)
     return resolved, tuple(reviews), evidence, base
 
 
@@ -68,6 +69,10 @@ def _derive(base, reviews, ledger, evidence, **options):
         source_verifier=options.get(
             "source_verifier", lambda tenant, identity, digest:
             tenant == "tenant-a" and evidence.get(identity) == digest),
+        outcome_verifier=options.get(
+            "outcome_verifier", lambda outcome:
+            outcome.tenant_id == "tenant-a" and all(
+                identity in evidence for identity in outcome.evidence_ids)),
     )
 
 
@@ -90,11 +95,13 @@ def test_unverified_reviewer_or_source_denies_update(tmp_path):
         _derive(base, reviews, ledger, evidence, reviewer_verifier=lambda *_: False)
     with pytest.raises(ValueError, match="custody"):
         _derive(base, reviews, ledger, evidence, source_verifier=lambda *_: False)
+    with pytest.raises(ValueError, match="outcome evidence custody"):
+        _derive(base, reviews, ledger, evidence, outcome_verifier=lambda *_: False)
     with pytest.raises(ValueError, match="reviewer"):
         derive_adjudicated_strategy(
             base, reviews, producer_id="synthetic-test-reviewer", now=LATER,
             ledger=ledger, reviewer_verifier=lambda *_: True,
-            source_verifier=lambda *_: True,
+            source_verifier=lambda *_: True, outcome_verifier=lambda *_: True,
         )
 
 
@@ -120,3 +127,9 @@ def test_future_label_and_tenant_mismatch_denied(tmp_path):
                             created_at=NOW)
     with pytest.raises(ValueError, match="tenant"):
         _derive(foreign, reviews, ledger, evidence)
+    stale = replace(reviews[0].prediction, model_version="stale")
+    with pytest.raises(ValueError, match="strategy"):
+        _derive(base_strategy("tenant-a", (0.5, 0.5),
+                              {"F0": ((0.45, 0.45, 0.10), (0.45, 0.45, 0.10))},
+                              created_at=NOW),
+                (replace(reviews[0], prediction=stale), *reviews[1:]), ledger, evidence)
