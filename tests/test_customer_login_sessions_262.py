@@ -10,6 +10,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, timedelta
+from email.message import Message
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
@@ -23,6 +24,7 @@ from deployment.customer.enrollment import EnrollmentDenied, enroll_erpnext
 from deployment.customer.journey import run_customer_synthetic_lineage
 from deployment.customer.login import CustomerLogin, LoginDenied
 from deployment.customer.oidc import OIDCVerifier, VerifiedIdentity
+from deployment.customer.oidc_client import ReviewedOIDCTokenExchange
 from deployment.customer.portal import AuthorizationProposal
 from deployment.customer.portal_http import CustomerPortalHTTP
 from deployment.customer.service import CustomerPortalService, CustomerReportBinding
@@ -137,6 +139,59 @@ def test_admin_login_requires_membership_and_csrf(context):
     assert "Max-Age=0" in cleared
     with pytest.raises(LoginDenied, match="session"):
         login.authorize(secret)
+
+
+def test_reviewed_token_endpoint_connects_to_verified_customer_session(context):
+    registry, original, key, _alpha, _beta = context
+    captured = {}
+
+    class TokenResponse:
+        status = 200
+
+        def __init__(self, assertion):
+            self.body = json.dumps({"id_token": assertion}).encode()
+            self.headers = Message()
+            self.headers["Content-Type"] = "application/json"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def geturl(self):
+            return "https://idp.example.invalid/token"
+
+        def read(self, size):
+            return self.body[:size]
+
+    def exchange(request, *, timeout):
+        assert timeout == 10 and request.get_method() == "POST"
+        assert request.full_url == "https://idp.example.invalid/token"
+        form = parse_qs(request.data.decode())
+        assert form["code"] == ["one-use"]
+        assert form["client_id"] == [AUDIENCE]
+        assert len(form["code_verifier"][0]) >= 43
+        return TokenResponse(captured["assertion"])
+
+    provider = ReviewedOIDCTokenExchange(
+        issuer=ISSUER, token_endpoint="https://idp.example.invalid/token",
+        client_id=AUDIENCE, redirect_uri="https://command.example.invalid/callback",
+        opener=exchange,
+    )
+    login = CustomerLogin(
+        registry, original._verifier,
+        authorization_endpoint="https://idp.example.invalid/authorize",
+        client_id=AUDIENCE, redirect_uri="https://command.example.invalid/callback",
+        token_exchange=provider,
+    )
+    start = login.start(tenant_id="tenant-alpha")
+    query = parse_qs(urlsplit(start.authorization_url).query)
+    captured["assertion"] = _assertion(key, "alpha-admin", query["nonce"][0])
+    session = login.finish(state=query["state"][0], code="one-use")
+    assert login.authorize(_secret(session), required_role="administrator").tenant_id == (
+        "tenant-alpha"
+    )
 
 
 def test_untrusted_tenant_claim_and_wrong_tenant_are_denied(context):
