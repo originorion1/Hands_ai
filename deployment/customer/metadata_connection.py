@@ -67,12 +67,12 @@ class EnrolledMetadataConnection:
     def environment(self) -> dict[str, str]:
         """Resolve only the currently enrolled reference on the server side."""
         with self.registry._connection() as db:
-            db.execute("BEGIN IMMEDIATE")
             self._require_current(db)
-            try:
-                values = self.vault_read(self.ledger.grant.credential_vault_reference)
-            except Exception:  # noqa: BLE001 - external vault errors must not leak references
-                raise MetadataSessionDenied("vault credentials unavailable") from None
+        try:
+            values = self.vault_read(self.ledger.grant.credential_vault_reference)
+        except Exception:  # noqa: BLE001 - external vault errors must not leak references
+            raise MetadataSessionDenied("vault credentials unavailable") from None
+        with self.registry._connection() as db:
             self._require_current(db)
         if (type(values) is not tuple or len(values) != 2
                 or any(type(value) is not str or not value for value in values)

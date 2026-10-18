@@ -465,13 +465,22 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
         "HTTP_COOKIE": f"__Host-orion_session={secret}",
     }, start))
     assert response["status"] == "200 OK" and json.loads(api_body) == report
+    def revoke_during_vault(reference):
+        login._registry.revoke_credential_reference(
+            login._verified_session_identity(secret), tenant_id=tenant,
+            label="Synthetic ERPNext",
+        )
+        return vault[reference]
+
+    interrupted_vault = EnrolledMetadataConnection(
+        login._registry, ledger, "Synthetic ERPNext",
+        vault_read=revoke_during_vault,
+    )
+    with pytest.raises(MetadataSessionDenied, match="scope changed"):
+        interrupted_vault.environment()
+    assert enrolled.lookup(metadata_grant.authorization_id) is None
     ledger.revoke()
     assert ledger.lookup(metadata_grant.authorization_id) is None
-    login._registry.revoke_credential_reference(
-        login._verified_session_identity(secret), tenant_id=tenant,
-        label="Synthetic ERPNext",
-    )
-    assert enrolled.lookup(metadata_grant.authorization_id) is None
     with grant_lock:
         active["value"] = False
     with pytest.raises(LoginDenied, match="revoked"):
