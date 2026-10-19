@@ -1,0 +1,82 @@
+name: ORION one-time pilot qualification 9a65f65
+
+on:
+  pull_request_target:
+    branches: [orion-qualification-base-9a65f65]
+    types: [opened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: orion-one-time-qualification-9a65f65
+  cancel-in-progress: false
+
+jobs:
+  full-pytest:
+    if: >-
+      github.event.pull_request.head.sha == '9a65f65aaf7653355f0786e67326f60a64d24011' &&
+      github.event.pull_request.base.ref == 'orion-qualification-base-9a65f65'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact authorized candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: 9a65f65aaf7653355f0786e67326f60a64d24011
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Record runner and exact source identity
+        run: |
+          set -eu
+          test "$(git rev-parse HEAD)" = "9a65f65aaf7653355f0786e67326f60a64d24011"
+          test "$(git rev-parse HEAD^{tree})" = "168773242bfd0f943b1814561e3eb29451858f02"
+          {
+            printf 'ImageOS=%s\nImageVersion=%s\n' "$ImageOS" "$ImageVersion"
+            uname -a
+            python --version
+            git rev-parse HEAD
+            git rev-parse HEAD^{tree}
+          } | tee qualification-identity.txt
+      - name: Install mandatory Linux isolation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap iproute2 nftables util-linux curl libcap2-bin openssl
+          for tool in unshare nsenter ip nft bwrap openssl curl setpriv; do command -v "$tool"; done
+      - name: Verify rootless namespace capability
+        run: |
+          unshare --user --map-root-user --net /usr/bin/true
+          bwrap --unshare-all --die-with-parent --ro-bind /usr /usr --ro-bind /lib /lib --ro-bind /lib64 /lib64 --ro-bind /bin /bin --proc /proc --dev /dev /usr/bin/true
+      - name: Install project and locked customer runtime dependencies
+        run: |
+          python -m pip install -e packages/connector-sdk
+          python -m pip install -e '.[dev]'
+          python -m pip install -e packages/synthetic-connector
+          python -m pip install -e packages/erpnext-discovery
+          python -m pip install -e packages/pilot-compat
+          python -m pip install --require-hashes -r deployment/customer/requirements.lock
+      - name: Run full pytest suite and hash evidence
+        run: |
+          set +e
+          set -o pipefail
+          python -m pytest -vv -ra --junitxml=pytest-full.xml 2>&1 | tee pytest-full.log
+          result=$?
+          set -e
+          sha256sum qualification-identity.txt pytest-full.log pytest-full.xml > qualification-evidence.sha256
+          cat qualification-evidence.sha256
+          exit "$result"
+      - name: Preserve full logs, JUnit, identity, and evidence hashes
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: orion-pilot-qualification-9a65f65-${{ github.run_id }}
+          path: |
+            qualification-identity.txt
+            pytest-full.log
+            pytest-full.xml
+            qualification-evidence.sha256
+          if-no-files-found: warn
