@@ -18,11 +18,15 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
+from uuid import NAMESPACE_URL, uuid5
 
+from orion.contracts import Evidence, EvidenceKind, Observation
 from orion.discovery.credential_references import CredentialEnvironmentReferences
 from orion.discovery.erpnext_adapter import _normalize_base_url, _validate_resource
 from orion.discovery.erpnext_live_session import is_sensitive_metadata_name
 from orion.discovery.erpnext_metadata_adapter import ERPNextMetadataAdapter
+from orion.discovery.planner import DiscoveryAuthorization, plan_authorized_discovery
+from orion.understanding.metadata import build_metadata_understanding, relationship_target
 
 from .tenants import is_canonical_tenant_slug
 
@@ -30,6 +34,7 @@ MAX_ATTEMPTS = 25
 MAX_SECONDS = 30 * 60
 MAX_RESPONSE_BYTES = 64 * 1024
 MAX_EVIDENCE_BYTES = 256 * 1024
+MAX_PLANNER_CANDIDATES = 100
 _SCHEMA_KEYS = frozenset({"fieldname", "fieldtype", "options", "reqd", "permlevel"})
 
 
@@ -132,6 +137,7 @@ class MetadataSessionResult:
     evidence_digests: tuple[str, ...]
     studied_doctypes: tuple[str, ...]
     next_question: str | None
+    stopping_reason: str = "no_authorized_candidate"
 
 
 def _project(raw: Mapping[str, object], doctype: str,
@@ -165,6 +171,98 @@ def _project(raw: Mapping[str, object], doctype: str,
     if set(selected) != set(allowed):
         raise MetadataSessionDenied("permitted metadata field is missing")
     return {"doctype": doctype, "fields": [selected[name] for name in allowed]}
+
+
+def _select_next_structure(
+    grant: MetadataGrant,
+    observations: tuple[Observation, ...],
+    evidence_digests: Mapping[str, str],
+    *,
+    sequence: int,
+) -> dict[str, object]:
+    """Select only a planner-proposed target supported by scoped metadata."""
+    allowed = frozenset(dict(grant.fields_by_doctype))
+    understanding = build_metadata_understanding(
+        observations,
+        tenant_id=grant.tenant_id,
+        allowed_doctypes=allowed,
+    )
+    plan = plan_authorized_discovery(
+        understanding,
+        authorization=DiscoveryAuthorization(
+            tenant_id=grant.tenant_id,
+            metadata_targets=allowed,
+            record_targets=frozenset(),
+            max_targets=MAX_PLANNER_CANDIDATES,
+        ),
+    )
+    evidence_by_id = {
+        str(observation.evidence.evidence_id): evidence_digests[
+            observation.evidence.payload["doctype"]
+        ]
+        for observation in observations
+    }
+    candidates: list[dict[str, object]] = []
+    for item in plan.items:
+        # The generic planner filters observed edges by this exact allowlist;
+        # retain the explicit check at the acquisition boundary as defense in depth.
+        if item.target not in allowed:
+            continue
+        receipts = sorted({
+            evidence_by_id[str(provenance)]
+            for provenance in item.provenance_ids
+            if str(provenance) in evidence_by_id
+        })
+        if not receipts:
+            raise MetadataSessionDenied("planner provenance is unavailable")
+        sources: list[dict[str, str]] = []
+        for entity in understanding.entities:
+            for structural_field in entity.fields:
+                if relationship_target(structural_field) != item.target:
+                    continue
+                source_digest = evidence_by_id.get(str(entity.provenance_ids[0]))
+                if source_digest is not None:
+                    sources.append({
+                        "doctype": entity.doctype,
+                        "field": structural_field.fieldname,
+                        "evidence_sha256": source_digest,
+                    })
+        question = (
+            f"What permitted structure does {item.target} expose, given "
+            "the observed authorized relationship?"
+        )
+        candidates.append({
+            "rank": len(candidates) + 1,
+            "target": item.target,
+            "kind": item.kind.value,
+            "question": question,
+            "rationale": item.rationale,
+            "triggering_sources": sources[:16],
+            "additional_source_count": max(0, len(sources) - 16),
+            "evidence_sha256": receipts,
+            "estimated_request_cost": 1,
+            "estimated_information_value": None,
+        })
+    selected = candidates[0] if candidates else None
+    return {
+        "sequence": sequence,
+        "selector": "orion.discovery.planner.plan_authorized_discovery",
+        "policy": "rank authorized unseen structural references in planner order",
+        "candidates": candidates,
+        "selected_target": selected["target"] if selected else None,
+        "selected_question": selected["question"] if selected else None,
+        "selection_rationale": selected["rationale"] if selected else None,
+        "alternatives": candidates[1:],
+        "evidence_sha256": sorted({
+            digest for candidate in candidates
+            for digest in candidate["evidence_sha256"]
+        }),
+        "uncertainty": (
+            "The planner is deterministic and has no calibrated information-value "
+            "estimate; structural relevance does not establish operational impact."
+        ),
+        "stopping_reason": "no_authorized_candidate" if not candidates else None,
+    }
 
 
 def run_bounded_metadata_session(
@@ -229,18 +327,60 @@ def run_bounded_metadata_session(
         "scopes": [[name, list(fields)] for name, fields in grant.fields_by_doctype],
     }))
     scopes = dict(grant.fields_by_doctype)
-    pending = [grant.seed_doctype]
+    observations: list[Observation] = []
+    observed_digests: dict[str, str] = {}
+    decisions: list[dict[str, object]] = []
+    decision_digests: list[str] = []
+
+    def persist_decision(decision: dict[str, object]) -> None:
+        body = _json(decision)
+        if len(body) > MAX_RESPONSE_BYTES:
+            raise MetadataSessionDenied("study decision exceeds evidence bound")
+        number = len(decisions) + 1
+        with commit_scope(grant.authorization_id):
+            check()
+            _private_write(state_directory / f"decision-{number:02d}.json", body)
+        decisions.append(decision)
+        decision_digests.append(_digest(body))
+
+    # The signed grant supplies the first seed. Later targets are selected by
+    # ORION from relationships in acquired, field-projected evidence.
+    persist_decision({
+        "sequence": 1,
+        "selector": "signed_grant_seed",
+        "policy": "initial target fixed by separately approved grant",
+        "candidates": [],
+        "selected_target": grant.seed_doctype,
+        "selected_question": None,
+        "selection_rationale": "authorized initial metadata seed",
+        "alternatives": [],
+        "evidence_sha256": [],
+        "uncertainty": "The grant chose the initial seed; this is not an ORION selection.",
+        "stopping_reason": None,
+    })
     studied: list[str] = []
     digests: list[str] = []
     evidence_bytes = 0
     attempts = 0
-    while pending:
-        doctype = pending.pop(0)
-        if doctype in studied:
-            continue
+    doctype: str | None = grant.seed_doctype
+    stopping_reason = "no_authorized_candidate"
+    while doctype is not None:
         check()
         if attempts >= grant.max_attempts:
+            persist_decision({
+                "sequence": attempts + 1,
+                "selector": "orion.discovery.planner.plan_authorized_discovery",
+                "policy": "request budget exhausted before another acquisition",
+                "candidates": [], "selected_target": doctype,
+                "selected_question": None,
+                "selection_rationale": "an authorized target remained, but no request budget remained",
+                "alternatives": [], "evidence_sha256": list(digests),
+                "uncertainty": "The target was not acquired; no conclusion is supported.",
+                "stopping_reason": "request_budget_exhausted",
+            })
             raise MetadataSessionDenied("metadata request ceiling exhausted")
+        if doctype not in scopes or doctype in studied:
+            raise MetadataSessionDenied("planner selected a target outside grant scope")
         attempts += 1
         path = "/api/method/frappe.desk.form.load.getdoctype"
         _private_write(state_directory / f"attempt-{attempts:02d}.json", _json({
@@ -262,14 +402,14 @@ def run_bounded_metadata_session(
                     raise MetadataSessionDenied("redirect or destination change denied")
                 yield response
 
-        observations = ERPNextMetadataAdapter(
+        acquired = ERPNextMetadataAdapter(
             base_url=grant.origin, tenant_id=grant.tenant_id,
             api_key=credentials.api_key, api_secret=credentials.api_secret,
             doctypes=(doctype,), max_response_bytes=grant.max_response_bytes,
             timeout_seconds=20, opener=guarded_transport,
         ).discover()
         check()
-        projected = _project(observations[0].evidence.payload["metadata"],
+        projected = _project(acquired[0].evidence.payload["metadata"],
                              doctype, scopes[doctype])
         payload = _json(projected)
         if evidence_bytes + len(payload) > grant.max_evidence_bytes:
@@ -278,25 +418,53 @@ def run_bounded_metadata_session(
             check()
             _private_write(state_directory / f"evidence-{attempts:02d}.json", payload)
         evidence_bytes += len(payload)
-        digests.append(_digest(payload))
+        digest = _digest(payload)
+        digests.append(digest)
         studied.append(doctype)
-        for row in projected["fields"]:
-            target = row.get("options")
-            if (
-                row.get("fieldtype") in {"Link", "Table", "Table MultiSelect"}
-                and isinstance(target, str) and target in scopes
-                and target not in studied and target not in pending
-            ):
-                pending.append(target)
-        pending.sort()
+        evidence_id = uuid5(
+            NAMESPACE_URL,
+            f"orion-metadata:{grant.authorization_id}:{attempts}:{digest}",
+        )
+        observations.append(Observation(Evidence(
+            kind=EvidenceKind.METADATA,
+            source="erpnext_metadata",
+            payload={"doctype": doctype, "metadata": {"docs": [{
+                "name": doctype, "fields": projected["fields"],
+            }]}},
+            observed_at=last_clock,
+            evidence_id=evidence_id,
+            tenant_id=grant.tenant_id,
+        )))
+        observed_digests[doctype] = digest
+        decision = _select_next_structure(
+            grant,
+            tuple(observations),
+            observed_digests,
+            sequence=attempts + 1,
+        )
+        selected = decision["selected_target"]
+        if selected is not None and selected not in scopes:
+            raise MetadataSessionDenied("planner target exceeds exact grant scope")
+        if selected is not None and attempts >= grant.max_attempts:
+            decision["stopping_reason"] = "request_budget_exhausted"
+            persist_decision(decision)
+            raise MetadataSessionDenied("metadata request ceiling exhausted")
+        persist_decision(decision)
+        if selected is None:
+            doctype = None
+        else:
+            doctype = selected
     result = MetadataSessionResult("complete", attempts, evidence_bytes,
-                                   tuple(digests), tuple(studied), None)
+                                   tuple(digests), tuple(studied), None,
+                                   stopping_reason)
     with commit_scope(grant.authorization_id):
         check()
         _private_write(state_directory / "report.json", _json({
             "status": result.status, "attempted_requests": attempts,
             "evidence_bytes": evidence_bytes, "evidence_digests": digests,
             "studied_doctypes": studied, "next_question": None,
+            "decision_digests": decision_digests,
+            "stopping_reason": stopping_reason,
         }))
     return result
 
@@ -322,7 +490,7 @@ def purge_expired_metadata_state(
         if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
                 or stat.S_IMODE(info.st_mode) != 0o600
                 or name not in {"scope.json", "report.json", "study.json"}
-                and re.fullmatch(r"(?:attempt|evidence)-[0-9]{2}\.json", name) is None
+                and re.fullmatch(r"(?:attempt|evidence|decision)-[0-9]{2}\.json", name) is None
                 or not name.endswith(".json")):
             raise MetadataSessionDenied("unreviewed metadata state file denied")
     scope_path = state_directory / "scope.json"

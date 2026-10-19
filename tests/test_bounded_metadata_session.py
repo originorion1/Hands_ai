@@ -87,6 +87,17 @@ def transport_for(names, calls, *, after=None):
     return transport
 
 
+def transport_schemas(schemas, calls):
+    def transport(request, *, timeout):
+        assert timeout == 20
+        name = parse_qs(urlsplit(request.full_url).query)["doctype"][0]
+        calls.append(name)
+        return Response(request.full_url, {"message": {"docs": [{
+            "name": name, "fields": schemas[name],
+        }]}})
+    return transport
+
+
 def run(tmp_path, value, transport, *, lookup=None, clock=None, monotonic=None):
     parent = tmp_path / "private"
     parent.mkdir(mode=0o700, exist_ok=True)
@@ -106,6 +117,11 @@ def test_25_attempts_are_allowed_but_request_26_is_denied_before_transport(tmp_p
     assert len(calls) == 25
     state = tmp_path / "private/session"
     assert len(list(state.glob("attempt-*.json"))) == 25
+    decisions = sorted(state.glob("decision-*.json"))
+    assert len(decisions) == 26
+    assert json.loads(decisions[-1].read_bytes())["stopping_reason"] == (
+        "request_budget_exhausted"
+    )
     assert not (state / "report.json").exists()
     assert b"SENSITIVE MUST NOT PERSIST" not in b"".join(
         path.read_bytes() for path in state.iterdir() if path.is_file()
@@ -211,6 +227,70 @@ def test_exact_25_request_completion_and_projected_evidence(tmp_path):
     assert len(calls) == 25
 
 
+def test_planner_selects_next_target_and_records_alternatives_under_equal_budget(tmp_path):
+    value = grant(3, fields_by_doctype=(
+        ("Doc 00", ("a_link", "b_link", "c_link")),
+        ("Doc 02", ("leaf",)),
+        ("Doc 01", ("leaf",)),
+    ))
+    schemas = {
+        "Doc 00": [
+            {"fieldname": "a_link", "fieldtype": "Link", "options": "Doc 02"},
+            {"fieldname": "b_link", "fieldtype": "Link", "options": "Doc 02"},
+            {"fieldname": "c_link", "fieldtype": "Link", "options": "Doc 01"},
+        ],
+        "Doc 01": [{"fieldname": "leaf", "fieldtype": "Data"}],
+        "Doc 02": [{"fieldname": "leaf", "fieldtype": "Data"}],
+    }
+    calls = []
+    result = run(tmp_path, value, transport_schemas(schemas, calls))
+    assert result.studied_doctypes == ("Doc 00", "Doc 01", "Doc 02")
+    assert result.attempted_requests == len(calls) == 3
+    state = tmp_path / "private/session"
+    _, digest = persist_metadata_study(grant=value, state_directory=state)
+    view = MetadataStudyReportSource(value, state, digest).read_view()
+    decision = view["study"]["decisions"][1]
+    assert decision["selected_target"] == "Doc 01"
+    assert [item["target"] for item in decision["alternatives"]] == ["Doc 02"]
+    assert decision["candidates"][0]["triggering_sources"] == [
+        {"doctype": "Doc 00", "field": "c_link",
+         "evidence_sha256": view["lineage"]["evidence_ids"][0]}
+    ]
+    # Fixed allowlist order and a reference-frequency heuristic see the same
+    # authorized candidate set and one-request choice budget; the heuristic
+    # selects Doc 02. This fixture asserts mechanics, not intelligence gain.
+    candidates = decision["candidates"]
+    candidate_targets = {item["target"] for item in candidates}
+    fixed = next(target for target, _ in value.fields_by_doctype
+                 if target in candidate_targets)
+    strong = max(candidates, key=lambda item: len(item["triggering_sources"]))["target"]
+    assert fixed == "Doc 02" and strong == "Doc 02"
+    assert all(item["estimated_information_value"] is None for item in candidates)
+
+
+def test_unapproved_field_cannot_generate_a_rankable_target(tmp_path):
+    value = grant(2, fields_by_doctype=(
+        ("Doc 00", ("permitted_link",)),
+        ("Doc 01", ("leaf",)),
+    ))
+    schemas = {
+        "Doc 00": [
+            {"fieldname": "permitted_link", "fieldtype": "Data"},
+            {"fieldname": "hidden_link", "fieldtype": "Link", "options": "Doc 01"},
+        ],
+        "Doc 01": [{"fieldname": "leaf", "fieldtype": "Data"}],
+    }
+    calls = []
+    result = run(tmp_path, value, transport_schemas(schemas, calls))
+    assert result.studied_doctypes == ("Doc 00",)
+    assert calls == ["Doc 00"]
+    state = tmp_path / "private/session"
+    decision = json.loads((state / "decision-02.json").read_bytes())
+    assert decision["candidates"] == []
+    assert decision["stopping_reason"] == "no_authorized_candidate"
+    assert b"hidden_link" not in (state / "evidence-01.json").read_bytes()
+
+
 def test_approved_retention_denies_early_or_wrong_scope_and_purges_at_boundary(tmp_path):
     value = grant(2)
     run(tmp_path, value, transport_for(tuple(dict(value.fields_by_doctype)), []))
@@ -227,7 +307,7 @@ def test_approved_retention_denies_early_or_wrong_scope_and_purges_at_boundary(t
     with pytest.raises(MetadataSessionDenied, match="unreviewed"):
         purge_expired_metadata_state(value, state_directory=state, now=deadline)
     extra.unlink()
-    assert purge_expired_metadata_state(value, state_directory=state, now=deadline) == 6
+    assert purge_expired_metadata_state(value, state_directory=state, now=deadline) == 9
     assert not state.exists()
 
 
@@ -243,8 +323,14 @@ def test_completed_metadata_study_is_same_source_and_invalidates_on_tamper(tmp_p
     assert len(view["lineage"]["evidence_ids"]) == 2
     assert view["study"]["observed_links"][0]["source"] == "Doc 00"
     assert view["study"]["selected_question"] == (
-        "Does Doc 00.next relate to Doc 01 in permitted records?"
+        "What permitted structure does Doc 01 expose, given "
+        "the observed authorized relationship?"
     )
+    decision = view["study"]["decisions"][1]
+    assert decision["selected_target"] == "Doc 01"
+    assert decision["alternatives"] == []
+    assert decision["evidence_sha256"] == [view["lineage"]["evidence_ids"][0]]
+    assert view["study"]["stopping_reason"] == "no_authorized_candidate"
     assert view["study"]["status"] == "proposal_only"
     assert view["authority"] == {"execution_allowed": False, "erp_writes": 0}
     assert path.read_bytes().endswith(b"\n")
@@ -265,7 +351,19 @@ def test_metadata_study_abstains_without_permitted_link_and_retention_purges_it(
     assert purge_expired_metadata_state(
         value, state_directory=state,
         now=value.expires_at + timedelta(days=value.retention_days),
-    ) == 5
+    ) == 7
+
+
+def test_metadata_study_invalidates_if_planner_decision_changes(tmp_path):
+    value = grant(2)
+    run(tmp_path, value, transport_for(tuple(dict(value.fields_by_doctype)), []))
+    state = tmp_path / "private/session"
+    _, digest = persist_metadata_study(grant=value, state_directory=state)
+    source = MetadataStudyReportSource(value, state, digest)
+    decision = state / "decision-02.json"
+    decision.write_bytes(decision.read_bytes().replace(b"Doc 01", b"Doc 02"))
+    with pytest.raises(MetadataSessionDenied, match="decision digest mismatch"):
+        source.read_view()
 
 
 def test_revocation_after_first_response_denies_persistence_and_restart(tmp_path):

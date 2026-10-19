@@ -397,7 +397,8 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
     assert study_view["lineage"]["evidence_ids"] == list(structural.evidence_digests)
     assert study_view["study"]["observed_doctypes"] == list(structural.studied_doctypes)
     assert study_portal.overview(secret)["autonomous_study_proposals"] == [
-        "Does Purchase Order.next relate to Purchase Invoice in permitted records?"
+        ("What permitted structure does Purchase Invoice expose, given "
+         "the observed authorized relationship?")
     ]
     study_app = CustomerPortalHTTP(
         login=login, service=study_portal, origin="https://command.synthetic.invalid",
