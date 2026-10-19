@@ -13,9 +13,10 @@ is preserved separately from the canonical slug.
 | ERP company | **UNVERIFIED** | Obtain an exact company ID from a customer administrator's signed mapping, then bind it to the enrolled connection and grant; do not infer it from the hostname |
 | Candidate ERP origin | `https://terrace-beirut.erpmax.me` | Owner-proposed; origin, DNS, TLS certificate chain/hostname and egress route review pending; no contact yet |
 | Connector | `originorion-connector-erpnext-discovery==0.2.0rc4` | Exact wheel/sdist hash and installed entry point to be supplied by candidate artifact manifest |
-| Customer runtime | `originorion-customer-runtime==0.1.0rc5` | Draft only; exact artifact and installed-runtime qualification pending |
+| Customer runtime | `originorion-customer-runtime==0.1.0rc8` | Local candidate pin; exact artifact hashes and installed-runtime qualification pending |
 | Read method | `GET /api/method/frappe.desk.form.load.getdoctype?doctype=<approved name>` | Metadata schema only; direct TLS, no proxy, no redirects; no unrestricted resource/record reads |
-| Proposed DocTypes and fields | `Purchase Order`: `supplier`, `transaction_date`, `items`; `Purchase Order Item`: `item_code`, `qty`, `uom`, `rate` | **UNVERIFIED/UNAPPROVED** field existence and sensitivity; owner and customer must approve exact list before grant issuance |
+| Proposed DocTypes | `Purchase Order`; `Purchase Order Item` | Proposal only; exact names and sensitivity require customer-admin confirmation and owner approval |
+| Metadata schema fields | `fieldname`, `fieldtype`, `options`, `reqd`, `permlevel` for each approved DocType | Schema properties only; no row or transaction values. Exact per-DocType allowlist requires owner and customer approval before grant issuance |
 | Historical period | None | This session requests schema metadata only, no transaction history |
 | Exclusions | Payroll, personnel, contact details, credentials, attachments, comments, free text, financial account details, raw purchase records | Pending customer review; field allowlist is authoritative |
 | Request budget | Maximum 25 attempted metadata GETs | Enforced before transport; request 26 denied; no retry grant |

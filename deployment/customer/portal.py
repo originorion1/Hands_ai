@@ -10,7 +10,7 @@ import hashlib
 import json
 import re
 from dataclasses import asdict, dataclass, field
-from datetime import date
+from datetime import UTC, date, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from orion.discovery.erpnext_adapter import _validate_resource
@@ -96,7 +96,7 @@ class AuthorizationProposal:
             or not isinstance(self.historical_start, date)
             or not isinstance(self.historical_end, date)
             or self.historical_start > self.historical_end
-            or self.historical_end > date.today()
+            or self.historical_end > datetime.now(UTC).date()
             or type(self.max_requests) is not int or not 1 <= self.max_requests <= 25
             or type(self.max_duration_seconds) is not int
             or not 1 <= self.max_duration_seconds <= 1800

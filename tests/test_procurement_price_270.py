@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import threading
 from contextlib import contextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from hashlib import sha256
 from pathlib import Path
 from uuid import uuid4
@@ -119,7 +119,7 @@ def _admitted_run(tmp_path: Path, records=None):
     window = ReviewedReadWindow(
         tenant_id=tenant, company=company, resource="Synthetic Purchase",
         fields=FIELDS, date_field="posting_date",
-        start=datetime(2026, 1, 1).date(), end=datetime(2026, 3, 1).date(),
+        start=date(2026, 1, 1), end=date(2026, 3, 1),
         expires_at=now + timedelta(minutes=10),
     )
     grant = PilotAuthorization(
@@ -429,7 +429,7 @@ def test_signed_metadata_to_procurement_to_authenticated_report_journey(tmp_path
     window = ReviewedReadWindow(
         tenant_id=tenant, company=company, resource="Synthetic Purchase",
         fields=FIELDS, date_field="posting_date",
-        start=datetime(2026, 1, 1).date(), end=datetime(2026, 3, 1).date(),
+        start=date(2026, 1, 1), end=date(2026, 3, 1),
         expires_at=now + timedelta(minutes=10),
     )
     purchase_grant = PilotAuthorization(

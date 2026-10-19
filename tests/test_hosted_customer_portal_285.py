@@ -223,7 +223,7 @@ def test_hosted_portal_keeps_identity_vault_grant_and_report_server_side(tmp_pat
                           body={"label": "Synthetic ERP", "endpoint": "https://erp.example.com",
                                 "company": "Synthetic Alpha", "api_key": "synthetic-key-value",
                                 "api_secret": "synthetic-secret-value"})
-    assert enrollment["status"] == "202 Accepted"
+    assert enrollment["status"] == "202 Accepted", enrollment["body"]
     assert b"synthetic-secret-value" not in enrollment["body"]
     assert b"vault:" not in enrollment["body"]
     assert b"synthetic-secret-value" not in registry._path.read_bytes()
