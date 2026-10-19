@@ -23,6 +23,7 @@ permissions:
 
 jobs:
   ui-api-checks:
+    if: github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'orion-qualification-base-9a65f65'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

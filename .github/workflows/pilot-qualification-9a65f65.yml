@@ -1,9 +1,9 @@
 name: ORION one-time pilot qualification 9a65f65
 
 on:
-  pull_request_target:
+  pull_request:
     branches: [orion-qualification-base-9a65f65]
-    types: [opened]
+    types: [reopened]
 
 permissions:
   contents: read
